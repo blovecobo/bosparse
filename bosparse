@@ -788,7 +788,7 @@ function extract_zones() {
 			fi
 		done
 	else # no ZONE_SEP, test first para
-		if with_lid "$1"; then
+		if with_lid "${1:-}"; then
 			# OP_ZONE only
 			op_zone_ref=("$@")
 		else
