@@ -53,16 +53,17 @@ Separators (SEPs) help for separate Zones and parameters, by default:
 - Zone separator: `--` (ZSEP)
 - OPara-ARG separator: `=` (OSEP)
 
-All LIDs and SEPs are customizable except for the Prior LID (`~~~`), which may used to set PSets.
+All LIDs and SEPs are customizable except for the Prior LID (`~~~`), which may used to set PSet
+LID.
 
 ## Result passing and run-mode
 
-Bosparse determines how to return results using a run mode. Precedence for run mode (highest → lowest):
+Bosparse determines how to return results using a `run-mode`. Precedence for run mode (highest → lowest):
 
 1. PSet `~run` provided in the command line
 2. Autodetection (when `~run` not set explicitly)
 
-Autodetection heuristics (used when mode not explicitly set only):
+Autodetection heuristics (used when `run-mode` not explicitly set):
 
 - If the script is sourced (`source bosparse`), mode = `source`.
 - Else if `~j` not set, mode = `eval` (human-friendly output).
@@ -79,7 +80,7 @@ Note: autodetection is heuristic — prefer explicit `~run` in scripts and CI.
 Results:
 
 - For `source`/`eval` mode:
-  - OPara: a variable created with the name after the parameter name and assign vith it's ARG.
+  - OPara: a variable created with the name after the parameter name and assign with it's ARG.
   - PPara: all positional parameters loaded into an index array named `BP_PPara()`
 - For `capture` mode:
   - All parsing result output to stdout in JSON.

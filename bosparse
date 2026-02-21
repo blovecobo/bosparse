@@ -25,14 +25,11 @@ function definitions() {
 
 	# BOSPARSE_PARAMETER_NAME
 	# running and output
-	local run="running_mode"
-	local j="output_as json"
+	local run="run_mode"
+	local mode="run_mode"
+	local j="output_as_json"
 
-	# local gv="generate_variables"
-	# local oa="opara_array"
-	# local ba="bool_array"
-	# local sa="string_array"
-	# local pa="ppara_array"
+	# array for results
 	local oan="opara_array_name"
 	local ban="bool_array_name"
 	local san="string_array_name"
@@ -42,7 +39,6 @@ function definitions() {
 	local prior="prior_lid"
 	local plid="pset_lid"
 	local olid="opara_lid"
-	# local prliga="prior_liga"
 	local tt="trailing_tag_true"
 	local tf="trailing_tag_false"
 	local td="trailing_tag_default"
@@ -59,11 +55,6 @@ function definitions() {
 	CONFIG_PARAS_ref=(
 		"${run}"
 		"${j}"
-		# "${gv}"
-		# "${oa}"
-		# "${ba}"
-		# "${sa}"
-		# "${pa}"
 		"${oan}"
 		"${ban}"
 		"${san}"
@@ -71,7 +62,6 @@ function definitions() {
 		"${prior}"
 		"${plid}"
 		"${olid}"
-		# "${prliga}"
 		"${tt}"
 		"${tf}"
 		"${td}"
@@ -87,41 +77,36 @@ function definitions() {
 	# bosparse default configs
 	BOSPARSE_CONFIGS_ref=(
 		# running mode
-		["${run}"]="auto" # ~run, maybe "source", "eval" or "capture"
+		["${run}"]="auto" # ~run/mode, maybe "source", "eval" or "capture"
 		["${j}"]=false
 
 		# parse results
-		# ["${gv}"]=true        # ~gv,  declare variables and assgin values
-		# ["${oa}"]=false       # ~oa-, output OParas with an array
-		# ["${ba}"]=false       # ~ba-, output Bools-OParas with an array
-		# ["${sa}"]=false       # ~sa-, output String-OParas with an array
-		# ["${pa}"]=true        # ~pa,  output PParas witha an array
 		["${oan}"]=BP_OParas  # ~oan,  name of array to store OParas
 		["${ban}"]=BP_Bools   # ~ban,  name of array to store Bool-OParas
 		["${san}"]=BP_Strings # ~san,  name of array to store String-OParas
 		["${pan}"]=BP_PParas  # ~pan,  name of array to store PParas
 
-		# lids, symbols used in leading-ids and separators
-		["${prior}"]='~~~' # ~~~prior,  leading id sighn for prior- psets and seps
-		# ["${prliga}"]='~~~~' # ~~~prliga, leading id sighn for prior- psets and seps
-		["${plid}"]='~' # ~~~plid,   leading id sign for setting-parameters
-		["${olid}"]='-' # ~~~olid,   leading id sign for user-parameters
-
-		# seps
-		["${zs}"]='--' # ~~~zs,     seperator between VAR_ZONE and PP_ZONE
-		["${os}"]='='  # ~~~os,     seperator beteen para-names and their args
-
-		# trailing tags
-		["${tt}"]='+'  # ~~~tt tag character for 'true'
-		["${tf}"]='-'  # ~~~tf tag character for 'false'
-		["${td}"]=true # ~~~td defaut tag value(when tag omitted)
-
 		# runtime display control
 		["${q}"]=false # ~q output level, 0
-		["${s}"]=true  # ~s output level, 1
+		["${s}"]=true  # ~s output level, 1(default)
 		["${e}"]=false # ~e output level, 2
 		["${d}"]=false # ~d output level, 3
 		["${t}"]=false # ~t output level, 4
+
+		# Prior PSets
+		# Parsing-aid symbols
+		["${prior}"]='~~~' # ~~~prior,  leading id sighn for prior- psets and seps
+		["${plid}"]='~'    # ~~~plid,   leading id sign for setting-parameters
+		["${olid}"]='-'    # ~~~olid,   leading id sign for user-parameters
+
+		# seps
+		["${zs}"]='--' # ~~~zs, seperator between VAR_ZONE and PP_ZONE
+		["${os}"]='='  # ~~~os, seperator beteen para-names and their args
+
+		# trailing tags
+		["${tt}"]='+'  # ~~~tt, tag character for 'true'
+		["${tf}"]='-'  # ~~~tf, tag character for 'false'
+		["${td}"]=true # ~~~td, defaut tag value(when tag omitted)
 	)
 
 	# parsing result arrays
@@ -140,24 +125,15 @@ function definitions() {
 
 	PSETS_ref=(
 		["run"]="${run}:e:auto|source|eval|capture"
+		["mode"]="${mode}:e:auto|source|eval|capture"
 
 		["j"]="${j}:b"
 		["json"]="${j}:b"
-		# ["gv"]="${gv}:b"
-		# ["oa"]="${oa}:b"
-		# ["ba"]="${ba}:b"
-		# ["sa"]="${sa}:b"
-		# ["pa"]="${pa}:b"
+
 		["oan"]="${oan}:s"
 		["ban"]="${ban}:s"
 		["san"]="${san}:s"
 		["pan"]="${pan}:s"
-
-		# ["quiet"]="${q}:b"
-		# ["standard"]="${s}:b"
-		# ["extra"]="${e}:b"
-		# ["debug"]="${d}:b"
-		# ["trace"]="${t}:b"
 
 		["q"]="${q}:b"
 		["s"]="${s}:b"
@@ -166,18 +142,17 @@ function definitions() {
 		["t"]="${t}:b"
 	)
 
-	# value structure:
+	# Prior PSets config structure:
 	#   field1: config name of entries in CONFIGS | string
 	#	field2: prior type | a letter
-	#	        may be boolean(b), string(s), characters(c) or enum(e)
-	#   field3: for type-c: sign length | integer, use default(1) if omitted
+	#	        may be boolean(b), string(s), character(c) or enum(e)
+	#   field3: for type-c: symbol length | integer, use default(1) if not set
 	#           for type-e: emum | enum values separated by '|'
 	#   field4: mevg name | string(mutual-exclusion value group)
 	#           for configs not permitted to share same value
 	# all four fields needed even if it's empty
 	PRIORS_ref=(
 		["prior"]="${prior}:c:3:glid"
-		# ["prliga"]="${prliga}:c:4:glid"
 		["plid"]="${plid}:c::glid"
 		["olid"]="${olid}:c::glid"
 		["zs"]="${zs}:c:2:"
@@ -185,12 +160,6 @@ function definitions() {
 		["tt"]="${tt}:c::gtagv"
 		["tf"]="${tf}:c::gtagv"
 		["td"]="${td}:e:true|false:"
-
-		["q"]="${q}:b::"
-		["s"]="${s}:b::"
-		["e"]="${e}:b::"
-		["d"]="${d}:b::"
-		["t"]="${t}:b::"
 	)
 
 	# reserve symbols for LIDs and SEPs
@@ -213,8 +182,8 @@ function definitions() {
 	EXIT_MSG_ref=(
 		["0"]="parsing succeeded."
 		["1"]="parsing failed."
-		["2"]="no parameters."
-		["3"]="more than one '--' found."
+		["2"]="no parameter supplied."
+		["3"]="more than one ZONE_SEP '--' found."
 
 		["19"]="invalid run mode: '\${pros_tag}'"
 		["20"]="invalid trailing tag."
@@ -232,9 +201,12 @@ function definitions() {
 		["32"]="PSet '\${pros_tag}' mismatch the length."
 		["33"]="the PSet '\${pros_tag}' contains invalid character(s)."
 		["34"]="Prior settings conflict between '\${pros_tag}'"
-		["35"]="Prior '\${pros_tag}' should be '\${pros_tag2}'"
+		["35"]="Invalid PSet '\${pros_tag}', ARG should be '\${pros_tag2}'"
 		["36"]="prameter '\${pros_tag}' in liga '\${pros_tag2}' not valid."
 		["37"]="'\${pros_tag}' is not a '\${pros_tag2}' group parameter."
+		["38"]="value of '\${pros_tag}' should not be empty."
+		["39"]="PSet '\${pros_tag}' should be '\${pros_tag2}'"
+		["40"]="PSet '\${pros_tag}' should be '\${pros_tag2}'"
 	)
 
 }
@@ -333,7 +305,7 @@ function exit_with_msg() {
 	local last_command=${3:-}
 	local msg
 
-	if [[ "${verbose}" -gt 0 ]]; then
+	if [[ "${verbose:-0}" -gt 0 ]]; then
 		msg="${EXIT_MSG[${exit_code}]}"
 
 		# expand any template variables (e.g., ${pros_tag}) in message safely
@@ -399,8 +371,8 @@ function in_resyms() {
 	local mb
 
 	for mb in "${RESYMS[@]}"; do
-		mb=${mb//[\'\"]/}                             # remove quots
-		! [[ "${sample}" =~ ^[${mb}]+$ ]] || return 0 # matched
+		mb=${mb//[\'\"]/}                           # remove quots
+		[[ "${sample}" =~ ^[${mb}]+$ ]] && return 0 # matched
 	done
 	return 1 # match failed
 }
@@ -448,42 +420,56 @@ function parse_bool_tag() {
 	esac
 }
 
-# if the para is a member of PSETS
-# if the para has a specified group-id
-function in_pset_group() {
-	local para=$1 group_id=$2
-
-	para_group="${PSETS[${para}]#*:}"
-	para_group="${para_group%%:*}"
-	para_group=${para_group//[\"\']/}
-	[[ "${para_group}" == "${group_id}" ]] && return 0 || return 1
-}
-
-# test if a PSet para-name valid
-#   - satisfy bash naming convention with hyphen exeption
-#   - PSet name in PSETS
-#   - match the group in definition
-function validate_psets_name() {
-	local -n para_name_ref=$1
-	local val_ref=$2
-	local group=$3
+# validate a PSet parameter name, exit with error message if test failed
+function validate_pset_name() {
+	local para_name_ref=$1
+	local -n sets=$2
 
 	pros_tag="${para_name_ref}"
-	validate_shell_variable_name para_name_ref EXCEPTIONS || exit_with_msg 26
-	is_array_key "${para_name_ref}" PSETS || exit_with_msg 25
-	in_pset_group "${para_name_ref}" "${group}" || exit_with_msg 37
-	if [[ ${group} == "e" ]]; then
-		declare -a enum
-		enums=${PSETS["${para_name_ref}"]##*:e:}
-		enums=${enums%%:*}
-		enums=${enums//[\'\"]/}
-		mapfile -t enum < <(echo "${enums}" | cut -d \| -f1- --output=$'\n')
-		if ! in_array "${val_ref}" enum; then
-			pros_tag=${val_ref}
-			exit_with_msg 19
-		fi
-	fi
+	is_array_key "${para_name_ref}" sets || exit_with_msg 25
 	return 0
+}
+
+function match_pset_type() {
+	local para=$1 type_ref=$2
+	local type_defined
+
+	type_defined="${PSETS[${para}]#*:}"   # remove config name
+	type_defined="${type_defined%%:*}"    # remvoe length/enum and mevg name if exist
+	type_defined=${type_defined//[\"\']/} # remove quots if exist
+	[[ "${type_defined}" == "${type_ref}" ]] || {
+		pros_tag="${para}"
+		pros_tag2="${type_defined}"
+		exit_with_msg 39
+	}
+}
+
+# validate a PSet value with its type and length/enum
+function validate_pset_arg() {
+	local para_name=$1 para_type=$3 lid=$5
+	local -n para_arg=$2 para_sets=$4
+
+	# echo "$para_name | $para_arg | $para_type | ${para_sets[*]}"
+	local pset_schema=${para_sets[${para_name}]}
+	local pset_value=${pset_schema%%:*}    # extract value
+	pset_schema=${pset_schema#*:}          # remove value
+	local pset_type=${pset_schema%%:*}     # extract type
+	pset_schema=${pset_schema#*:}          # remove type
+	local pset_len_enum=${pset_schema%%:*} # extract length/enum
+	[[ -n ${pset_len_enum} || ${pset_type} != 'c' ]] || pset_len_enum=1
+
+	[[ "${para_type}" == "${pset_type}" || ${pset_type} == 'e' ]] || {
+		case "${pset_type}" in
+		b) pros_tag2="true/false" ;;
+		s) pros_tag2="a string" ;;
+		c) pros_tag2="RESYMS" ;;
+		*) ;;
+		esac
+		pros_tag="${para_name}"
+		exit_with_msg 39
+	}
+
+	pset_property_check "${lid}" "${para_name}" "${pset_type}" para_arg "${pset_len_enum}"
 }
 
 # parse a liga, validate para-name, passing back result
@@ -517,27 +503,38 @@ function parse_liga_para() {
 # check if a pset para value matching type and length
 # exit with error message if test failed
 function pset_property_check() {
-	local pname=$1 ptype=$2 parg=$3 ple=$4
-	local conf_name para_type
+	local lid=$1 pname=$2 ptype=$3 ple=$5
+	local -n parg=$4
 
 	# validate value
 	case ${ptype} in
 	e) # enum, check if value in enums
-		declare -a enmu
-		mapfile -t enum < <(echo "${ple}" | cut -d \| -f1- --out=$'\n')
+		declare -a enmu=()
+		# mapfile -t enum < <(echo "${ple}" | cut -d \| -f1- --out=$'\n')
+		enum=(${ple/\|/ })
 		if ! in_array "${parg}" enum; then
-			pros_tag="${PRLID}${pname}"
-			pros_tag2=${ple}
+			pros_tag="${lid}${pname}=${parg}"
+			pros_tag2="${ple//\|/\/}"
 			exit_with_msg 35
 		fi
 		;;
-	c) # check if in resyms, length
-		pros_tag="${PRLID}${pname}=${parg}"
-		[[ "${ple}" == "${#parg}" ]] || exit_with_msg 32
+	c)
+		# check if in resyms, length
+		pros_tag="${lid}${pname}=${parg}"
+		pros_tag2="in RESYMS(${RESYMS[*]})"
 		# prior settings should be in RESYMS
-		in_resyms "${parg}" || exit_with_msg 33
+		in_resyms "${parg}" || exit_with_msg 35 
+		[[ "${ple}" == "${#parg}" ]] || exit_with_msg 32
 		;;
-	*) ;; # no need to check value length for strings and bools
+	s) # string, should be a valid shell variable name after replacing hyphens with underscores
+		validate_shell_variable_name parg EXCEPTIONS || exit_with_msg 33
+		# should not be empty
+		[[ -n "${parg}" ]] || {
+			pros_tag="${pname}"
+			exit_with_msg 38
+		}
+		;;
+	*) ;; # no need to check value length for and bools
 	esac
 	bp_msg -3 "    - properties valid:" "'${pname}'"
 	return 0
@@ -628,13 +625,13 @@ function check_para_type() {
 	para_ref="${current}"
 
 	if with_lid "${current}" "${lid}${lid}"; then
-		# --current like, liga
+		# --current or ~~current like, liga
 		return 3
 	elif with_lid "${current}" "${lid}"; then
 		# -current like, with lid
 		if [[ "${current}" == *${OSEP}* ]]; then
 			# -current=arg like, a string(even if arg contains OSEP)
-			para_name=${current%%" ${OSEP} "*}
+			para_name=${current%%"${OSEP}"*}
 			arg=${current#*"${OSEP}"} # extract arg
 			arg=${arg//[\'\"]/}       # remove quots if exist
 			if [[ ${arg} == true ]]; then
@@ -731,6 +728,14 @@ function process_prior_paras() {
 		mev_name=${pri_schema##*:}
 		[[ -z ${mev_name} ]] || mevg["${pri_cname}"]=${mev_name}
 
+		# echo "$pri_name | $pri_type | $pri_arg | $len_enum"
+		validate_pset_name "${pri_name}" PRIORS
+		if [[ ${pri_type} == 'b' ]]; then
+			pri_arg=${pri_tag}
+		fi
+		validate_pset_arg "${pri_name}" pri_arg "${pri_type}" PRIORS ${PRLID} || true
+		# pset_property_check "${PRIOR}" "${pri_name}" "${pri_type}" pri_arg "${len_enum}" || true
+
 		# parse bools
 		if [[ ${pri_type} == 'b' ]]; then
 			pri_arg=$(parse_bool_tag "${pri_tag}")
@@ -738,9 +743,6 @@ function process_prior_paras() {
 		else
 			new_settings["${pri_cname}"]=${pri_arg}
 		fi
-
-		# echo "$pri_name | $pri_type | $pri_arg | $len_enum"
-		pset_property_check "${pri_name}" "${pri_type}" "${pri_arg}" "${len_enum}" || true
 	done
 
 	# check confilict
@@ -762,18 +764,27 @@ function extract_zones() {
 	shift 2
 	local EZ_CML="$*" para
 
-	if [[ "${EZ_CML}" == *[[:space:]]${ZSEP} ]]; then
+	# count ZSEP
+	zsep_count=0
+	for para in "$@"; do
+		[[ ${para} != "${ZSEP}" ]] || ((zsep_count += 1))
+	done
+
+	if [[ ${zsep_count} -gt 1 ]]; then
+		# duplicate ZSEPs
+		exit_with_msg 3
+	elif [[ "${EZ_CML}" == *[[:space:]]${ZSEP} ]]; then
 		# OP_ZONE only with trailing ZSEP
 		op_zone_ref=("$@")
 		unset "op_zone_ref[$(($# - 1))]" # remove last para which is ZSEP
 		return 0
-	elif [[ "${EZ_CML}" == ${ZSEP}[[:space:]]* ]]; then
+	elif [[ ${EZ_CML} == ${ZSEP}[[:space:]]* ]]; then
 		# PP_ZONE only with leading zone-sep
 		pp_zone_ref=("$@")
 		unset "pp_zone_ref[0]"            # remove first para which is ZSEP
 		pp_zone_ref=("${pp_zone_ref[@]}") # re-index array after unset
 		return 0
-	elif [[ "${EZ_CML}" == *[[:space:]]${ZSEP}[[:space:]]* ]]; then
+	elif [[ ${EZ_CML} == *[[:space:]]${ZSEP}[[:space:]]* ]]; then
 		# two zones separated bya a ZONE_SEP
 		local seen_zsep=false
 		for para in "$@"; do
@@ -836,7 +847,7 @@ function extract_oparas() {
 			strings_ref+=("${extracted_para}")
 			arg_consumed=true
 			;;
-		5) ;; # matching other lid, skip
+		5) ;; # matching other lid without arg, skip
 		6)    # matching other lid followd by an arg, skip with a consumption signal
 			arg_consumed=true ;;
 		*) # a solitary arg found, parsing failed
@@ -874,8 +885,15 @@ function parse_ligas() {
 			b_name="${liga_name:${start}:${b_nlen}}"
 			# for PSets, para-name should be verified
 			if [[ ${lid} == "${PLIGA}" ]]; then
-				validate_psets_name b_name "${b_name}" 'b'
+				validate_pset_name "${b_name}" PSETS || true
+				validate_pset_arg "${b_name}" b_tag 'b' PSETS "${PLID}" || true
+				# # for bool-type PSets, the tag should be true/false, not default
+				# [[ ${b_tag} != "${TAG_DEFAULT}" ]] || {
+				# 	pros_tag="${b_name}"
+				# 	exit_with_msg 30
+				# }
 			else
+				# for user paras, validate with bash variable naming convention
 				validate_shell_variable_name b_name EXCEPTIONS
 			fi
 			BP_Bools["${b_name}"]="${b_tag}"
@@ -899,7 +917,8 @@ function parse_bools() {
 
 		if [[ ${lid} == "${PLID}" ]]; then
 			# PSets
-			validate_psets_name b_name "${b_tag}" "b"
+			validate_pset_name "${b_name}" PSETS || true
+			validate_pset_arg "${b_name}" b_tag 'b' PSETS "${PLID}" || true
 		else # User paras
 			validate_shell_variable_name b_name EXCEPTIONS
 		fi
@@ -926,10 +945,10 @@ function parse_strings() {
 		# validate para-s_name
 		if [[ ${lid} == "${PLID}" ]]; then
 			# PSet paras
-			case "${s_name}" in
-			"run") validate_psets_name s_name "${val}" 'e' ;;
-			*) validate_psets_name s_name "${val}" 's' ;;
-			esac
+			# validate name
+			validate_pset_name "${s_name}" PSETS || true
+			# validate value with type and length
+			validate_pset_arg "${s_name}" val 's' PSETS "${PLID}" || true
 		else
 			# user parameter
 			validate_shell_variable_name s_name EXCEPTIONS
@@ -973,33 +992,41 @@ function parse_pparas() {
 
 function create_variables() {
 	local var
+	bp_msg 2 "Option parameters:"
 	# bools
 	for var in "${!BP_Bools[@]}"; do
 		declare -g "${var}"="${BP_Bools["${var}"]}"
+		bp_msg 2 "  ${var}"="${BP_Bools["${var}"]}"
 	done
 	# strings
 	for var in "${!BP_Strings[@]}"; do
 		declare -g "${var}"="${BP_Strings[${var}]}"
+		bp_msg 2 "  ${var}"="${BP_Strings[${var}]}"
 	done
 }
 
 function output_ppara_array() {
 	# if ppara array name specified, create a name reference
+	[[ ${#BP_PParas[@]} -ne 0 ]] || return 0
+	bp_msg 2 "Positional parameters in '${CONFIGS["ppara_array_name"]}()'"
 	if [[ ${CONFIGS["ppara_array_name"]} != "BP_PParas" ]]; then
 		local ppara_an="${CONFIGS["ppara_array_name"]}"
 		declare -gn "${ppara_an}"=BP_PParas
 	fi
+	for i in "${!BP_PParas[@]}"; do
+		bp_msg 2 "  ${BP_PParas[i]}"
+	done
 }
 
 function output_eval() {
 	# output vars
 	# show_array BP_OParas >&2
-	local para
-	for para in "${!BP_OParas[@]}"; do
-		echo "${para}='${BP_OParas[${para}]}'"
+	local pi
+	for pi in "${!BP_OParas[@]}"; do
+		echo "${pi}='${BP_OParas[${pi}]}'"
 	done
-	for para in "${!BP_PParas[@]}"; do
-		echo "positional_para_${para}='${BP_PParas[${para}]}'"
+	for pi in "${!BP_PParas[@]}"; do
+		echo "ppara_${pi}='${BP_PParas[${pi}]}'"
 	done
 }
 
@@ -1038,7 +1065,6 @@ function output_json() {
 # main function -----------------------------------------------
 function bosparse() {
 
-	# echo "$*" >&2
 	local_script_path="$(realpath "${BASH_SOURCE[0]}")"
 	local_script_dir="${local_script_path%\/*}"
 	# local_script_name="${local_script_path##*\/}"
@@ -1058,7 +1084,6 @@ function bosparse() {
 		EXIT_MSG
 
 	declare -n PRLID='LIDS["prior"]'
-	# declare -n PRIOR_LIGA='LIDS["prliga"]'
 	declare -n PLID='LIDS["plid"]'
 	declare -n OLID='LIDS["olid"]'
 	declare -n ZSEP='CONFIGS["zn_sep"]'
@@ -1066,19 +1091,25 @@ function bosparse() {
 	declare -n TAG_TRUE='CONFIGS["trailing_tag_true"]'
 	declare -n TAG_FALSE='CONFIGS["trailing_tag_false"]'
 	declare -n TAG_DEFAULT='CONFIGS["trailing_tag_default"]'
-	declare -n RUN_MODE='CONFIGS["running_mode"]'
+	declare -n RUN_MODE='CONFIGS["run_mode"]'
 
 	PLIGA="${PLID}${PLID}"
 	OLIGA="${OLID}${OLID}"
 
 	# echo ---------------------
+	# echo $*
+
 	update_verbose
 	bp_msg 2 "Command line: " "$*"
 	bp_msg -2 "verbose: " "${verbose}"
 
+	# treat empty "$@"
+	[[ $# -eq 0 || $* == '--' || $* == "${ZSEP}" ]] && exit_with_msg 2
+
 	bp_msg 2 "Parse Priors"
 	process_prior_paras "$@" || exit_with_msg 23
 	update_verbose
+
 	# show_configs
 
 	# disassemble command line parameters
@@ -1093,29 +1124,14 @@ function bosparse() {
 	bp_msg 2 "Extract PSets"
 	extract_oparas "${PLID}" strings bools ligas op_zone || true
 
-	# echo extracted Psets
-	# echo bools:
-	# show_array bools
-	# echo strings:
-	# show_array strings
-	# echo ligas:
-	# show_array ligas
-
 	bp_msg 3 "Parse psets"
 	parse_oparas "${PLID}" strings bools ligas
-	# echo loaded: >&2
-	# echo bools:
-	# show_array BP_Bools
-	# echo strings:
-	# show_array BP_Strings
 
 	bp_msg 3 "apply settings"
 	apply_setup
-	# show_configs
 	update_verbose
 
-	# echo "Final configs:" >&2
-	# show_configs >&2
+	# show_configs
 
 	# parsing user parameter parsing
 	BP_OParas=()
@@ -1126,27 +1142,12 @@ function bosparse() {
 	ligas=()
 	bp_msg 2 "Extract user-paras"
 	extract_oparas "${OLID}" strings bools ligas op_zone || true
-	# echo extract User Paras
-	# echo bools:
-	# show_array bools
-	# echo strings:
-	# show_array strings
-	# echo ligas:
-	# show_array ligas
 
 	bp_msg 2 "Parse user-paras"
 	parse_oparas "${OLID}" strings bools ligas || true
-	# echo User para loaded:
-	# echo User Bools:
-	# show_array BP_Bools
-	# echo User Strings
-	# show_array BP_Strings
 
 	bp_msg 2 "Parse user-pparas"
 	parse_pparas "${pp_zone[@]}"
-
-	# echo "Final configs:"
-	# show_configs >&2
 
 	# prepare parsing result on user requirement
 	bp_msg 2 "Output parsing result"
