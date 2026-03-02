@@ -13,28 +13,37 @@
 #
 set -euo pipefail
 
+__BP_READY=true # identifying bosparse usedB
 function definitions() {
 	local -n BOSPARSE_CONFIGS_ref=$1
 	local -n BOSPARSE_CONST_ref=$2
 	local -n PSETS_ref=$3
-	local -n PSET_ALIAS_ref=$4
-	local -n PRIORS_ref=$5
-	local -n LIDS_ref=$6
-	local -n RESERVED_SYMBOLS_ref=$7
-	local -n EXCEPTIONS_ref=$8
-	local -n EXIT_MSG_ref=$9
+	local -n PRIORS_ref=$4
+	local -n LIDS_ref=$5
+	local -n RESERVED_SYMBOLS_ref=$6
+	local -n EXCEPTIONS_ref=$7
+	local -n EXIT_MSG_ref=$8
 
 	# constants
+
 	BOSPARSE_CONST_ref=(
-		["NO_PFILTER"]="no-para-filter"
-		["PFILTER_ID"]="PARA-FILTER"
-		["PPBB"]="Parameter Parsed by BosParse"
+		["PPBB"]="Parameters Parsed by BosParse" # identifying bosparse used
+
+		["NO_PFILTER"]="no-para-filter" # identifying no PFILTER supplied
+		["PFILTER_ID"]="PARA-FILTER"    # identifying a valid PFILTER
+
+		["OAN"]=BP_OParas  # ~oan,  name of array to store OParas
+		["BAN"]=BP_Bools   # ~ban,  name of array to store Bool-OParas
+		["SAN"]=BP_Strings # ~san,  name of array to store String-OParas
+		["PAN"]=BP_PParas  # ~pan,  name of array to store PParas
 	)
 
 	# BOSPARSE_PARAMETER_NAME
 	# running and output
 	local run="run_mode"
+	local mode="run_mode"
 	local j="output_as_json"
+	local json="output_as_json"
 
 	# PFILTER
 	local pf="pfilter"
@@ -64,9 +73,17 @@ function definitions() {
 	local d="debug"
 	local t="trace"
 
+	local quiet="quiet"
+	local standard="standard"
+	local extra="extra"
+	local debug="debug"
+	local trace="trace"
+
 	CONFIG_PARAS_ref=(
 		"${run}"
+		"${mode}"
 		"${j}"
+		"${json}"
 		"${pf}"
 		"${pf_id}"
 		"${oan}"
@@ -81,14 +98,14 @@ function definitions() {
 		"${td}"
 		"${zs}"
 		"${os}"
-		"${q}"
-		"${s}"
-		"${e}"
-		"${d}"
-		"${t}"
+		"${quiet}"
+		"${standard}"
+		"${extra}"
+		"${debug}"
+		"${trace}"
 	)
 
-	# bosparse default configs
+	# bosparse configs
 	BOSPARSE_CONFIGS_ref=(
 		# running mode
 		["${run}"]="auto" # ~run/mode, maybe "source", "eval" or "capture"
@@ -99,17 +116,17 @@ function definitions() {
 		["${amf}"]=false                                 # all parameters should match entries in PFILTER
 
 		# parse results
-		["${oan}"]=BP_OParas  # ~oan,  name of array to store OParas
-		["${ban}"]=BP_Bools   # ~ban,  name of array to store Bool-OParas
-		["${san}"]=BP_Strings # ~san,  name of array to store String-OParas
-		["${pan}"]=BP_PParas  # ~pan,  name of array to store PParas
+		["${oan}"]="${BOSPARSE_CONST_ref["OAN"]}" # ~oan,  name of array to store OParas
+		["${ban}"]="${BOSPARSE_CONST_ref["BAN"]}" # ~ban,  name of array to store Bool-OParas
+		["${san}"]="${BOSPARSE_CONST_ref["SAN"]}" # ~san,  name of array to store String-OParas
+		["${pan}"]="${BOSPARSE_CONST_ref["PAN"]}" # ~pan,  name of array to store PParas
 
 		# runtime display control
-		["${q}"]=false # ~q output level, 0
-		["${s}"]=true  # ~s output level, 1(default)
-		["${e}"]=false # ~e output level, 2
-		["${d}"]=false # ~d output level, 3
-		["${t}"]=false # ~t output level, 4
+		["${quiet}"]=false   # ~quiet    output level, 0
+		["${standard}"]=true # ~standard output level, 1(default)
+		["${extra}"]=false   # ~extra    output level, 2
+		["${debug}"]=false   # ~debug    output level, 3
+		["${trace}"]=false   # ~trace    output level, 4
 
 		# Prior PSets
 		# Parsing-aid symbols
@@ -143,22 +160,30 @@ function definitions() {
 
 	PSETS_ref=(
 		["run"]="${run}:enum:auto|source|eval|capture"
+		["mode"]="${run}:enum:auto|source|eval|capture"
 		["j"]="${j}:bool"
+		["json"]="${j}:bool"
 
 		["pf"]="${pf}:string"
 		["pf_id"]="${pf_id}:string"
 		["amf"]="${amf}:bool"
 
-		["oan"]="${oan}:string"
-		["ban"]="${ban}:string"
-		["san"]="${san}:string"
-		["pan"]="${pan}:string"
+		["oan"]="${oan}:string::meg_arr_name"
+		["ban"]="${ban}:string::meg_arr_name"
+		["san"]="${san}:string::meg_arr_name"
+		["pan"]="${pan}:string::meg_arr_name"
 
 		["q"]="${q}:bool"
 		["s"]="${s}:bool"
 		["e"]="${e}:bool"
 		["d"]="${d}:bool"
 		["t"]="${t}:bool"
+
+		["quiet"]="${quiet}:bool"
+		["standard"]="${standard}:bool"
+		["extra"]="${extra}:bool"
+		["debug"]="${debug}:bool"
+		["trace"]="${trace}:bool"
 	)
 
 	PSET_ALIAS_ref=(
@@ -181,13 +206,20 @@ function definitions() {
 	# all four fields needed even if it's empty
 	PRIORS_ref=(
 		["prior"]="${prior}:resym:3:"
-		["plid"]="${plid}:resym::glid"
-		["olid"]="${olid}:resym::glid"
+		["plid"]="${plid}:resym::meg_lid"
+		["olid"]="${olid}:resym::meg_lid"
+
 		["zs"]="${zs}:resym:2:"
 		["os"]="${os}:resym::"
-		["tt"]="${tt}:resym::gtagv"
-		["tf"]="${tf}:resym::gtagv"
+		["tt"]="${tt}:resym::meg_tagv"
+		["tf"]="${tf}:resym::meg_tagv"
 		["td"]="${td}:bool::"
+
+		["quiet"]="${quiet}:bool::"
+		["standard"]="${standard}:bool::"
+		["extra"]="${extra}:bool::"
+		["debug"]="${debug}:bool::"
+		["trace"]="${trace}:bool::"
 	)
 
 	# reserve symbols for LIDs and SEPs
@@ -217,7 +249,7 @@ function definitions() {
 		["24"]="A solitary ARG '\${pros_tag}' found."
 		["25"]="Invalid PSet parameter: '\${pros_tag}'"
 		["26"]="Parameter name '\${pros_tag}' invalid, it should be a valid shell variable name."
-		["31"]="Invalid Prior name: '\${pros_tag}'"
+		["31"]="Invalid Prior name: \${pros_tag}"
 		["32"]="PSet '\${pros_tag}' mismatch the length."
 		["33"]="The parameter name '\${pros_tag}' contains invalid character(s)."
 		["34"]="Prior settings conflict between '\${pros_tag}'"
@@ -479,11 +511,12 @@ function validate_pset_name() {
 	local -n pname_ref=$1
 	local -n psets=$2
 
-	# check aliase
-	is_array_key "${pname_ref}" PALIAS && {
-		alias_used[${PALIAS[${pname_ref}]}]="${pname_ref}"
-		pname_ref="${PALIAS[${pname_ref}]}"
-	}
+	# feature alias will upgrade to prefix-matching
+	# # check aliase
+	# is_array_key "${pname_ref}" PALIAS && {
+	# 	alias_used[${PALIAS[${pname_ref}]}]="${pname_ref}"
+	# 	pname_ref="${PALIAS[${pname_ref}]}"
+	# }
 	# echo "pname: $pname_ref"
 	pros_tag="${pname_ref}"
 	is_array_key "${pname_ref}" psets || exit_with_msg 25
@@ -803,12 +836,64 @@ function show_paras() {
 	echo Bools: >&2
 	show_array BP_Bools
 }
+
+# validate:
+#   if exactly match a prior name
+#   if not, if prefix-matching a prior name
+# output:
+#	zero matched:     ""
+#   one matched:      prior name
+#   multiple matched: matching names
+#
+function prefix_matching_filter() {
+	local candidate=$1
+	local -n matching_arr=$2
+	local pk
+	local -a matching_list=()
+
+	# try exactly match
+	if is_array_key "${candidate}" matching_arr; then
+		echo "${candidate}"
+		return 0
+	fi
+
+	# try prefix-match
+	for pk in "${!matching_arr[@]}"; do
+		[[ ${pk} =~ ^${candidate} ]] && matching_list+=("${pk}")
+	done
+
+	if [[ "${#matching_list[@]}" -eq 1 ]]; then
+		# one matched
+		echo "${matching_list[0]}"
+		return 0
+	elif [[ ${#matching_list[@]} -eq 0 ]]; then
+		# none  matched
+		return 1
+	else
+		# multiple matched
+		echo "${matching_list[*]}"
+		return 2
+	fi
+}
+
+# extract a pset/prior definitions of type, data, meg by name
+function extract_pset_def() {
+	local para=$1
+	local -n def_arr=$2 epd_name=$3 epd_type=$4 epd_data=$5 epd_meg=$6
+	local schema
+
+	epd_name="${para%%=*}"                         # remove "=value"
+	epd_name=${epd_name%[${TAG_TRUE}${TAG_FALSE}]} # remove trailing-tag
+
+	schema="${def_arr[${epd_name}]}"
+}
 # Tasks -------------------------------------------------------
 # extract prior PSet parameters from command line then apply them
 function process_prior_paras() {
 	local para pri_name pri_arg pri_tag
 	local -A new_settings=()
 	local -a pset=() pliga=()
+	local matching_names
 
 	declare pri_type pri_cname len_enum
 	declare -A meg=()
@@ -830,13 +915,29 @@ function process_prior_paras() {
 		pri_name=${pri_name%"${TAG_TRUE}"}        # remove trailing-tag
 		pri_name=${pri_name%"${TAG_FALSE}"}       # remove trailing-tag
 		pri_arg="${para#*=}"                      # arg
-		pri_arg=${pri_arg//[\'\"]/}               # remove quotes
+		pri_arg=${pri_arg//[\'\"]/}               # remove quote1
 
-		# validate name
-		is_array_key "${pri_name}" PRIORS || {
-			pros_tag=${pri_name}
+		# # validate name
+		# is_array_key "${pri_name}" PRIORS || {
+		# 	pros_tag=${pri_name}
+		# 	exit_with_msg 31
+		# }
+
+		# # validate name
+		rtn=0
+		matching_names=$(validate_by_prefix_matching "${pri_name}" PRIORS) || rtn=$?
+		case ${rtn} in
+		0) # matched
+			pri_name="${matching_names}" ;;
+		1) # not matched
+			pros_tag="'${pri_name}'"
 			exit_with_msg 31
-		}
+			;;
+		*) # multiple matched
+			pros_tag="'${pri_name}', multiple matched: '${matching_names}'"
+			exit_with_msg 31
+			;;
+		esac
 
 		# get schema
 		pri_schema=${PRIORS["${pri_name}"]}
@@ -1330,10 +1431,7 @@ function validate_pfilter() {
 	local al_type2 al_data2
 
 	pf_name="${CONFIGS[${PSETS["pf"]%%:*}]}"
-	# if [[ "${pf_name}" == "no_pf" ]]; then
-	# 	bp_msg 4 "no PFILTER supplied."
-	# 	return 1
-	# fi
+	# echo "pf_name: $pf_name"
 
 	if validate_shell_variable_name pf_name true; then
 		# may be an associative array name reference
@@ -1360,13 +1458,13 @@ function validate_pfilter() {
 		deserialize_assoc_array "${pf_name}" p_filter
 		# might be serialized associative array
 		if ! is_array_key "${PFILTER_ID}" p_filter; then
-			pros_tag="no identifier key 'PARA-FILTER'"
+			pros_tag="no identifier key '${PFILTER_ID}'"
 			exit_with_msg 49
 		fi
 	fi
 
 	# remove PFILTER_ID
-	unset "pfilter[${PFILTER_ID}]"
+	unset "p_filter[${PFILTER_ID}]"
 
 	# validate key/target name and replace exceptions for PFILTER entries
 	for pf in "${!p_filter[@]}"; do
@@ -1434,10 +1532,12 @@ function validate_pfilter() {
 	done
 }
 
+# for string/bool type, use data field
+# for enum type, use first enum as default value
 function pf_assign_defaults() {
 	local para=$1 pf_type=$2 pf_data=$3
-	# for string/bool type, use data field
-	# for enum type, use first enum as default value
+
+	bp_msg 4 "    ${para} | ${pf_type} | ${pf_data}"
 	case "${pf_type}" in
 	bool | string)
 		if ! is_array_key "${para}" BP_OParas; then
@@ -1568,14 +1668,7 @@ function apply_para_filter() {
 
 	declare -A PFILTER
 	local rtn=0
-	validate_pfilter || rtn=$?
-
-	if [[ ${rtn} -ne 0 ]]; then
-		bp_msg 3 "    PFILTER should be passed as an associative array in source-mode; "
-		bp_msg 3 "    or a string of serialized associative array in all modes"
-		# echo "mode: ${CONFIGS["${PSETS["run"]%%:*}"]}"
-		return 0
-	fi
+	validate_pfilter || true
 
 	local para pf_type pf_data pf_meg
 
@@ -1619,12 +1712,15 @@ function bosparse() {
 	declare -A PRIORS LIDS EXCEPTIONS EXIT_MSG
 	declare -a CONFIG_PARAS RESYMS
 	declare -A alias_used=()
+	declare -A PSET_FILTER=()
+
+	declare -a op_zone=() pp_zone=()
+	declare -a strings=() bools=() ligas=()
 
 	definitions \
 		CONFIGS \
 		CONSTS \
 		PSETS \
-		PALIAS \
 		PRIORS \
 		LIDS \
 		RESYMS \
@@ -1660,25 +1756,23 @@ function bosparse() {
 	[[ ${verbose} -ge 3 ]] && show_configs
 
 	# disassemble command line parameters
-	declare -a op_zone=() pp_zone=()
 	extract_zones op_zone pp_zone "$@"
 
 	bp_msg 4 "op zone:" "${op_zone[*]}"
 	bp_msg 4 "pp zone:" "${pp_zone[*]}"
 
 	# Psets
-	declare -a strings=() bools=() ligas=()
 	bp_msg 2 "Extract PSets"
 	extract_oparas "${PLID}" strings bools ligas op_zone || true
 
-	bp_msg 3 "Parse psets"
+	bp_msg 3 "Parse PSets"
 	parse_oparas "${PLID}" strings bools ligas
 
 	bp_msg 3 "apply settings"
 	apply_setup
 	update_verbose
 
-	[[ ${verbose} -gt 2 ]] && show_configs
+	[[ ${verbose} -ge 3 ]] && show_configs
 
 	# parsing user parameter parsing
 	BP_OParas=()
