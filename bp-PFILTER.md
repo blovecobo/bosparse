@@ -1,12 +1,13 @@
 # PFILTER User Instruction for bosparse
 
-PFILTER(Parameter Filter) is a new function of flexible validation and defaulting for user parameters in bosparse. It enables robust command-line parsing, type checking, aliasing, mutual-exclusion enforcement, and default value assignment.
+PFILTER(Parameter Filter) is a new function of flexible validation and defaulting for user parameters in bosparse. It enables robust command-line parsing, type checking, name matching, mutual-exclusion enforcement, and default value assignment.
 
 ---
 
 ## Quick Start
 
 1. **Define PFILTER** as an associative array, specifying each parameter's type, allowed values, default, and (optionally) mutual-exclusion group.
+   - Note: PFILTER must include the identifier entry `[PARA-FILTER]=":"` to be recognized by bosparse(value doesn't matter).
 2. **Pass PFILTER to bosparse** using the reserved Pset `~pf`:
 
 - **Source mode:** Pass PFILTER by name reference (for sourced/in-shell use).
@@ -16,15 +17,15 @@ PFILTER(Parameter Filter) is a new function of flexible validation and defaultin
 
 - Command-line values are validated and assigned.
 - Parameters not on the command line but defined in PFILTER get their default value (if specified).
-- Aliases are resolved.
-- Mutual-exclusion groups are checked for uniqueness.
+- Prefix-matching parameter names are resolved and assigned accordingly.
+- Mutual-exclusion groups are checked for value uniqueness.
 
 ---
 
 ## Why Use PFILTER?
 
 - **Validation:** Enforce types, enums, and required parameters.
-- **Aliasing:** Support multiple flag names (e.g., `-h` for `-help`).
+- **Prefix-matching:** Allow users to use unambiguous prefixes for convenience.
 - **Defaults:** Simplify user input by auto-filling missing values.
 - **Mutual-Exclusion:** Prevent duplicate assignments in defined groups.
 - **Automation:** Works in both interactive and automated/scripted contexts.
@@ -39,6 +40,15 @@ Each entry in PFILTER follows:
 [param_name]="type:data:meg"
 ```
 
+bosbarse uses an identifier entry in PFILTER to validate the PFILTER(value of the entry is not important, only the key matters):
+
+```
+# Required identifier entry to recognize PFILTER
+[PARA-FILTER]=":"
+# or
+[PARA-FILTER]="PFILTER is a bad idea" # value doesn't matter, only the key matters
+```
+
 ### Supported Types
 
 - **bool**
@@ -49,8 +59,8 @@ Each entry in PFILTER follows:
 
     ```bash
     [verbose]="bool:false:"
-    [force]="bool:true:"
-    [debug]="bool::"
+    [force]="bool:true"
+    [debug]="bool"
     ```
 
     If not provided,
@@ -66,8 +76,8 @@ Each entry in PFILTER follows:
 
     ```bash
     [username]="string:guest:"
-    [output]="string:/tmp/result.txt:"
-    [comment]="string::"
+    [output]="string:/tmp/result.txt"
+    [comment]="string:"
     ```
 
     - If not provided,
@@ -83,8 +93,8 @@ Each entry in PFILTER follows:
 
     ```bash
     [mode]="enum:fast|safe|debug:"
-    [color]="enum:red|green|blue:"
-    [size]="enum:small|medium|large:"
+    [color]="enum:red|green|blue"
+    [size]="enum:small|medium|large"
     ```
 
     - If not provided:
@@ -93,23 +103,37 @@ Each entry in PFILTER follows:
       - `size` defaults to `small`.
     - If user provides `-color=yellow`, validation fails(not in enums).
 
-- **alias**
-  - Points to another parameter; value is transferred to the target.
-  - Aliases will be removed after validation.
-  - Useful for shorthand flags or compatibility.
+- **prefix-matching parameter name**
+  - **Prefix**: Any string that matches the parameter name when no ambiguous prefix exists.
+  - **Supported Types**: string, bool, enum
   - Example:
 
     ```bash
-    [h]="alias:help:"
-    [v]="alias:verbose:"
-    [vb]="alias:verbose:"
-    [u]="alias:username:"
+    [help]="bool:false:"
+    [comment]="string:"
+    [color]="enum:red|green|blue:"
     ```
 
-    - User can use `-h` instead of `-help`, `-v` instead of `-verbose`, `-vb` instead of `-verbose` `-u` instead of `-username`.
-    - Aliases cannot be chained (e.g., `-h` -> `help` -> `verbose`), and circular references are not allowed.
-    - Aliases do not have their own defaults and meg; they inherit from their target parameter.
-    - if both alias and target are provided, target takes precedence, and alias value will be ignored.
+    In the above example,
+    - if user provides `-h`/`-he`/`-hel`/`-help`, it will set `help` to `true` (since it's a bool type);
+    - if user provides `-com="This is a comment"`, it will set `comment` to "This is a comment";
+    - if user provides `-col=green`, it will set `color` to `green`.
+    - If user provideds `-co=green`, parser will raise an error since `-co` is ambiguous between
+      `-color` and `-comment`.
+    - If user provides `-color=yellow`, validation fails(not in enums).
+
+### Data Fields
+
+Data fields in PFILTER are designed as follows:
+
+- for type `bool`/`string`, it stores the default value;
+- for type `enum`, it stores all the possible values separated by `|`;
+
+### Mutual Exclusion Groups
+
+PFILTER supports mutual exclusion groups(MEG).
+Mutual exclusion groups are used to define mutual exclusion between options.
+Parameters in the same MEG must be assigned to different values.
 
 ---
 
@@ -117,21 +141,19 @@ Each entry in PFILTER follows:
 
 ```bash
 declare -A PFILTER=(
-  [help]="bool:false:"
-  [h]="alias:help:"
-  [mode]="enum:fast|safe|debug:"
+  [PARA-FILTER]=""
+  [help]="bool:false"
+  [mode]="enum:fast|safe|debug"
   [color]="enum:red|green|blue:"
-  [username]="string:guest:"
-  [output]="string:/tmp/result.txt:"
-  [force]="bool:true:"
-  [v]="alias:verbose:"
-  [verbose]="bool:false:"
-  [size]="enum:small|medium|large:"
-  [comment]="string::"
-  [u]="alias:username:"
-  [port_ssh]="string:22:gnet"
-  [port_telnet]="string::gnet"
-  [port_https]="string:443:gnet"
+  [username]="string:guest"
+  [output]="string:/tmp/result.txt"
+  [force]="bool:true"
+  [verbose]="bool:false"
+  [size]="enum:small|medium|large"
+  [comment]="string"
+  [port_ssh]="string:22:gnet:gport"
+  [port_telnet]="string::gnet:gport"
+  [port_https]="string:443:gnet:gport"
 )
 ```
 
@@ -141,27 +163,27 @@ declare -A PFILTER=(
 
 ### The Reserved Pset `~pf` (parameter filter)
 
-Always pass PFILTER using the reserved Pset `~pf`. bosparse will use this to find and apply your validation rules.
+Always pass PFILTER using the reserved PSet `~pf`. bosparse will use this to find and apply your validation rules.
 
 ### Step-by-Step Logic
 
-1. PFILTER defines expected parameter types, allowed values, aliases, defaults, and mutual-exclusion groups(meg).
+1. PFILTER defines expected parameter types, allowed values, defaults, and mutual-exclusion groups(meg).
 2. bosparse parses command-line input and matches parameters to PFILTER.
-3. For each PFILTER entry:
+3. prefix-matched parameters are validated against PFILTER
+4. For each PFILTER entry:
    - If present on the command line, value is validated and assigned.
    - If not present but a default exists, default is assigned.
    - If neither, prsing failed with an error message.
-   - Aliases are resolved and transferred.
+   - If present but invalid, parsing failed with an error message.
    - Mutual-exclusion value groups are checked for value uniqueness.
 
 ### Edge Cases & Notes
 
-- Parameters in PFILTER but not on the command line and without defaults exit with a error.
+- Parameters in PFILTER but not on the command line and without defaults, exit with a error.
 - Invalid defaults (e.g., not in enum) cause validation errors.
-- Aliases cannot chained or circular.
 - Mutual-exclusion applies only within the same group.
 - If a parameter provided on the command line but not defined in PFILTER, it will be assigned without validation (unless `~amf` set).
-- When PSET `~amf`(all matching filter) set(`true`), any parameter not defined in PFILTER will cause parsing failure; if PFILTER is not supplied, parsing will fail.
+- When PSet `~amf`(all matching filter) set(`true`), any parameter not defined in PFILTER will cause parsing failure; if PFILTER is not supplied, parsing will fail.
 
 ---
 
@@ -171,13 +193,13 @@ Suppose PFILTER is:
 
 ```bash
 declare -A PFILTER=(
+  [PARA-FILTER]=":"
   [mode]="enum:fast|safe|debug:"
-  [h]="alias:help:"
-  [help]="bool:false:"
-  [user]="string:guest:"
+  [help]="bool:false"
+  [user]="string:guest"
   [role_a]="string:admin:grole"
   [role_b]="string::grole"
-  [role_c]="string::grole"
+  [role_c]="string:viewer:grole"
 )
 ```
 
@@ -190,25 +212,24 @@ bosparse -mode=safe -role_a=manager -role_b=developer ~pf=PFILTER -h -role_d=tes
 Result:
 
 - `mode` is set to `safe` (validated against enum)
-- `role_a` and `role_b` are set from input
-- `role_c` is not provided, so remains unset (no default)
-- `role_d` is not defined in PFILTER, so is assigned without validation (unless `~amf=true` is set)
+- `role_a`, `role_b` and `role_c` are set from input
+- `role_d` is not defined in PFILTER, so is assigned without validation (as `~amf` is not set)
 - `user` is not provided, so is set to `guest` (default)
 - `help` is not provided, so is set to `false` (default)
-- `h` is an alias for `help`, so it would set `help` to `true`
-- Mutual-exclusion group `grole` is checked for uniqueness among `role_a`, `role_b`, `role_c`
+- `h` prefix-matched for `help`, so it would set `help` to `true`(latter one wins)
+- Mutual-exclusion group `grole` is checked for uniqueness value among `role_a`, `role_b`, `role_c`
 
 Call bosparse as:
 
 ```bash
-bosparse -mode=safe -role_a=manager -role_b=developer ~pf=PFILTER -h -role_d=tester ~amf=true --
+bosparse -mode=safe -role_a=manager -role_b=developer ~pf=PFILTER -h -role_d=tester ~amf --
 ```
 
 Result:
 
-- `~amf=true` causes parsing failure since `role_d` is not defined in PFILTER.
+- `~amf` causes parsing failure since `role_d` is not defined in PFILTER.
 
-See the `bp-test` script for more scenarios and test cases.
+See the `bp-test-inte.sh` script for more scenarios and test cases.
 
 ---
 
@@ -216,12 +237,9 @@ See the `bp-test` script for more scenarios and test cases.
 
 Parameters in the same group (e.g., `grole`) must have unique values. This is enforced automatically by bosparse.
 
-If a user tries to set `-role_a=admin -role_b=admin`, bosparse will raise a mutual-exclusion error since
-both `role_a` and `role_b` belong to the same group `grole` and cannot have the same value.
+For the example above, if a user tries to set `-role_a=admin -role_b=admin`, bosparse will raise a mutual-exclusion error since both `role_a` and `role_b` belong to the same group `grole` and cannot have the same value.
 
-If a parameter belongs to multiple groups, it must be unique across all those groups. For example, if
-`role_a` belongs to both `grole` and `gproject`, it must have a unique value that does not conflict with
-any other parameter in either group.
+If a parameter belongs to multiple groups, it must be unique across all those groups. For example, if `role_a` belongs to both `grole` and `gproject`, it must have a unique value that does not conflict with any other parameter in either group.
 
 ---
 
@@ -232,32 +250,44 @@ To use PFILTER in eval/capture mode (e.g., subprocesses), serialize as follows:
 **Serialize:**
 
 ```bash
+# Serialize PFILTER to a JSON string for passing to subprocesses
 serialize_assoc_array() {
-  local -n arr=$1
-  local out=""
-  for k in "${!arr[@]}"; do
-    out+="${k}=${arr[$k]};"
-  done
-  echo "${out%;}"
+	local -n arr=$1
+
+	command -v jq >/dev/null 2>&1 || {
+		echo "jq required for serialization" >&2
+		return 1
+	}
+
+	local json first=1 k_esc v_esc
+
+	json="{"
+	for k in "${!arr[@]}"; do
+		if [[ ${first} -eq 0 ]]; then json+=","; fi
+		k_esc=$(jq -n --arg s "${k}" '${s}')
+		v_esc=$(jq -n --arg s "${arr[${k}]}" '${s}')
+		json+="${k_esc}: ${v_esc}"
+		first=0
+	done
+	json+="}"
+
+	echo "${json}"
 }
 pf_str=$(serialize_assoc_array PFILTER)
 ```
 
-bosparse will parse this string back into an associative array in the subprocess.
+bosparse will parse this json string back into an associative array in the subprocess.
+
+**Limitations:**
+
+- Requires `jq` for serialization.
+- Only supports string values (which is sufficient for PFILTER entries).
 
 ## Running bosparse
 
 Example:
 
 ```bash
-serialize_assoc_array() {
-  local -n arr=$1
-  local out=""
-  for k in "${!arr[@]}"; do
-    out+="${k}=${arr[$k]};"
-  done
-  echo "${out%;}"
-}
 pf_str=$(serialize_assoc_array PFILTER)
 bosparse -role_a=manager -role_b=developer -role_c=director ~pf="${pf_str}" -h --
 ```
@@ -270,30 +300,14 @@ bosparse will report errors for:
 
 - Invalid enum value
 - Mutual-exclusion conflict
-- Alias resolution error
+- name matching error
 - Type mismatch
 
 ---
 
 ## Advanced Usage & Scenarios
 
-#### 1. Nested Aliasing and Chained Defaults
-
-Multiple aliases can point to the same target parameter, allowing users to choose their preferred flag style.
-
-```bash
-declare -A PFILTER=(
-  [h]="alias:help:"
-  [help]="bool:false:"
-  [assist]="alias:help:"
-  [v]="alias:verbose:"
-  [verbose]="bool:true:"
-)
-```
-
-User can use `-h`, `-assist`, or `-help` interchangeably. Aliases are resolved in order, and default values are applied if not provided.
-
-#### 2. Dynamic PFILTER Construction
+#### 1. Dynamic PFILTER Construction
 
 Build PFILTER at runtime based on script logic or user input:
 
@@ -308,7 +322,7 @@ PFILTER[mode]="enum:user|admin:"
 
 This allows context-sensitive validation and defaults.
 
-#### 3. Runtime Enum Extension
+#### 2. Runtime Enum Extension
 
 You can extend enum values dynamically:
 
@@ -321,7 +335,7 @@ fi
 
 This lets you add new valid values at runtime.
 
-#### 4. Conditional Defaults
+#### 3. Conditional Defaults
 
 Set defaults based on other parameter values:
 
@@ -335,12 +349,13 @@ fi
 
 This ensures defaults are context-aware.
 
-#### 5. Complex Mutual-Exclusion Groups
+#### 4. Complex Mutual-Exclusion Groups
 
 You can define multiple mutual-exclusion groups for different sets of parameters:
 
 ```bash
 declare -A PFILTER=(
+  [PARA-FILTER]=""
   [role_a]="string:admin:grole"
   [role_b]="string::grole"
   [role_c]="string::grole"
@@ -351,12 +366,13 @@ declare -A PFILTER=(
 
 Here, `role_a/b/c` must be unique among themselves, and `project_a/b` must be unique among themselves.
 
-#### 6. Required Parameters Without Defaults
+#### 5. Required Parameters Without Defaults
 
 If a PFILTER entry has no default and is not provided, bosparse can enforce required parameters:
 
 ```bash
 declare -A PFILTER=(
+  [PARA-FILTER]=""
   [username]="string::"
   [mode]="enum:fast|safe|debug:"
 )
@@ -364,7 +380,7 @@ declare -A PFILTER=(
 
 If `username` is not provided, bosparse will raise a missing-required error.
 
-#### 7. Combining PFILTER with External Data
+#### 6. Combining PFILTER with External Data
 
 You can load PFILTER entries from YAML or JSON for large or dynamic validation sets:
 
@@ -376,12 +392,11 @@ This enables integration with external configuration sources.
 
 ---
 
-For more advanced test cases, see the `bp-test` script or ask for a custom scenario.
+For more advanced test cases, see the `bp-test-inte.sh` script or ask for a custom scenario.
 
 ---
 
 ## Troubleshooting & Reference
 
 - Always use the reserved Pset `~pf` for PFILTER input.
-- For more examples, see the `bp-test` script.
 - For integration help, see bosparse documentation or ask for a custom snippet.

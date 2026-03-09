@@ -5,6 +5,12 @@ Parse command-line parameters for bash scripts with predictable, machine-friendl
 ## Feature
 
 - Parse all parameters in one shot; no further parsing needed.
+- Support both option parameters (OParas) and positional parameters (PParas).
+- Flexible parameter naming and value assignment.
+- Customizable parsing-aid symbols (leading-ids, trailing-tags, separators).
+- Multiple run modes for different use cases (source, eval, capture).
+- Autodetection of run mode based on context and provided PSets.
+- Optional parameter filtering and validation via PSets.
 
 ## Command line pattern
 
@@ -20,7 +26,7 @@ A `ZSEP` is recommended even if one zone exists.
 
 ## Parameter types
 
-- **PPara**: positional parameter — a single string added to the `PParas` array.
+- **PPara**: positional parameter — a single string parsed into an indexed array `BP_PPara()`.
 - **OPara**: option parameter — parsed into variable/value pairs.
   - _String-OPara_: `-name=value` or `-name value`
   - _Bool-OPara_: `-flag` (value inferred from trailing tag, `+`/`-`)
@@ -28,7 +34,12 @@ A `ZSEP` is recommended even if one zone exists.
 - **LIGA**: compressed bools in one parameter (e.g. `--2abcdef` → `ab=true cd=true ef=true`).
 - **PSet**: parser setting parameter (leading-id by default uses `~`).
 
-Parameter naming
+## Parameter syntax
+- OPara: `-name=value` or `-name value` for String-OParas; `-flag+` or `-flag-` or `-flag` for Bool-OParas.
+- LIGA: `--[number][flags]` (e.g. `--ab` → `a=true b=true`).
+- PSet: `~key=value` (e.g. `~run=capture`
+
+## Parameter naming
 
 - OPara: parameter name will be used as variable name, so OPara name should honor bash variable nameing convention.
   As an exception, using hyphen `-` in OPara name permitted if it did'nt at the beginning of the paramter name, while all hyphens will be replaced by underscores `_` in the final result
@@ -56,7 +67,7 @@ Separators (SEPs) help for separate Zones and OPara/ARG, by default:
 - Zone separator: `--` (ZSEP)
 - OPara-ARG separator: `=` (OSEP)
 
-All LIDs and SEPs are customizable except for the Prior LID (`~~~`), which may used to set PSet LID.
+All LIDs and SEPs are customizable except for the Prior LID (`~~~`), which may used to set PSet LIDs.
 
 ## Result passing and run-mode
 
@@ -68,8 +79,8 @@ Bosparse determines how to return results using a `run-mode`. Precedence for run
 Autodetection heuristics (used when `run-mode` not explicitly set):
 
 - If the bosparse script is sourced (`source bosparse`), `run-mode` = `source`.
-- Else if `~j` not set, `run-mode` = `eval` (human-friendly output).
-- Else if `~j` set, `run-mode` = `capture` (output as JSON)
+- Else if `~json` not set, `run-mode` = `eval` (human-friendly output).
+- Else if `~json` set, `run-mode` = `capture` (output as JSON)
 
 Modes:
 
@@ -93,9 +104,18 @@ Results:
 ## Important PSets (defaults shown)
 
 - `~run` or `~mode` (running mode): `auto` (default), `source`, `eval`, `capture`
-- `~j-` or `~json-` (output as JSON): for `capture` mode.
-- `~pf` (parameter filter): for validation parameter name/value, aliasing, etc.(see `bp-PFILTER.md`)
-- `~amf`(all matching filter): used together with `~pf` to fillter out parameters not in PFILTER
+- `~json-` (output as JSON): for `capture` mode.
+- `~pf` (parameter filter): for validation parameter name/value, name matching, etc.(see `bp-PFILTER.md`)
+- `~amf-` (all matching filter): used together with `~pf` to fillter out parameters not in PFILTER
+
+## Directives
+
+- `~version`, display version and exit
+- `~tag`, display a bosparse tag, default is `Parsed by BosParse with love`
+- `~resyms`, display all parsing-aid symbols in use and exit
+
+* if any directive is present in the command line, bosparse will execute the directive and exit
+  immediately without parsing parameters.
 
 ## Usage examples
 
@@ -129,7 +149,7 @@ Autodetected
 
 ```bash
 # JSON output specified, 'capture' mode; parameter 'protocal' assign with ARG 'HTTPS'
-js=$(bosparse ~j -protocol="HTTPS" --)
+js=$(bosparse ~json -protocol="HTTPS" --)
 protocol=$(echo "${js}" | jq -r '.protocol')
 echo "${protocol}"
 ```
@@ -147,7 +167,13 @@ bosparse ~run=capture -movie-name="True Lies" -- "perfect movie" | jq '.PParas[]
 - Hyphen `-` should not be used as the OSEP.
 - Strings that look like `true`/`false` interpreted as booleans; use different capitalization to preserve as strings.
 - By default, bosparse validate OPara names to ensure they can be used as bash variable names (with hyphens replaced by underscores).
-- To enhance security, bosparse introduced `~pf` and `~amf` PSets to supply more functionalities for OPara parsing, such as value validation, aliasing, and more. Details can be found in `bp-pfilter.md`.
+- bosparse introduced `~pf` and `~amf` PSets to supply more functionalities for OPara parsing, such as value validation, prefix-matching name, default value, and more. Details can be found in `bp-pfilter.md`.
+- As a hyphen `-` permitted in OPara names (except at the beginning), and all hyphens will be replaced by
+  underscores `_` in the final variable names, that means two parameters with the name like
+  `-my-param` and `-my_param` will be treated as the same parameter, and only one of them will be
+  kept in the final result, which is determined by the order of parameters in the command line (the
+  later one will override the previous one). So it's recommended to avoid using both hyphens and
+  underscores in OPara names to prevent confusion.
 
 ## Requirements
 
