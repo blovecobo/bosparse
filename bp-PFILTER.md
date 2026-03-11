@@ -11,7 +11,7 @@ PFILTER(Parameter Filter) is a new function of flexible validation and defaultin
 2. **Pass PFILTER to bosparse** using the reserved Pset `~pf`:
 
 - **Source mode:** Pass PFILTER by name reference (for sourced/in-shell use).
-- **Eval/Capture mode:** Serialize PFILTER to a string and pass as a parameter (for subprocesses or remote execution).
+- **Eval/Capture mode:** Serialize PFILTER to a json string and pass as a parameter (for subprocesses or remote execution).
 
 3. **bosparse validates and assigns** parameters:
 
@@ -40,7 +40,7 @@ Each entry in PFILTER follows:
 [param_name]="type:data:meg"
 ```
 
-bosbarse uses an identifier entry in PFILTER to validate the PFILTER(value of the entry is not important, only the key matters):
+bosparse uses an identifier entry in PFILTER to validate the PFILTER(value of the entry is not important, only the key matters):
 
 ```
 # Required identifier entry to recognize PFILTER
@@ -88,6 +88,7 @@ bosbarse uses an identifier entry in PFILTER to validate the PFILTER(value of th
 - **enum**
   - Accepts only values listed in the `data` field, separated by `|`
   - Default is the first value unless specified otherwise.
+  - When a enmu value contains `|`, it should be escaped(`\|`)
   - Useful for mode selection, limited options, etc.
   - Example:
 
@@ -103,25 +104,6 @@ bosbarse uses an identifier entry in PFILTER to validate the PFILTER(value of th
       - `size` defaults to `small`.
     - If user provides `-color=yellow`, validation fails(not in enums).
 
-- **prefix-matching parameter name**
-  - **Prefix**: Any string that matches the parameter name when no ambiguous prefix exists.
-  - **Supported Types**: string, bool, enum
-  - Example:
-
-    ```bash
-    [help]="bool:false:"
-    [comment]="string:"
-    [color]="enum:red|green|blue:"
-    ```
-
-    In the above example,
-    - if user provides `-h`/`-he`/`-hel`/`-help`, it will set `help` to `true` (since it's a bool type);
-    - if user provides `-com="This is a comment"`, it will set `comment` to "This is a comment";
-    - if user provides `-col=green`, it will set `color` to `green`.
-    - If user provideds `-co=green`, parser will raise an error since `-co` is ambiguous between
-      `-color` and `-comment`.
-    - If user provides `-color=yellow`, validation fails(not in enums).
-
 ### Data Fields
 
 Data fields in PFILTER are designed as follows:
@@ -134,6 +116,28 @@ Data fields in PFILTER are designed as follows:
 PFILTER supports mutual exclusion groups(MEG).
 Mutual exclusion groups are used to define mutual exclusion between options.
 Parameters in the same MEG must be assigned to different values.
+
+---
+
+## prefix-matching parameter name
+
+- **Prefix**: Any string that matches the parameter name when no ambiguous prefix exists.
+- **Supported Types**: string, bool, enum and resym
+- Example:
+
+  ```bash
+  [help]="bool:false:"
+  [comment]="string:"
+  [color]="enum:red|green|blue:"
+  ```
+
+  In the above example,
+  - if user provides `-h`/`-he`/`-hel`/`-help`, it will set `help` to `true` (since it's a bool type);
+  - if user provides `-com="This is a comment"`, it will set `comment` to "This is a comment";
+  - if user provides `-col=green`, it will set `color` to `green`.
+  - If user provideds `-co=green`, parser will raise an error since `-co` is ambiguous between
+    `-color` and `-comment`.
+  - If user provides `-color=yellow`, validation fails(not in enums).
 
 ---
 
@@ -183,7 +187,7 @@ Always pass PFILTER using the reserved PSet `~pf`. bosparse will use this to fin
 - Invalid defaults (e.g., not in enum) cause validation errors.
 - Mutual-exclusion applies only within the same group.
 - If a parameter provided on the command line but not defined in PFILTER, it will be assigned without validation (unless `~amf` set).
-- When PSet `~amf`(all matching filter) set(`true`), any parameter not defined in PFILTER will cause parsing failure; if PFILTER is not supplied, parsing will fail.
+- When PSet `~amf`(all matching filter) set(`true`), any parameter not defined in PFILTER will cause parsing failure; if PFILTER is not provided, parsing will fail.
 
 ---
 
@@ -245,7 +249,7 @@ If a parameter belongs to multiple groups, it must be unique across all those gr
 
 ## Serialization & Deserialization
 
-To use PFILTER in eval/capture mode (e.g., subprocesses), serialize as follows:
+To use PFILTER in eval/capture mode (e.g., subprocesses), serialize PFILTER array to a json object as follows:
 
 **Serialize:**
 
@@ -264,8 +268,8 @@ serialize_assoc_array() {
 	json="{"
 	for k in "${!arr[@]}"; do
 		if [[ ${first} -eq 0 ]]; then json+=","; fi
-		k_esc=$(jq -n --arg s "${k}" '${s}')
-		v_esc=$(jq -n --arg s "${arr[${k}]}" '${s}')
+		k_esc=$(jq -n --arg s "${k}" '$s')
+		v_esc=$(jq -n --arg s "${arr[${k}]}" '$s')
 		json+="${k_esc}: ${v_esc}"
 		first=0
 	done
@@ -273,7 +277,7 @@ serialize_assoc_array() {
 
 	echo "${json}"
 }
-pf_str=$(serialize_assoc_array PFILTER)
+pf_str="$(serialize_assoc_array PFILTER)"
 ```
 
 bosparse will parse this json string back into an associative array in the subprocess.

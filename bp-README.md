@@ -108,14 +108,14 @@ Results:
 - `~pf` (parameter filter): for validation parameter name/value, name matching, etc.(see `bp-PFILTER.md`)
 - `~amf-` (all matching filter): used together with `~pf` to fillter out parameters not in PFILTER
 
-## Directives
+### Directives
 
 - `~version`, display version and exit
 - `~tag`, display a bosparse tag, default is `Parsed by BosParse with love`
 - `~resyms`, display all parsing-aid symbols in use and exit
 
-* if any directive is present in the command line, bosparse will execute the directive and exit
-  immediately without parsing parameters.
+if any directive is present in the command line, bosparse will execute the directive and exit
+  immediately without parsing other parameters.
 
 ## Usage examples
 
@@ -169,7 +169,7 @@ bosparse ~run=capture -movie-name="True Lies" -- "perfect movie" | jq '.PParas[]
 - By default, bosparse validate OPara names to ensure they can be used as bash variable names (with hyphens replaced by underscores).
 - bosparse introduced `~pf` and `~amf` PSets to supply more functionalities for OPara parsing, such as value validation, prefix-matching name, default value, and more. Details can be found in `bp-pfilter.md`.
 - As a hyphen `-` permitted in OPara names (except at the beginning), and all hyphens will be replaced by
-  underscores `_` in the final variable names, that means two parameters with the name like
+  underscores `_` in the final variable names, that means two parameters with the names like
   `-my-param` and `-my_param` will be treated as the same parameter, and only one of them will be
   kept in the final result, which is determined by the order of parameters in the command line (the
   later one will override the previous one). So it's recommended to avoid using both hyphens and
