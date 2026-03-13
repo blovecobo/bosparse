@@ -11,6 +11,7 @@ Parse command-line parameters for bash scripts with predictable, machine-friendl
 - Multiple run modes for different use cases (source, eval, capture).
 - Autodetection of run mode based on context and provided PSets.
 - Optional parameter filtering and validation via PSets.
+- Parameter validating, defaulting, name prefix-matching etc. by PFILTER 
 
 ## Command line pattern
 
@@ -22,7 +23,7 @@ The command line is split into two zones separated by a zone separator (`ZSEP`):
 - PP-ZONE (Positional Parameter Zone): contains PParas (positional parameters).
 - ZSEP (Zone Separator): separator between OP-ZONE and PP-ZONE
 
-A `ZSEP` is recommended even if one zone exists.
+A `ZSEP` is recommended even if only one zone exists.
 
 ## Parameter types
 
@@ -35,6 +36,7 @@ A `ZSEP` is recommended even if one zone exists.
 - **PSet**: parser setting parameter (leading-id by default uses `~`).
 
 ## Parameter syntax
+
 - OPara: `-name=value` or `-name value` for String-OParas; `-flag+` or `-flag-` or `-flag` for Bool-OParas.
 - LIGA: `--[number][flags]` (e.g. `--ab` → `a=true b=true`).
 - PSet: `~key=value` (e.g. `~run=capture`
@@ -67,7 +69,11 @@ Separators (SEPs) help for separate Zones and OPara/ARG, by default:
 - Zone separator: `--` (ZSEP)
 - OPara-ARG separator: `=` (OSEP)
 
-All LIDs and SEPs are customizable except for the Prior LID (`~~~`), which may used to set PSet LIDs.
+Notes:
+
+- All LIDs and SEPs are customizable except for the LIGAs.
+- PLIGS/OLIGS is set as doubles of PLID/OLID; and will change synchronously with PLID/OLID
+- Charactors permitted to use in PAS reserved symbols(RESYMs); a direct command (~tag) used to check all availables.
 
 ## Result passing and run-mode
 
@@ -110,12 +116,12 @@ Results:
 
 ### Directives
 
-- `~version`, display version and exit
-- `~tag`, display a bosparse tag, default is `Parsed by BosParse with love`
-- `~resyms`, display all parsing-aid symbols in use and exit
+- `~BANNER`, display a bosparse tag, default is `Parsed by BosParse with love`
+- `~RESYMS`, display all parsing-aid symbols in use and exit
+- `~VERSION`, display version and exit
 
 if any directive is present in the command line, bosparse will execute the directive and exit
-  immediately without parsing other parameters.
+immediately without parsing other parameters.
 
 ## Usage examples
 

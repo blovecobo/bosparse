@@ -1,0 +1,39 @@
+#!/bin/env bash
+
+# serialize an associative array to a json object
+
+# used to serialize a PFILTER so that the PFILTER can be passed to bosparse
+# as a string in eval/capture mode.
+
+# passing the name reference of the PFILTER is recommended in source mode.
+
+# usage:
+#   source bp_serialize_assoc_array
+#   pf_str=$(bp_serialize_assoc_array PFILTER)
+
+function bp_serialize_assoc_array() {
+	local -n arr=$1
+
+	command -v jq >/dev/null 2>&1 || {
+		echo "jq required for serialization" >&2
+		return 1
+	}
+
+	local json first=1 k_esc v_esc
+
+	json="{"
+	for k in "${!arr[@]}"; do
+		if [[ ${first} -eq 0 ]]; then json+=","; fi
+		k_esc=$(jq -n --arg s "${k}" '$s')
+		v_esc=$(jq -n --arg s "${arr[${k}]}" '$s')
+		json+="${k_esc}: ${v_esc}"
+		first=0
+	done
+	json+="}"
+
+	echo "${json}"
+}
+
+if [[ $(basename "$(realpath "${BASH_SOURCE[0]}")") == $(basename "$0") ]]; then
+	bp_serialize_assoc_array "$@"
+fi

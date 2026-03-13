@@ -31,7 +31,7 @@ function trc() {
 }
 
 function bp_on_exit() {
-	[[ ${parsing_result} == "Mission complete" ]] || trc 2
+	[[ ${parsing_result} == "Mission complete." ]] || trc 2
 }
 
 # origin ----------------------------------------------------------------------
@@ -75,16 +75,17 @@ function definitions() {
 		PFILTER_ENTRY_TYPES_ref
 
 	# BOSPARSE_PARAMETER_NAME
+
 	# running and output
 	local run="run_mode"
 	local mode="run_mode"
 	local json="output_as_json"
 
 	# directives
-	local tag="show_tag"
-	local version="show_version"
-	local resyms="show_resyms"
-	local config="show_config"
+	local Config="directive_config"
+	local Banner="directive_bannaer"
+	local Rsymbols="directive_resyms"
+	local Version="directive_version"
 
 	# PFILTER
 	local pf="pfilter"
@@ -107,6 +108,8 @@ function definitions() {
 	local zs="zn_sep"
 	local os="oa_sep"
 
+	# output control
+	local config="show_config"
 	local quiet="quiet"
 	local standard="standard"
 	local extra="extra"
@@ -118,8 +121,10 @@ function definitions() {
 		"${mode}"
 		"${json}"
 		"${config}"
-		"${tag}"
-		"${version}"
+		"${Config}"
+		"${Banner}"
+		"${Rsymbols}"
+		"${Version}"
 		"${pf}"
 		"${pf_id}"
 		"${oan}"
@@ -148,10 +153,10 @@ function definitions() {
 		["${json}"]=false # ~json, output  to stdout as json
 
 		# directives
-		["${config}"]=false  # ~/~~~config, output current CONFIGS settings to stdout(for test only)
-		["${tag}"]=false     # ~tag, show tag
-		["${version}"]=false # ~version, show version
-		["${resyms}"]=false  # ~resyms, show reserved symbols
+		["${Config}"]=false   # ~Config,   output current CONFIGS to stdout
+		["${Banner}"]=false   # ~Banner,   show tag
+		["${Rsymbols}"]=false # ~Rsymbols, show reserved symbols
+		["${Version}"]=false  # ~Version,  show version
 
 		# filter related
 		["${pf}"]="${BOSPARSE_CONST_ref[NO_PFILTER]}"    # identifying ~pf not supplied
@@ -165,6 +170,7 @@ function definitions() {
 		["${pan}"]="${BOSPARSE_CONST_ref["PAN"]}" # ~pan, name of array to store PParas
 
 		# runtime display control
+		["${config}"]=false  # ~/~~~config, output current CONFIGS after a parsing stage
 		["${quiet}"]=false   # ~/~~~quiet    output level, 0
 		["${standard}"]=true # ~/~~~standard output level, 1(default)
 		["${extra}"]=false   # ~/~~~extra    output level, 2
@@ -177,11 +183,11 @@ function definitions() {
 		["${prior}"]='~~~' # ~~~prior,  leading id sighn for prior- psets and seps
 		["${plid}"]='~'    # ~~~plid,   leading id sign for setting-parameters
 		["${olid}"]='-'    # ~~~olid,   leading id sign for user-parameters
-
+		#
 		# separators
 		["${zs}"]='--' # ~~~zs, separator between VAR_ZONE and PP_ZONE
 		["${os}"]='='  # ~~~os, separator between para-names and their args
-
+		#
 		# trailing-tags
 		["${tt}"]='+'  # ~~~tt, tag character for 'true'
 		["${tf}"]='-'  # ~~~tf, tag character for 'false'
@@ -218,14 +224,13 @@ function definitions() {
 		["plid"]="${plid}:resym::meg_lid"
 		["olid"]="${olid}:resym::meg_lid"
 
-		["config"]="${config}:bool:"
-
 		["zs"]="${zs}:resym:2"
-		["os"]="${os}:resym:-"
+		["os"]="${os}:resym:-_"
 		["tt"]="${tt}:resym::meg_tagv"
 		["tf"]="${tf}:resym::meg_tagv"
 		["td"]="${td}:bool"
 
+		["config"]="${config}:bool:"
 		["quiet"]="${quiet}:bool"
 		["standard"]="${standard}:bool"
 		["extra"]="${extra}:bool"
@@ -238,10 +243,10 @@ function definitions() {
 		["mode"]="${run}:enum:auto|source|eval|capture"
 		["json"]="${json}:bool"
 
-		["config"]="${config}:bool:"
-		["tag"]="${tag}:bool:"
-		["version"]="${version}:bool:"
-		["resyms"]="${resyms}:bool:"
+		["Config"]="${Config}:bool:"
+		["Banner"]="${Banner}:bool:"
+		["Rsymbols"]="${Rsymbols}:boo:"
+		["Version"]="${Version}:bool:"
 
 		["pf"]="${pf}:string"
 		["amf"]="${amf}:bool"
@@ -251,6 +256,7 @@ function definitions() {
 		["san"]="${san}:string::meg_arr_name"
 		["pan"]="${pan}:string::meg_arr_name"
 
+		["config"]="${config}:bool:"
 		["quiet"]="${quiet}:bool"
 		["standard"]="${standard}:bool"
 		["extra"]="${extra}:bool"
@@ -288,7 +294,8 @@ function definitions() {
 		["26"]="Parameter name '\${pros_tag}' invalid, it should be a valid shell variable name."
 		["36"]="Prameter '\${pros_tag}' in liga '\${pros_tag2}' not valid."
 		["37"]="Same settings in MEG '\${pros_tag}' members: '\${pros_tag2}'"
-		["40"]="Invalid \${pros_tag} setting '\${pros_tag2}': ARG should be \${pros_tag3}"
+		["38"]="Invalid enum value: \${pros_tag}, available enums: '\${pros_tag2}'"
+		["40"]="Invalid \${pros_tag} setting: \${pros_tag2}, ARG should be \${pros_tag3}"
 		["41"]="Invalid \${pros_tag} setting '\${pros_tag2}': \${pros_tag3}"
 		["43"]="Unknown \${pros_tag}: '\${pros_tag2}'"
 		["44"]="PSet '~amf' requires 'PFILTER'(~pf) but not supplied."
@@ -345,7 +352,7 @@ function bp_msg() {
 
 	if [[ "${verbose}" -ge "${msg_level}" ]]; then
 		if [[ "${in_one_line:-false}" == true ]]; then
-			echo -e "\e[33m${title}\e[0;2m ${content}\e[0m" >&2
+			echo -e "\e[33m${title}\e[0;2m${content}\e[0m" >&2
 		else
 			[[ -n "${title}" ]] && echo -e "\e[33m${title}\e[0m" >&2
 			[[ -n "${content}" ]] && echo -e "\e[2m${content}\e[0m" >&2
@@ -372,13 +379,13 @@ function exit_with_msg() {
 	local last_command=${3:-}
 	local msg
 
-	trc
+	# trc
 	if [[ "${verbose:-0}" -gt 0 ]]; then
 		msg="${EXIT_MSG[${exit_code}]}"
 
 		# expand any template variables (e.g., ${pros_tag}) in message safely
 		local _msg_expanded
-		_msg_expanded=$(template_expand "$msg")
+		_msg_expanded=$(template_expand "${msg}")
 		printf '\e[33merror:\e[0m %s\n' "${_msg_expanded}" >&2
 		if [[ -n "${additional_msg}" ]]; then
 			_msg_expanded=$(template_expand "${additional_msg}")
@@ -410,29 +417,46 @@ function with_lid() {
 	fi
 }
 
-# calculate the max length of members of an array
-# usage max_lengh_array_members arrayref max_lenthref "$extra_len"
+# calculate the max length amoung MEMBERs of an array
+# usage
+#   max_array_member_len arrayref max_len_ref "${additional_len}"
 function max_array_member_len() {
-	local -n arr="$1" l_max="$2"
-	local extra="${3:-0}" # optional
+	local -n arr_ref="$1" l_max_ref="$2"
+	local add_len="${3:-0}" # optional
 
-	l_max=$(($(
-		for member in "${arr[@]}"; do
-			echo "${member}"
-		done | wc -L
-	) + extra))
+	if [[ ${#arr_ref[@]} == 0 ]]; then
+		l_max_ref=0
+	else
+		l_max_ref=$(($(
+			for member in "${arr_ref[@]}"; do
+				echo "${member}"
+			done | wc -L
+		) + add_len))
+	fi
 }
 
+# calculate the max length amoung KEYs of an array
+# usage:
+#   max_array_key_len arrayref max_len_ref "${additional_len}"
 function max_array_key_len() {
-	local -n arr="$1" l_max="$2"
-	local extra="${3:-0}" # optional
+	local -n arr_ref="$1" l_max="$2"
+	local add_len="${3:-0}" # optional
 
-	l_max=$(($(
-		for member in "${!arr[@]}"; do
-			echo "${member}"
-		done | wc -L
-	) + extra))
+	declare -a keys=("${!arr_ref[@]}")
+
+	max_array_member_len keys l_max "${add_len}"
 }
+
+# function max_array_key_len() {
+# 	local -n arr="$1" l_max="$2"
+# 	local extra="${3:-0}" # optional
+#
+# 	l_max=$(($(
+# 		for member in "${!arr[@]}"; do
+# 			echo "${member}"
+# 		done | wc -L
+# 	) + extra))
+# }
 
 # show array in a formatted way with specified separator, default separator is '-'
 function show_array() {
@@ -440,6 +464,7 @@ function show_array() {
 	local separator=${2:--}
 	local key lmax=0
 	declare -a keys_array
+
 	# build keys array
 	keys_array=("${!target_arr[@]}")
 
@@ -549,6 +574,7 @@ is_in_resyms() {
 	for resym in "${RESYMS[@]}"; do
 		[[ ${para} =~ ^${resym}+$ ]] && return 0
 	done
+	return 1
 }
 # return code:
 #  0 - arg                          an arg only
@@ -642,7 +668,9 @@ function parse_bool_tag() {
 
 # apply Priors/PSets settings to CONFIGS
 function apply_setup() {
-	local -n setup_ref=$1
+	local title=$1
+	local -n setup_ref=$2
+
 	local ps
 	# merge PSets
 	for ps in "${!BP_STRINGS[@]}"; do
@@ -652,7 +680,7 @@ function apply_setup() {
 		BP_OPARAS["${ps}"]="${BP_BOOLS[${ps}]}"
 	done
 
-	bp_msg 4 "  BP_OPARAS before applying settings:" >&2
+	bp_msg 4 "  ${title} before applying settings:" >&2
 	# apply settings to CONFIGS
 	field_len=$(
 		for ps in "${!BP_OPARAS[@]}"; do
@@ -682,6 +710,7 @@ function reset_intermediate_arrays() {
 function show_configs() {
 	local output_as_json json_str
 
+	trc
 	[[ ${CONFIGS[${PSETS["json"]%%:*}]} == true ]] && output_as_json=true || output_as_json=false
 	[[ ${CONFIGS[${PSETS["run"]%%:*}]} == "capture" ]] && output_as_json=true
 	# [[ ${output_as_json} == true ]] && json_str=$(serialize_assoc_array CONFIGS)
@@ -692,6 +721,7 @@ function show_configs() {
 		if [[ ${output_as_json} == true ]]; then
 			serialize_assoc_array CONFIGS | jq
 		else
+			show_array CONFIGS
 			for para in "${!CONFIGS[@]}"; do
 				echo "${para}=$(printf %q "${CONFIGS[${para}]}")"
 			done
@@ -798,11 +828,12 @@ function extract_def_entry() { # !! needs to reform
 #         "gender=enum:male|female:;h=alias:help:;movie1=string::gmv;PARA-FILTER=::;"
 # a valid PFILTER must include a memeber whose key is "PARA-FILTER" as identifier
 function validate_pfilter() {
-	local pf_name pf pk new_pk
+	local pf_name=$1
+	local pf pk new_pk
 	local p_filter
 	local flt_entry flt_type flt_data
 
-	pf_name="${CONFIGS[${PSETS["pf"]%%:*}]}"
+	# pf_name="${CONFIGS[${PSETS["pf"]%%:*}]}"
 	if validate_shell_variable_name pf_name true; then
 		# may be an associative array name reference
 		if pf=$(declare -p "${pf_name}" 2>/dev/null); then
@@ -820,7 +851,7 @@ function validate_pfilter() {
 				exit_with_msg 49
 			fi
 		else
-			pros_tag="argument of '~pf' should be a PFILTER name reference (source mode) or a string of serialized PFILTER(all modes)"
+			pros_tag="'${pf_name}' should be a PFILTER name reference (source mode) or a string of serialized PFILTER(all modes)"
 			exit_with_msg 49
 		fi
 	else # not valid shell variable, try deserialized PFILTER
@@ -1178,7 +1209,7 @@ function validate_para_arg() {
 
 	pros_tag="${ptitle}"
 
-	[[ ${verbose} -ge 4 ]] && printf "    \e[2m%-8s - %-10s | %-6s | %s\n\e[0m" "${para}" "${e_para}" "string" "${val}" >&2
+	[[ ${verbose} -ge 4 ]] && printf "    \e[2m%-8s - %-14s | %-6s | %10s | %s\n\e[0m" "${para}" "${e_para}" "${pf_type}" "${pf_data}" "${val}" >&2
 	case ${pf_type} in
 	enum) # this branch must in front of "bool" branch in case EMAB
 		# [[ ${verbose} -ge 4 ]] && printf "    \e[33m%-8s - %-10s\e[0;2m %-6s | %s\n\e[0m" "${para}" "${e_para}:" "enum" "'${pf_data}'" >&2
@@ -1191,8 +1222,6 @@ function validate_para_arg() {
 		for i in "${!enum_list[@]}"; do
 			enum_list[$i]=$(echo "${enum_list[$i]}" | sed 's/__PIPE__/|/g')
 		done
-		# local IFS=';'
-		# read -ra enum_list <<<"${pf_datad}"
 		if [[ ${val} == true || ${val} == false ]]; then
 			# an enum parameter want to use last value (-enum-para) may be missmatched as booleans(enum mismatched as booleans EMAB)
 			# remove the paramter from v_bools and v_oparas
@@ -1202,32 +1231,57 @@ function validate_para_arg() {
 			v_strings[${e_para}]="${enum_list[-1]}"
 			return 0
 		fi
-		# if not in enum list, parsing failed
-		if ! is_array_member "${val}" enum_list; then
-			pros_tag2="${para}=${val}"
-			pros_tag3="'${pf_data//|/\/}'"
-			exit_with_msg 40
-		fi
+		# try prefix-matching
+		local pfm_names rtn=0
+		declare -A pfm_names_map=()
+		for name in "${enum_list[@]}"; do
+			pfm_names_map["${name}"]=true
+		done
+		pfm_names=$(prefix_matching_filter "${val}" pfm_names_map) || rtn=$?
+		case ${rtn} in
+		0) # exactly or prefixly matched, assign the exact name back to parameter value
+			v_oparas[${e_para}]="${pfm_names}"
+			v_strings[${e_para}]="${pfm_names}"
+			;;
+		1) # not matched
+			pros_tag="${lid}${para}='${val}'"
+			pros_tag2="${pf_data}"
+			exit_with_msg 38
+			;;
+		2) # multiple matched
+			pros_tag="enum value for"
+			pros_tag2="${lid}${para}=${val}"
+			pros_tag3="${pfm_names[*]//|/\/}"
+			exit_with_msg 25
+			;;
+		*) ;;
+		esac
+		# # if not in enum list, parsing failed
+		# if ! is_array_member "${val}" enum_list; then
+		# 	pros_tag2="${para}=${val}"
+		# 	pros_tag3="'${pf_data//|/\/}'"
+		# 	exit_with_msg 40
+		# fi
 		;;
 	bool)
 		# [[ ${verbose} -ge 4 ]] && printf "    \e[33m%-8s - %-10s\e[0;2m %-6s | %s\n\e[0m" "${para}" "${e_para}:" "bool" "${val}" >&2
 		if [[ ${val} != true && ${val} != false ]]; then
-			pros_tag2="${para}=${val}"
+			pros_tag2="${para}='${val}'"
 			pros_tag3="'true/false'"
 			exit_with_msg 40
 		fi
 		;;
 	string)
 		if [[ ${val} == true || ${val} == false ]]; then
-			pros_tag2="${para}=${val}"
+			pros_tag2="${para}='${val}'"
 			pros_tag3="a string but got a bool"
 			exit_with_msg 40
 		fi
 		;;
 	resym)
 		# [[ ${verbose} -ge 4 ]] && printf "    \e[33m%8s - %-10s\e[0;2m %-6s | %s\n\e[0m" "${para}" "${e_para}:" "resym" "${val}" >&2
-		is_in_resyms "${val//[0-9/]}" || {
-			pros_tag2="${para}=${val}"
+		is_in_resyms "${val//[0-9]/}" || {
+			pros_tag2="${para}='${val}'"
 			pros_tag3="a RESYM or a RESYM-repetition but got '${val}'"
 			exit_with_msg 40
 		}
@@ -1367,8 +1421,8 @@ function validate_paras_by_filter() {
 	*) ;;
 	esac
 
-	bp_msg 3 "  - validate name and arg:"
-	[[ ${verbose} -ge 4 ]] && printf "    \e[4;33m%-8s - %-10s | %-6s | %s\n\e[0m" "supplied" "matched" "type" "data" >&2
+	bp_msg 3 "  - validate names and args:"
+	[[ ${verbose} -ge 4 ]] && printf "    \e[4;33m%-8s - %-14s | %-6s | %10s | %s\n\e[0m" "supplied" "matched" "type" "setting" "data" >&2
 	for para in "${!BP_OPARAS[@]}"; do
 		# bp_msg 4 "    $para:"
 		# validate name
@@ -1481,7 +1535,7 @@ function validate_user_paras() {
 
 	declare -A PFILTER
 	bp_msg 3 "  validate PFILTER"
-	validate_pfilter
+	validate_pfilter "${CONFIGS[${PSETS["pf"]%%:*}]}"
 	# bp_msg 4 "    PFILTER:"
 	# [[ ${verbose} -ge 4 ]] && show_array PFILTER
 
@@ -1505,13 +1559,13 @@ function create_variables() {
 	# bools
 	for var in "${!BP_BOOLS[@]}"; do
 		declare -g "${var}"="${BP_BOOLS["${var}"]}"
-		bp_msg 2 "      ${var}"="${BP_BOOLS["${var}"]}"
+		bp_msg 2 "      ${var}"= "${BP_BOOLS["${var}"]}"
 	done
 
 	# strings
 	for var in "${!BP_STRINGS[@]}"; do
 		declare -g "${var}"="${BP_STRINGS[${var}]}"
-		bp_msg 2 "      ${var}"="${BP_STRINGS[${var}]}"
+		bp_msg 2 "      ${var}"= "${BP_STRINGS[${var}]}"
 	done
 }
 
@@ -1524,7 +1578,8 @@ function create_variables() {
 # mode will output variables in other formats; for example, in eval mode, variables will be output as
 # variable assignment statements, and in capture mode, variables will be output as JSON string.
 function output_para_arrays() {
-	local opara_an spara_an bpara_an ppara_an i
+	local opara_an key_max_len i
+	# local spara_an bpara_an ppara_an i
 
 	bp_msg 2 "  Output parameter arrays with name references specified in CONFIGS for PSets"
 
@@ -1640,7 +1695,6 @@ function output_json() {
 		pparas_json=$(printf '%s\n' "${BP_PPARAS[@]}" | jq -R -s -c 'split("\n")[:-1]')
 		idx=$((idx + 1))
 		jq_args+=(--arg "k${idx}" "${CONFIGS[${PSETS["pan"]%%:*}],,}")
-		# jq_args+=(--arg "k${idx}" "PParas")
 		jq_args+=(--argjson "v${idx}" "${pparas_json}")
 		expr+=" + {(\$k${idx}): \$v${idx}}"
 	fi
@@ -1653,19 +1707,19 @@ function direct_pset_commands() {
 	# executed directly in bosparse, e.g. show version or print a message
 
 	# show bosparse tag
-	if [[ "${CONFIGS[${PSETS["tag"]%%:*}]}" == true ]]; then
+	if [[ "${CONFIGS[${PSETS["Banner"]%%:*}]}" == true ]]; then
+	# if [[ "${BP_BOOLS["Banner"]}" == true ]]; then
 		# echo -e "${CONSTS["PBP"]} with ${CONSTS["EXTRA-FUN"]}"
 		echo -e "${CONSTS["PBP"]} with love"
 		exit 0
-	elif [[ "${CONFIGS[${PSETS["version"]%%:*}]}" == true ]]; then
+	elif [[ "${CONFIGS[${PSETS["Version"]%%:*}]}" == true ]]; then
 		# show version
 		echo "${CONSTS["BOSPARSE_VERSION"]}"
 		exit 0
-	elif [[ "${CONFIGS[${PSETS["resyms"]%%:*}]}" == true ]]; then
+	elif [[ "${CONFIGS[${PSETS["Rsymbols"]%%:*}]}" == true ]]; then
 		# show resym
 		echo "Available resyms: ${RESYMS[*]}"
-		exit 0
-	elif [[ "${CONFIGS[${PSETS["config"]%%:*}]}" == true ]]; then
+	elif [[ "${CONFIGS[${PSETS["Config"]%%:*}]}" == true ]]; then
 		# show_configs
 		show_configs
 		exit 0
@@ -1687,6 +1741,10 @@ function bosparse() {
 
 	declare -a op_zone=() pp_zone=()
 	declare -a strings=() bools=() ligas=()
+
+	# local variables
+	local verbose
+	local __QUIET __STANDARD __EXTRA __DEBUG __TRACE
 
 	definitions \
 		CONFIGS \
@@ -1734,6 +1792,7 @@ function bosparse() {
 
 	update_verbose
 	bp_msg 3 "Command line: " "$*"
+	# echo "Command line: $*" >&2
 	bp_msg -2 "verbose: " "${verbose}"
 
 	# treat empty "$@"
@@ -1742,13 +1801,13 @@ function bosparse() {
 	reset_intermediate_arrays
 
 	# disassemble command line parameters
-	bp_msg 2 "Extract zones and parameters from command line"
+	bp_msg 2 "Extract Zones"
 	extract_zones op_zone pp_zone "$@"
 
 	# show_array op_zone "|"
 	# show_array pp_zone "|"
 
-	bp_msg 2 "Extract Priors"
+	bp_msg 3 "Extract Priors"
 	extract_oparas "${PRLID}" strings bools ligas op_zone || true
 
 	bp_msg 2 "Parse Priors"
@@ -1758,7 +1817,8 @@ function bosparse() {
 		bp_msg 3 "Validate Priors"
 		validate_paras_by_filter "${PRLID}" true
 
-		apply_setup PRIORS
+		bp_msg 3 "Apply Priors"
+		apply_setup "Priors" PRIORS
 		update_verbose
 	fi
 	reset_intermediate_arrays
@@ -1773,38 +1833,41 @@ function bosparse() {
 	fi
 
 	# re-extract zones for PSets and user OParas, in case some prior settings changed
-	bp_msg 2 "Extract zones and parameters from command line"
+	bp_msg 2 "Extract Zones Again"
 	extract_zones op_zone pp_zone "$@"
 
 	bp_msg 4 "op zone:" "${op_zone[*]}"
 	bp_msg 4 "pp zone:" "${pp_zone[*]}"
 
 	# Psets
-	bp_msg 2 "Extract PSets"
+	bp_msg 3 "Extract PSets"
 	extract_oparas "${PLID}" strings bools ligas op_zone || true
 
 	bp_msg 2 "Parse PSets"
 	parse_oparas "${PLID}" strings bools ligas
 
 	if [[ ${#BP_OPARAS[@]} -ne 0 ]]; then
+
 		bp_msg 3 "Validate PSets"
 		validate_paras_by_filter "${PLID}" true
 
-		apply_setup PSETS
+		bp_msg 3 "Apply PSets"
+		apply_setup "PSets" PSETS
 		update_verbose
 
-		# direct commands for some special PSets, which will not be output as user parameters but
-		# executed directly in bosparse, e.g. show version or print a message
+		# directives for some special PSets, which will not be output as user parameters but
+		# executed directly in bosparse, e.g. show version or print banner
 		direct_pset_commands
 	fi
 	reset_intermediate_arrays false
 
 	if [[ ${CONFIGS[${PSETS["config"]%%:*}]} == true ]]; then
-		# if config is true, show configs after parsing Priors
+		# if config is true, show configs after parsing PSets
 		show_configs
 	else
 		[[ ${verbose} -ge 3 ]] && show_configs
 	fi
+
 	# parsing user parameter parsing
 	bp_msg 2 "Extract user-oparas"
 	extract_oparas "${OLID}" strings bools ligas op_zone || true
@@ -1856,12 +1919,12 @@ function bosparse() {
 		output_eval
 		;;
 	capture)
-		bp_msg 3 "  Output as JcvsSON."
+		bp_msg 3 "  Output as JSON."
 		output_json
 		;;
 	*) ;;
 	esac
-	parsing_result="Mission complete"
+	parsing_result="Mission complete."
 	bp_msg 3 "${parsing_result}"
 }
 

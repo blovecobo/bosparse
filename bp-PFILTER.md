@@ -88,20 +88,25 @@ bosparse uses an identifier entry in PFILTER to validate the PFILTER(value of th
 - **enum**
   - Accepts only values listed in the `data` field, separated by `|`
   - Default is the first value unless specified otherwise.
-  - When a enmu value contains `|`, it should be escaped(`\|`)
+  - When a enum value contains `|`, it should be escaped(`\|`)
+  - When no value supplied, last enum matched
   - Useful for mode selection, limited options, etc.
+  - Prefix-matching support on enum values(`L` matching `Linux` in `Linux|macOS/Windows`)
   - Example:
 
     ```bash
     [mode]="enum:fast|safe|debug:"
     [color]="enum:red|green|blue"
     [size]="enum:small|medium|large"
+    ["os"]="enum:Linux|macOS|Windows"
     ```
 
     - If not provided:
       - `mode` defaults to `fast`;
       - `color` defaults to `red`;
       - `size` defaults to `small`.
+    - If user provides `-os=L`, `Linux` assighed to `os` (prefix-matching)
+    - If user provides `-mo`, `mode` assigned with `debug` (last-item-matching or ELIM)
     - If user provides `-color=yellow`, validation fails(not in enums).
 
 ### Data Fields

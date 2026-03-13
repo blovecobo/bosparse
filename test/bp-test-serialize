@@ -1,0 +1,23 @@
+#!/bin/env bash
+
+declare -A pfilter=(
+	["PARA-FILTER"]="FILTER DEFINITION"
+	["a-bool"]="bool:"
+	["a-string"]="string:5"
+	[help]="bool:false"
+	[mode]="enum:fast|safe|debug"
+	[color]="enum:red|green|blue:"
+	[username]="string:guest"
+	[output]="string:/tmp/result.txt"
+	[force]="bool:true"
+	[verbose]="bool:false"
+	[size]="enum:small|medium|large"
+	[comment]="string"
+	[port_ssh]="string:22:gnet:gport"
+	[port_telnet]="string::gnet:gport"
+	[port_https]="string:443:gnet:gport"
+)
+
+source ../utils/bp_serialize_assoc_array
+echo "PFILTER string:"
+bp_serialize_assoc_array pfilter | jq .
