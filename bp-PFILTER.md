@@ -88,10 +88,10 @@ bosparse uses an identifier entry in PFILTER to validate the PFILTER(value of th
 - **enum**
   - Accepts only values listed in the `data` field, separated by `|`
   - Default is the first value unless specified otherwise.
-  - When a enum value contains `|`, it should be escaped(`\|`)
   - When no value supplied, last enum matched
+  - When a enum value contains `|`, it should be escaped(`\|`)
   - Useful for mode selection, limited options, etc.
-  - Prefix-matching support on enum values(`L` matching `Linux` in `Linux|macOS/Windows`)
+  - Prefix-matching support on enum values(`L` matching `Linux` in `enum:Linux|macOS/Windows`)
   - Example:
 
     ```bash
@@ -106,7 +106,7 @@ bosparse uses an identifier entry in PFILTER to validate the PFILTER(value of th
       - `color` defaults to `red`;
       - `size` defaults to `small`.
     - If user provides `-os=L`, `Linux` assighed to `os` (prefix-matching)
-    - If user provides `-mo`, `mode` assigned with `debug` (last-item-matching or ELIM)
+    - If user provides `-mo`, `mode` assigned with `debug` (last-item-matching and prefix-matching)(when no PFILTER/amf supplied, `mode` will be parsed as bool and set to `true` since it's a prefix of `mode`)
     - If user provides `-color=yellow`, validation fails(not in enums).
 
 ### Data Fields
@@ -119,10 +119,32 @@ Data fields in PFILTER are designed as follows:
 ### Mutual Exclusion Groups
 
 PFILTER supports mutual exclusion groups(MEG).
-Mutual exclusion groups are used to define mutual exclusion between options.
-Parameters in the same MEG must be assigned to different values.
+Mutual exclusion groups are used to define mutual exclusion between option parameters.
+Bosparse supports two kinds of mutual exclusion:
 
----
+- **Value-based mutual exclusion**: Parameters in the same MEG must be assigned to different values.
+- **Presence-based mutual exclusion**: Parameters in the same MEG cannot be present at the same time.
+
+bosparse uses prefix 'n|N' to identify presence-based mutual exclusion group(NMEG), while value-based mutual
+exclusion group(VMEG) is identified by prefix 'v|V'. For example:
+
+```bash
+[role_a]="string:admin:nrole"
+[role_b]="string::nrole"
+[role_c]="string:viewer:vgrole"
+[role_d]="string::vgrole"
+```
+
+In this example, `role_a` and `role_b` belong to the same presence-based mutual exclusion group `nrole`.
+This means that if a user tries to set `-role_a=admin -role_b=developer`, bosparse will raise a
+mutual-exclusion error since both `role_a` and `role_b` cannot be present at the same time.
+
+For value-based mutual exclusion, if `role_c` and `role_d` belong to the same value-based mutual
+exclusion group(VMEG) `vgrole`, they must have different values. For example, if a user tries to set
+`-role_a=admin -role_b=admin`, bosparse will raise a mutual-exclusion error since both `role_c` and
+`role_d` cannot have the same value.
+
+If a parameter belongs to multiple groups, it must be unique across all those groups. For example, if `role_a` belongs to both `nrole` and `vproject`, it must have a unique value that does not conflict with any other parameter in either group.
 
 ## prefix-matching parameter name
 
@@ -139,7 +161,7 @@ Parameters in the same MEG must be assigned to different values.
   In the above example,
   - if user provides `-h`/`-he`/`-hel`/`-help`, it will set `help` to `true` (since it's a bool type);
   - if user provides `-com="This is a comment"`, it will set `comment` to "This is a comment";
-  - if user provides `-col=green`, it will set `color` to `green`.
+  - if user provides `-col=gr`, it will set `color` to `green` (prefix-matching enums).
   - If user provideds `-co=green`, parser will raise an error since `-co` is ambiguous between
     `-color` and `-comment`.
   - If user provides `-color=yellow`, validation fails(not in enums).
@@ -160,9 +182,9 @@ declare -A PFILTER=(
   [verbose]="bool:false"
   [size]="enum:small|medium|large"
   [comment]="string"
-  [port_ssh]="string:22:gnet:gport"
-  [port_telnet]="string::gnet:gport"
-  [port_https]="string:443:gnet:gport"
+  [port_ssh]="string:22:gnet:vg-port"
+  [port_telnet]="string::gnet:vg-port"
+  [port_https]="string:443:gnet:vg-port"
 )
 ```
 
@@ -178,13 +200,15 @@ Always pass PFILTER using the reserved PSet `~pf`. bosparse will use this to fin
 
 1. PFILTER defines expected parameter types, allowed values, defaults, and mutual-exclusion groups(meg).
 2. bosparse parses command-line input and matches parameters to PFILTER.
-3. prefix-matched parameters are validated against PFILTER
+3. prefix-matched parameters and enums are validated against PFILTER
 4. For each PFILTER entry:
    - If present on the command line, value is validated and assigned.
    - If not present but a default exists, default is assigned.
-   - If neither, prsing failed with an error message.
+   - If neither, parsing failed with an error message.
    - If present but invalid, parsing failed with an error message.
-   - Mutual-exclusion value groups are checked for value uniqueness.
+   - Mutual-exclusion value groups are checked for uniqueness.
+5. Parameters not defined in PFILTER are assigned without validation (unless `~amf` set, then parsing
+   fails).
 
 ### Edge Cases & Notes
 
@@ -206,9 +230,9 @@ declare -A PFILTER=(
   [mode]="enum:fast|safe|debug:"
   [help]="bool:false"
   [user]="string:guest"
-  [role_a]="string:admin:grole"
-  [role_b]="string::grole"
-  [role_c]="string:viewer:grole"
+  [role_a]="string:admin:vgrole"
+  [role_b]="string::vgrole"
+  [role_c]="string:viewer:vgrole"
 )
 ```
 
@@ -226,7 +250,7 @@ Result:
 - `user` is not provided, so is set to `guest` (default)
 - `help` is not provided, so is set to `false` (default)
 - `h` prefix-matched for `help`, so it would set `help` to `true`(latter one wins)
-- Mutual-exclusion group `grole` is checked for uniqueness value among `role_a`, `role_b`, `role_c`
+- Mutual-exclusion group `vgrole` is checked for uniqueness value among `role_a`, `role_b`, `role_c`
 
 Call bosparse as:
 
@@ -239,16 +263,6 @@ Result:
 - `~amf` causes parsing failure since `role_d` is not defined in PFILTER.
 
 See the `bp-test-inte.sh` script for more scenarios and test cases.
-
----
-
-## Mutual-Exclusion Groups (meg)
-
-Parameters in the same group (e.g., `grole`) must have unique values. This is enforced automatically by bosparse.
-
-For the example above, if a user tries to set `-role_a=admin -role_b=admin`, bosparse will raise a mutual-exclusion error since both `role_a` and `role_b` belong to the same group `grole` and cannot have the same value.
-
-If a parameter belongs to multiple groups, it must be unique across all those groups. For example, if `role_a` belongs to both `grole` and `gproject`, it must have a unique value that does not conflict with any other parameter in either group.
 
 ---
 
@@ -365,15 +379,16 @@ You can define multiple mutual-exclusion groups for different sets of parameters
 ```bash
 declare -A PFILTER=(
   [PARA-FILTER]=""
-  [role_a]="string:admin:grole"
-  [role_b]="string::grole"
-  [role_c]="string::grole"
-  [project_a]="string::gproject"
-  [project_b]="string::gproject"
+  [role_a]="string:admin:vg_role"
+  [role_b]="string::vg_role"
+  [role_c]="string::vg_role"
+  [project_a]="string::nproject"
+  [project_b]="string::nproject"
 )
 ```
 
-Here, `role_a/b/c` must be unique among themselves, and `project_a/b` must be unique among themselves.
+Here, `role_a/b/c` must be unique among themselves, and `project_a/b` cannot be present at the same
+time.
 
 #### 5. Required Parameters Without Defaults
 

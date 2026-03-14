@@ -13,9 +13,9 @@ declare -A pfilter=(
 	[verbose]="bool:false"
 	[size]="enum:small|medium|large"
 	[comment]="string"
-	[port_ssh]="string:22:gnet:gport"
-	[port_telnet]="string::gnet:gport"
-	[port_https]="string:443:gnet:gport"
+	[port_ssh]="string:22:gnet:vgport"
+	[port_telnet]="string::gnet:vgport"
+	[port_https]="string:443:gnet:vgport"
 )
 
 source ../utils/bp_serialize_assoc_array

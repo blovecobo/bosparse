@@ -69,6 +69,7 @@ function definitions() {
 	local -n EXCEPTIONS_ref=$7
 	local -n EXIT_MSG_ref=$8
 	local -n PFILTER_ENTRY_TYPES_ref=$9
+	local -n MEG_TYPES_ref=${10}
 
 	load_consts \
 		BOSPARSE_CONST_ref \
@@ -208,26 +209,30 @@ function definitions() {
 		["olid"]="${BOSPARSE_CONFIGS_ref[${olid}]}"
 	)
 
-	# Prior/PSets config schema:
+	# PRIORS/PSETS used to validate Priors/PSets; schemas similar to that of
+	#   PFILTER except of an extra 'config-name' field(field1)
+	# Prior/PSets config schema
 	#   field1: config name of entries in CONFIGS | string
 	#	field2: data type | string
 	#	        may be bool, string, resym or enum
 	#   field3: for string: length                | integer
 	#           for bool: n/a                     | empty
-	#           for resym: length and/or exclude  | integer and/or resym
+	#           for resym: length and/or exclude  | integer and/or resym-excluded
 	#           for emum: enum values             | strings separated by '|'
-	#   field4: meg name | string(mutual-exclusion value group)
-	#           for configs not permitted to share same value
+	#   field4: meg name | string(mutual-exclusion group)
+	#           for parameters not permitted to share same value(vmeg) or supplied together(nmeg)
+	#           value-mutual-exclude group name should start with 'v'
+	#           name-mutual-exclude group name should start with 'n/N'
 
 	PRIORS_ref=(
-		["prior"]="${prior}:resym:3:meg_lid"
-		["plid"]="${plid}:resym::meg_lid"
-		["olid"]="${olid}:resym::meg_lid"
+		["prior"]="${prior}:resym:3:vmeg_lid"
+		["plid"]="${plid}:resym::vmeg_lid"
+		["olid"]="${olid}:resym::vmeg_lid"
 
 		["zs"]="${zs}:resym:2"
 		["os"]="${os}:resym:-_"
-		["tt"]="${tt}:resym::meg_tagv"
-		["tf"]="${tf}:resym::meg_tagv"
+		["tt"]="${tt}:resym::vmeg_ttag"
+		["tf"]="${tf}:resym::vmeg_ttag"
 		["td"]="${td}:bool"
 
 		["config"]="${config}:bool:"
@@ -244,17 +249,17 @@ function definitions() {
 		["json"]="${json}:bool"
 
 		["Config"]="${Config}:bool:"
-		["Banner"]="${Banner}:bool:"
-		["Rsymbols"]="${Rsymbols}:boo:"
-		["Version"]="${Version}:bool:"
+		["Banner"]="${Banner}:bool:ngdirective"
+		["Rsymbols"]="${Rsymbols}:boo:ngdirective"
+		["Version"]="${Version}:bool:ngdirective"
 
 		["pf"]="${pf}:string"
 		["amf"]="${amf}:bool"
 
-		["oan"]="${oan}:string::meg_arr_name"
-		["ban"]="${ban}:string::meg_arr_name"
-		["san"]="${san}:string::meg_arr_name"
-		["pan"]="${pan}:string::meg_arr_name"
+		["oan"]="${oan}:string::vmeg_arr_name"
+		["ban"]="${ban}:string::vmeg_arr_name"
+		["san"]="${san}:string::vmeg_arr_name"
+		["pan"]="${pan}:string::vmeg_arr_name"
 
 		["config"]="${config}:bool:"
 		["quiet"]="${quiet}:bool"
@@ -262,6 +267,11 @@ function definitions() {
 		["extra"]="${extra}:bool"
 		["debug"]="${debug}:bool"
 		["trace"]="${trace}:bool"
+	)
+
+	MEG_TYPES_ref=(
+		["vmeg"]="enum:v|V"
+		["nmeg"]="enum:n|N"
 	)
 
 	# reserved symbols for LIDs and SEPs
@@ -295,6 +305,7 @@ function definitions() {
 		["36"]="Prameter '\${pros_tag}' in liga '\${pros_tag2}' not valid."
 		["37"]="Same settings in MEG '\${pros_tag}' members: '\${pros_tag2}'"
 		["38"]="Invalid enum value: \${pros_tag}, available enums: '\${pros_tag2}'"
+		["39"]="Only one of parameters in MEG '\${pros_tag}' can be supplied, but found: '\${pros_tag2}'"
 		["40"]="Invalid \${pros_tag} setting: \${pros_tag2}, ARG should be \${pros_tag3}"
 		["41"]="Invalid \${pros_tag} setting '\${pros_tag2}': \${pros_tag3}"
 		["43"]="Unknown \${pros_tag}: '\${pros_tag2}'"
@@ -307,6 +318,7 @@ function definitions() {
 		["50"]="Invalid PFILTER entry '\${pros_tag}': \${pros_tag2}"
 		["51"]="Invalid PFILTER type '\${pros_tag}': it should be one of '\${pros_tag2}'"
 		["52"]="Invalid PFILTER entry '\${pros_tag}': default value '\${pros_tag2}' mismatch the type '\${pros_tag2}'"
+		["53"]="Invalid MEG name: '\${pros_tag}', a valid MEG name must start with '\${pros_tag2}'"
 	)
 }
 
@@ -343,7 +355,10 @@ function bp_msg() {
 
 	# nothing to show
 	[[ "${verbose}" == 0 || -z "${verbose}" ]] && return 0
-	[[ -n "${title}" ]] || return 0
+	[[ -n "${title}" ]] || {
+		echo
+		return 0
+	}
 
 	if [[ "${msg_level}" -lt 0 ]]; then
 		in_one_line=true
@@ -421,13 +436,13 @@ function with_lid() {
 # usage
 #   max_array_member_len arrayref max_len_ref "${additional_len}"
 function max_array_member_len() {
-	local -n arr_ref="$1" l_max_ref="$2"
+	local -n arr_ref="$1" length_max="$2"
 	local add_len="${3:-0}" # optional
 
 	if [[ ${#arr_ref[@]} == 0 ]]; then
-		l_max_ref=0
+		length_max=0
 	else
-		l_max_ref=$(($(
+		length_max=$(($(
 			for member in "${arr_ref[@]}"; do
 				echo "${member}"
 			done | wc -L
@@ -439,24 +454,13 @@ function max_array_member_len() {
 # usage:
 #   max_array_key_len arrayref max_len_ref "${additional_len}"
 function max_array_key_len() {
-	local -n arr_ref="$1" l_max="$2"
+	local -n arr_ref="$1" len_max="$2"
 	local add_len="${3:-0}" # optional
 
 	declare -a keys=("${!arr_ref[@]}")
 
-	max_array_member_len keys l_max "${add_len}"
+	max_array_member_len keys len_max "${add_len}"
 }
-
-# function max_array_key_len() {
-# 	local -n arr="$1" l_max="$2"
-# 	local extra="${3:-0}" # optional
-#
-# 	l_max=$(($(
-# 		for member in "${!arr[@]}"; do
-# 			echo "${member}"
-# 		done | wc -L
-# 	) + extra))
-# }
 
 # show array in a formatted way with specified separator, default separator is '-'
 function show_array() {
@@ -568,7 +572,7 @@ function update_verbose() {
 	return 0
 }
 
-is_in_resyms() {
+function is_in_resyms() {
 	local para=$1
 	local resym
 	for resym in "${RESYMS[@]}"; do
@@ -800,7 +804,7 @@ function extract_def_entry() { # !! needs to reform
 	local lid=$1 p_key=$2
 	local -n p_def=$3 p_type=$4 p_data=$5
 
-	[[ $# == 6 ]] && local -n p_meg=${6:-}
+	[[ $# == 6 ]] && local -n p_meg=${6:-} || local p_meg=""
 
 	local p_schema="${p_def[${p_key}]}"
 
@@ -817,6 +821,15 @@ function extract_def_entry() { # !! needs to reform
 	local IFS=':'
 	read -r p_type p_data p_meg <<<"${p_schema}"
 
+	# p_type="${p_schema%%:*}"         # extract ptype
+	# schema="${p_schema#"${p_type}"}" # remove p_type from schema
+	# schema="${schema#:}"             # remove separator
+	# p_data="${schema%:*}"            # extract p_data
+	# schema="${schema#"${p_data}"}"   # remove p_data
+	# p_meg="${schema#:}"              # only p_meg left if exist
+
+	# echo -e "lid: ${lid} | key: ${p_key}" >&2
+
 	return 0
 }
 
@@ -824,8 +837,7 @@ function extract_def_entry() { # !! needs to reform
 # will be ${CONST["NO_PFILTER"]} as default
 # two ways to pass PFILTER in:
 #   PFILTER name reference - for an associative array, used in source mode
-#   serialized PFILTER - a string, used for all modes, e.g.:
-#         "gender=enum:male|female:;h=alias:help:;movie1=string::gmv;PARA-FILTER=::;"
+#   serialized PFILTER - a json string, used for all modes
 # a valid PFILTER must include a memeber whose key is "PARA-FILTER" as identifier
 function validate_pfilter() {
 	local pf_name=$1
@@ -854,7 +866,7 @@ function validate_pfilter() {
 			pros_tag="'${pf_name}' should be a PFILTER name reference (source mode) or a string of serialized PFILTER(all modes)"
 			exit_with_msg 49
 		fi
-	else # not valid shell variable, try deserialized PFILTER
+	else # not valid shell variable, try to deserialize
 		local -A p_filter
 		deserialize_assoc_array "${pf_name}" p_filter
 		# might be serialized associative array
@@ -906,6 +918,7 @@ function validate_pfilter() {
 			esac
 		fi
 	done
+	bp_msg 3 "PFILTER validated successfully."
 }
 
 function show_all_paras() {
@@ -1209,10 +1222,10 @@ function validate_para_arg() {
 
 	pros_tag="${ptitle}"
 
-	[[ ${verbose} -ge 4 ]] && printf "    \e[2m%-8s - %-14s | %-6s | %10s | %s\n\e[0m" "${para}" "${e_para}" "${pf_type}" "${pf_data}" "${val}" >&2
+	[[ ${verbose} -ge 4 ]] && printf "    \e[2m%-8s - %-14s | %-6s | %10s | %s\n\e[0m" \
+		"${para}" "${e_para}" "${pf_type}" "${pf_data}" "${val}" >&2
 	case ${pf_type} in
 	enum) # this branch must in front of "bool" branch in case EMAB
-		# [[ ${verbose} -ge 4 ]] && printf "    \e[33m%-8s - %-10s\e[0;2m %-6s | %s\n\e[0m" "${para}" "${e_para}:" "enum" "'${pf_data}'" >&2
 		# split enum string safely into array, handling escaped pipes
 		local pf_data_escaped
 		pf_data_escaped=$(echo "${pf_data}" | sed 's/\\|/__PIPE__/g')
@@ -1223,9 +1236,9 @@ function validate_para_arg() {
 			enum_list[$i]=$(echo "${enum_list[$i]}" | sed 's/__PIPE__/|/g')
 		done
 		if [[ ${val} == true || ${val} == false ]]; then
-			# an enum parameter want to use last value (-enum-para) may be missmatched as booleans(enum mismatched as booleans EMAB)
-			# remove the paramter from v_bools and v_oparas
-			# add re-assign with the last item of enum list
+			# an enum parameter want to use last value (-enum-para) may be missmatched as
+			# booleans(enum mismatched as booleans EMAB)
+			# remove the parameter from v_bools, re-assign with the last item of enum list
 			unset "v_bools[${e_para}]"
 			v_oparas[${e_para}]="${enum_list[-1]}"
 			v_strings[${e_para}]="${enum_list[-1]}"
@@ -1256,15 +1269,8 @@ function validate_para_arg() {
 			;;
 		*) ;;
 		esac
-		# # if not in enum list, parsing failed
-		# if ! is_array_member "${val}" enum_list; then
-		# 	pros_tag2="${para}=${val}"
-		# 	pros_tag3="'${pf_data//|/\/}'"
-		# 	exit_with_msg 40
-		# fi
 		;;
-	bool)
-		# [[ ${verbose} -ge 4 ]] && printf "    \e[33m%-8s - %-10s\e[0;2m %-6s | %s\n\e[0m" "${para}" "${e_para}:" "bool" "${val}" >&2
+	bool) # calidate type
 		if [[ ${val} != true && ${val} != false ]]; then
 			pros_tag2="${para}='${val}'"
 			pros_tag3="'true/false'"
@@ -1279,13 +1285,14 @@ function validate_para_arg() {
 		fi
 		;;
 	resym)
-		# [[ ${verbose} -ge 4 ]] && printf "    \e[33m%8s - %-10s\e[0;2m %-6s | %s\n\e[0m" "${para}" "${e_para}:" "resym" "${val}" >&2
+		# if consist of resyms
 		is_in_resyms "${val//[0-9]/}" || {
 			pros_tag2="${para}='${val}'"
 			pros_tag3="a RESYM or a RESYM-repetition but got '${val}'"
 			exit_with_msg 40
 		}
-		# validate length of resym if specified in pf_data, e.g. "resym:3" means a resym with length of 3
+		# validate length of resym if specified in pf_data, e.g. "resym:3-_" means a parameter
+		# with length of 3 and cannot contains '-' and '_' (sequence not matter)
 		resym_len=${pf_data//[^[:digit:]]/}
 		[[ -n ${resym_len} ]] || resym_len=1
 		if [[ ${#val} -ne ${resym_len} ]]; then
@@ -1314,31 +1321,50 @@ function validate_para_arg() {
 # check mutual-exclusion groups to ensure paras in the same meg do not have same values;
 # fields may omit if empty from end
 # applied for both Priors/PSets/User OParas
+# support both name-mutual-exclude and value-mutual-exclude
 function validate_para_meg() {
-	bp_msg 3 "  - check mutual-exclusion groups"
-
-	local -n filter_ref=$1 vpe_paras=$2
+	local lid=$1
+	local -n filter_ref=$2 vpe_paras=$3
 	# echo "current filter:"
 	# show_array filter_ref
 	# echo "current paras for checking:"
 	# show_array vpe_paras
 
+	bp_msg 3 "  - check mutual-exclusion groups"
+
 	# get all meg names
 	declare -A meg_groups=()
-	local meg_field member_meg member_megs dummy
+	local meg_field member_meg member_megs def_data def_type
+	local default_value
+	declare -a meg_type=() meg_types=()
 
 	for member in "${!filter_ref[@]}"; do
-		extract_def_entry "${lid}" "${member}" filter_ref dummy dummy meg_field
+		extract_def_entry "${lid}" "${member}" filter_ref def_type def_data meg_field
 		# echo "meg: ${meg_field:-}"
 		if [[ -n ${meg_field:-} ]]; then
-			# if a para belongs to multiple meg, separate meg names with vertical line '|', e.g.
-			# "meg1|meg2", the para will be checked in all the meg it belongs to.
+			# if a para belongs to multiple meg, separate meg names with vertical line '|',
+			# e.g. "meg1|meg2", the para will be checked in all the meg it belongs to.
 			for meg in ${meg_field//|/ }; do
 				meg_groups["${meg}"]=true
 			done
 		fi
 	done
 	local meg_names=("${!meg_groups[@]}")
+
+	# meg name should honor MEG_TYPES
+	for member in "${!MEG_TYPES[@]}"; do
+		extract_def_entry "${OLID}" "${member}" MEG_TYPES def_type def_data
+		local IFS='|'
+		read -ra meg_type <<<"${def_data}"
+		meg_types+=("${meg_type[@]}")
+	done
+	for member in "${meg_names[@]}"; do
+		is_array_member "${member:0:1}" meg_types || {
+			pros_tag="${member}"
+			pros_tag2="${meg_types[*]}"
+			exit_with_msg 53
+		}
+	done
 
 	for meg in "${meg_names[@]}"; do
 		bp_msg 4 "    checking meg:" "${meg}"
@@ -1348,49 +1374,79 @@ function validate_para_meg() {
 		# find members in the same meg
 		for member in "${!filter_ref[@]}"; do
 			member_meg=${filter_ref[${member}]##*:}
-			# safely split meg names into array
 			local IFS='|'
-			read -ra member_megs <<<"${member_meg}" # may belong to multiple megs
+			read -ra member_megs <<<"${member_meg}"
 			if is_array_member "${meg}" member_megs; then
 				meg_members+=("${member}")
 			fi
 		done
 
-		local default_value
 		# collect values of members in this meg
 		for member in "${meg_members[@]}"; do
-			if is_array_key "${member}" vpe_paras; then
-				# supplied
-				bp_msg 4 "      member" "'${member}'"
-				meg_values+=("${vpe_paras[${member}]}")
-			elif [[ ${lid} == "${OLID}" ]]; then
-				# not supplied, use default value in PFILTER for checking;
-				# for UParas, if a member is not supplied, use default value in PFILTER for
-				# checking; if no default value, parsing failed
-				bp_msg 4 "      member" "'${member}' not supplied, use PFILTER default for checking"
-				extract_def_entry "${lid}" "${member}" filter_ref dummy default_value meg_field
-				if [[ -n ${default_value:-} ]]; then
-					meg_values+=("${default_value}")
-				else
-					pros_tag="${member}"
-					exit_with_msg 46
+			if [[ ${meg:0:1} == "n" ]]; then
+				# name-exclusion: only count supplied, skip defaults
+				if is_array_key "${member}" vpe_paras; then
+					bp_msg 4 "      member" "'${member}' supplied"
+					meg_values+=("${vpe_paras[${member}]}")
 				fi
-			else
-				# for Priors/PSets, if a member is not supplied, use values in CONFIGS for checking
-				bp_msg 4 "      member" "'${member}' not supplied, use CONFIGS value for checking"
-				if [[ ${lid} == "${PLID}" ]]; then
-					meg_values+=("${CONFIGS[${PSETS[${member}]%%:*}]}")
-				elif [[ ${lid} == "${PRLID}" ]]; then
-					meg_values+=("${CONFIGS[${PRIORS[${member}]%%:*}]}")
+			elif [[ ${meg:0:1} == "v" ]]; then
+				# value-exclusion: use defaults for un-supplied
+				if is_array_key "${member}" vpe_paras; then
+					bp_msg 4 "      member" "'${member}'"
+					meg_values+=("${vpe_paras[${member}]}")
+				elif [[ ${lid} == "${OLID}" ]]; then
+					bp_msg 4 "      member" "'${member}' not supplied, use PFILTER default for checking"
+					extract_def_entry "${lid}" "${member}" filter_ref def_data default_value meg_field
+					if [[ -n ${default_value:-} ]]; then
+						meg_values+=("${default_value}")
+					else
+						pros_tag="${member}"
+						exit_with_msg 46
+					fi
+				else
+					bp_msg 4 "      member" "'${member}' not supplied, use CONFIGS value for checking"
+					if [[ ${lid} == "${PLID}" ]]; then
+						meg_values+=("${CONFIGS[${PSETS[${member}]%%:*}]}")
+					elif [[ ${lid} == "${PRLID}" ]]; then
+						meg_values+=("${CONFIGS[${PRIORS[${member}]%%:*}]}")
+					fi
 				fi
 			fi
 		done
 
-		# raise an error if duplicated
-		if [[ ${#meg_values[@]} -ne $(printf '%s\n' "${meg_values[@]}" | sort -u | wc -l) ]]; then
-			pros_tag="${meg}"
-			pros_tag2="${meg_members[*]}"
-			exit_with_msg 37
+		# exclusion logic
+		if [[ ${meg:0:1} == "v" ]]; then
+			bp_msg 4 "      - collected member values: " "${meg_values[*]}"
+			# value-exclusion: no duplicate values
+			if [[ ${#meg_values[@]} -ne $(printf '%s\n' "${meg_values[@]}" | sort -u | wc -l) ]]; then
+				pros_tag="${meg}"
+				pros_tag2="${meg_members[*]}"
+				exit_with_msg 37
+			fi
+		elif [[ ${meg:0:1} == "n" ]]; then
+			# name-exclusion: no more than one supplied
+			bp_msg 4 "      - supplied members: " "${meg_members[*]}"
+			local supplied_count=0
+			for member in "${meg_members[@]}"; do
+				if is_array_key "${member}" vpe_paras; then
+					((supplied_count += 1))
+				fi
+			done
+			if [[ ${supplied_count} -gt 1 ]]; then
+				pros_tag="${meg}"
+				pros_tag2="${meg_members[*]}"
+				exit_with_msg 39
+			fi
+		fi
+
+		# construct skip_list for default assignment if name-exclusion
+		if [[ ${lid} == "${OLID}" && ${meg:0:1} == "n" ]]; then
+			local -n skip_list_ref=$4 # for name-exclusion, construct skip list for default assignment, pass by reference
+			for member in "${meg_members[@]}"; do
+				if is_array_key "${member}" vpe_paras; then
+					skip_list_ref+=("${member}")
+				fi
+			done
 		fi
 		bp_msg 4 "      - PASSED"
 	done
@@ -1399,6 +1455,7 @@ function validate_para_meg() {
 # validate BP_OPARAS(Priors/PSets/User-OParas) with their definitions(PRIORS/PSETS/PFILTER)
 function validate_paras_by_filter() {
 	local lid=$1 mandatory=${2:-true}
+
 	# local -n def=$2
 	declare -A v_oparas=() v_strings=() v_bools=()
 
@@ -1409,6 +1466,7 @@ function validate_paras_by_filter() {
 	"${OLID}") # for user parameters
 		declare -n def=PFILTER
 		ptitle="Parameter"
+		local -n skip_list=$3
 		;;
 	"${PLID}") # for PSets
 		declare -n def=PSETS
@@ -1449,7 +1507,7 @@ function validate_paras_by_filter() {
 	# show_array v_strings "string"
 
 	# check meg conflict
-	validate_para_meg def v_oparas
+	validate_para_meg "${lid}" def v_oparas skip_list
 
 	# load validated paras into result arrays
 	reset_intermediate_arrays false
@@ -1468,11 +1526,12 @@ function validate_paras_by_filter() {
 #   - for string/bool type, use data field
 #   - for enum type, use first enum as default value
 function assign_user_para_defaults() {
-	local para=$1 pf_type=$2 pf_data=$3
+	local para=$1 pf_type=$2 pf_data=$3 skip_list=$4
 
 	# bp_msg 3 "    ${para} | ${pf_type} | ${pf_data:--}"
 	# [[ ${verbose} -ge 3 ]] && printf "    \e[33m%-12s\e[0;2m - type: %-6s | value: %s\n\e[0m" "${para}:" "${pf_type}" "${BP_OPARAS[${para}]:--}" >&2
 	[[ ${verbose} -ge 4 ]] && printf "    \e[2;33m%-12s - %6s | %s\n\e[0m" "${para}" "${pf_type}" "${pf_data:--}" >&2
+	# skip assigning default if para is in skip_list
 	case "${pf_type}" in
 	bool | string)
 		if [[ -n ${pf_data} ]]; then
@@ -1487,7 +1546,6 @@ function assign_user_para_defaults() {
 			pros_tag="${para}"
 			exit_with_msg 46
 		fi
-		# [[ ${verbose} -ge 4 ]] && printf "    \e[33m%-12s\e[0;2m - type: %-6s | value: %s\n\e[0m" "${para}:" "${pf_type}" "${BP_OPARAS[${para}]:-undefined}" >&2
 		[[ ${verbose} -ge 3 ]] && printf "    \e[2m%-12s - %6s | %s\n\e[0m" "${para}" "${pf_type}" "${BP_OPARAS[${para}]:--}" >&2
 		;;
 	enum)
@@ -1496,7 +1554,6 @@ function assign_user_para_defaults() {
 		BP_OPARAS["${para}"]="${default_enum}"
 		# enum type is treated as string in BP_OPARAS(true|false should be set as Booleans)
 		BP_STRINGS["${para}"]="${default_enum}"
-		# [[ ${verbose} -ge 4 ]] && printf "    \e[33m%-12s\e[0;2m - type: %-6s | value: %s\n\e[0m" "${para}:" "enum" "${BP_OPARAS[${para}]:-undefined}" >&2
 		[[ ${verbose} -ge 3 ]] && printf "    \e[2m%-12s - %6s | %s\n\e[0m" "${para}" "${pf_type}" "${BP_OPARAS[${para}]:--}" >&2
 		;;
 	*) # this will not happen since integrity checking already done in validate_pfilter
@@ -1521,6 +1578,8 @@ function validate_user_paras() {
 
 	local para pf_type pf_data
 	local mandatory no_pfilter=true
+	declare -a skip_defaults=()
+	local skip_para
 
 	mandatory="${CONFIGS[${PSETS["amf"]%%:*}]}"
 	[[ "${CONFIGS[${PSETS["pf"]%%:*}]}" == "${NO_PFILTER}" ]] || no_pfilter=false
@@ -1540,15 +1599,29 @@ function validate_user_paras() {
 	# [[ ${verbose} -ge 4 ]] && show_array PFILTER
 
 	bp_msg 3 "  validate paras with PFILTER"
-	validate_paras_by_filter "${OLID}" "${mandatory}"
+	validate_paras_by_filter "${OLID}" "${mandatory}" skip_defaults
 
 	bp_msg 3 "  - assign default values if not supplied"
 	[[ ${verbose} -ge 4 ]] && printf "    \e[4;33m%-12s - %6s | %s\n\e[0m" "para" "type" "data" >&2
 	for para in "${!PFILTER[@]}"; do
-		# when supplied, no assigning needed
 		is_array_key "${para}" BP_OPARAS && continue
 		extract_def_entry "${OLID}" "${para}" PFILTER pf_type pf_data
-		assign_user_para_defaults "${para}" "${pf_type}" "${pf_data}"
+		skip_para=false
+		is_array_member "${para}" skip_defaults && {
+			[[ ${verbose} -ge 3 ]] && printf "    \e[2;31m%-12s - skipped default (name-exclusion)\n\e[0m" "${para}"
+			continue
+		}
+		# if [[ -n ${skip_defaults:-} ]]; then
+		# 	for skip_para in ${skip_defaults}; do
+		# 		if [[ "${para}" == "${skip_para}" ]]; then
+		# 			[[ ${verbose} -ge 3 ]] && printf "    \e[2;31m%-12s - skipped default (name-exclusion)\n\e[0m" "${para}"
+		# 			skip_para=true
+		# 			break
+		# 		fi
+		# 	done
+		# fi
+		# [[ ${skip_para} == true ]] && continue
+		assign_user_para_defaults "${para}" "${pf_type}" "${pf_data}" "${skip_defaults[*]}"
 	done
 }
 
@@ -1708,23 +1781,23 @@ function direct_pset_commands() {
 
 	# show bosparse tag
 	if [[ "${CONFIGS[${PSETS["Banner"]%%:*}]}" == true ]]; then
-	# if [[ "${BP_BOOLS["Banner"]}" == true ]]; then
-		# echo -e "${CONSTS["PBP"]} with ${CONSTS["EXTRA-FUN"]}"
+		# show banner
 		echo -e "${CONSTS["PBP"]} with love"
-		exit 0
 	elif [[ "${CONFIGS[${PSETS["Version"]%%:*}]}" == true ]]; then
 		# show version
 		echo "${CONSTS["BOSPARSE_VERSION"]}"
-		exit 0
 	elif [[ "${CONFIGS[${PSETS["Rsymbols"]%%:*}]}" == true ]]; then
 		# show resym
 		echo "Available resyms: ${RESYMS[*]}"
 	elif [[ "${CONFIGS[${PSETS["Config"]%%:*}]}" == true ]]; then
 		# show_configs
 		show_configs
-		exit 0
+	else
+		return 0
 	fi
+	exit 0
 }
+
 # main function ---------------------------------------------------------------
 function bosparse() {
 
@@ -1735,7 +1808,7 @@ function bosparse() {
 	local_script_name="${local_script_path##*\/}"
 
 	declare -A CONFIGS CONSTS PSETS
-	declare -A PRIORS LIDS EXCEPTIONS EXIT_MSG
+	declare -A PRIORS LIDS EXCEPTIONS EXIT_MSG MEG_TYPES
 	declare -a RESYMS PFILTER_TYPES
 	# declare -A PSET_FILTER=()
 
@@ -1755,7 +1828,8 @@ function bosparse() {
 		RESYMS \
 		EXCEPTIONS \
 		EXIT_MSG \
-		PFILTER_TYPES
+		PFILTER_TYPES \
+		MEG_TYPES
 
 	declare -n PRLID='LIDS["prior"]'
 	declare -n PLID='LIDS["plid"]'
@@ -1777,6 +1851,7 @@ function bosparse() {
 	# defined as local arrays to reduce global variable usage and avoid potential conflicts with
 	# user variables; for eval/capture mode, these arrays will not be used directly, so it does
 	# not matter if they are global or local.
+
 	declare -A "${CONSTS["OAN"]}"
 	declare -A "${CONSTS["SAN"]}"
 	declare -A "${CONSTS["BAN"]}"
