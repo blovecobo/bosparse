@@ -293,31 +293,63 @@ function definitions() {
 	pros_tag2=""
 	pros_tag3=""
 	pros_tag4=""
+	pros_tag5=""
 	EXIT_MSG_ref=(
 		["0"]="Parsing succeeded."
 		["1"]="Parsing failed."
 		["2"]="No parameter supplied."
-		["3"]="Only one ZONE_SEP '--' required."
+		["3"]="Only one ZONE-SEP '--' permitted."
 
-		["24"]="A solitary ARG '\${pros_tag}' found, parsing failed."
-		["25"]="Invalid \${pros_tag} '\${pros_tag2}', multiple matched: '\${pros_tag3}'."
-		["26"]="Parameter name '\${pros_tag}' invalid, it should be a valid shell variable name."
-		["36"]="Prameter '\${pros_tag}' in liga '\${pros_tag2}' not valid."
-		["37"]="Same settings in MEG '\${pros_tag}' members: '\${pros_tag2}'"
-		["38"]="Invalid enum value: \${pros_tag}, available enums: '\${pros_tag2}'"
-		["39"]="Only one of parameters in MEG '\${pros_tag}' can be supplied, but found: '\${pros_tag2}'"
-		["40"]="Invalid \${pros_tag} setting: \${pros_tag2}, ARG should be \${pros_tag3}"
+		["24"]="Unknow parameter '\${pros_tag}'"
+		["124"]="A solitary ARG '\${pros_tag}' found, parsing failed."
+
+		["25"]="Unrecognized parameter '\${pros_tag2}', may be one of '\${pros_tag3}'?"
+		["125"]="Invalid \${pros_tag} '\${pros_tag2}', multiple matched: '\${pros_tag3}'."
+
+		["26"]="Invalid Parameter name: '\${pros_tag}', it can only contains characters, numbers, underscores and hyphens(not at the beginning)"
+		["126"]="Parameter name '\${pros_tag}' invalid, it should respect the shell variable name convention."
+
+		["36"]="Unknow name '\${pros_tag}' in '\${pros_tag2}'"
+		["136"]="Parameter '\${pros_tag}' in liga '\${pros_tag2}' not valid."
+
+		["37"]="Parameters '\${pros_tag2}' should not be given the same value."
+		["137"]="Same settings in MEG '\${pros_tag}' members: '\${pros_tag2}'"
+
+		["38"]="Value of paramter '\${pros_tag}' should be one of '\${pros_tag2}'"
+		["138"]="Invalid enum value: \${pros_tag}, available enums: '\${pros_tag2}'"
+
+		["39"]="Parameters '\${pros_tag3}' cannot be used at same time."
+		["139"]="Only one of parameters in MEG '\${pros_tag}' can be supplied, but found: '\${pros_tag2}'"
+
+		["40"]="Invalid setting: \${pros_tag2}, the value should be \${pros_tag4}"
+		["140"]="Invalid \${pros_tag} setting: \${pros_tag2}, ARG should be \${pros_tag3}"
+
 		["41"]="Invalid \${pros_tag} setting '\${pros_tag2}': \${pros_tag3}"
-		["43"]="Unknown \${pros_tag}: '\${pros_tag2}'"
+
+		["43"]="Unknow parameter '\${pros_tag2}'"
+		["143"]="Unknown \${pros_tag}: '\${pros_tag2}', cannot match any filter entry."
+
 		["44"]="PSet '~amf' requires 'PFILTER'(~pf) but not supplied."
-		["45"]="PSet '~amf' requires all parameters be defined in 'PFLILTER' but '\${pros_tag}' didn't."
-		["46"]="Parameter '\${pros_tag}' defined in 'PFILTER' without default value and not supplied."
-		["47"]="To output JSON, 'jq' required but not available ."
+
+		["45"]="Unknown parameter '\${pros_tag}'"
+		["145"]="PSet '~amf' requires all parameters be defined in 'PFLILTER' but '\${pros_tag}' didn't."
+
+		["46"]="Missing parameter '\${pros_tag}'"
+		["146"]="Parameter '\${pros_tag}' defined in 'PFILTER' without default value and not supplied."
+
+		["47"]="'jq' required but not available."
+		["147"]="To output JSON, 'jq' required but not available ."
+
 		["48"]="Invalid PFILTER enum entry '\${pros_tagi3}': missing enum values."
+
 		["49"]="Invalid PFILTER, \${pros_tag}"
+
 		["50"]="Invalid PFILTER entry '\${pros_tag}': \${pros_tag2}"
+
 		["51"]="Invalid PFILTER type '\${pros_tag}': it should be one of '\${pros_tag2}'"
+
 		["52"]="Invalid PFILTER entry '\${pros_tag}': default value '\${pros_tag2}' mismatch the type '\${pros_tag2}'"
+
 		["53"]="Invalid MEG name: '\${pros_tag}', a valid MEG name must start with '\${pros_tag2}'"
 	)
 }
@@ -384,6 +416,7 @@ function template_expand() {
 	template=${template//\$\{pros_tag2\}/"${pros_tag2}"}
 	template=${template//\$\{pros_tag3\}/"${pros_tag3}"}
 	template=${template//\$\{pros_tag4\}/"${pros_tag4}"}
+	template=${template//\$\{pros_tag5\}/"${pros_tag5}"}
 	printf '%s' "${template}"
 }
 
@@ -395,6 +428,11 @@ function exit_with_msg() {
 	local msg
 
 	# trc
+	if [[ ${verbose} -ge 3 ]]; then
+		# use developer message
+		is_array_key "$((exit_code + 100))" EXIT_MSG && ((exit_code += 100))
+	fi
+
 	if [[ "${verbose:-0}" -gt 0 ]]; then
 		msg="${EXIT_MSG[${exit_code}]}"
 
@@ -1270,10 +1308,11 @@ function validate_para_arg() {
 		*) ;;
 		esac
 		;;
-	bool) # calidate type
+	bool) # validate type
 		if [[ ${val} != true && ${val} != false ]]; then
 			pros_tag2="${para}='${val}'"
 			pros_tag3="'true/false'"
+			pros_tag4="'true' or 'false'"
 			exit_with_msg 40
 		fi
 		;;
@@ -1281,6 +1320,7 @@ function validate_para_arg() {
 		if [[ ${val} == true || ${val} == false ]]; then
 			pros_tag2="${para}='${val}'"
 			pros_tag3="a string but got a bool"
+			pros_tag4="a string"
 			exit_with_msg 40
 		fi
 		;;
@@ -1289,6 +1329,7 @@ function validate_para_arg() {
 		is_in_resyms "${val//[0-9]/}" || {
 			pros_tag2="${para}='${val}'"
 			pros_tag3="a RESYM or a RESYM-repetition but got '${val}'"
+			pros_tag4="a special character or characters"
 			exit_with_msg 40
 		}
 		# validate length of resym if specified in pf_data, e.g. "resym:3-_" means a parameter
