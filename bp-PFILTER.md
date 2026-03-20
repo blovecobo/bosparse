@@ -18,7 +18,7 @@ PFILTER(Parameter Filter) is a new function of flexible validation and defaultin
 - Command-line values are validated and assigned.
 - Parameters not on the command line but defined in PFILTER get their default value (if specified).
 - Prefix-matching parameter names are resolved and assigned accordingly.
-- Mutual-exclusion groups are checked for value uniqueness.
+- Mutual-correlate groups are checked by group rules
 
 ---
 
@@ -27,7 +27,7 @@ PFILTER(Parameter Filter) is a new function of flexible validation and defaultin
 - **Validation:** Enforce types, enums, and required parameters.
 - **Prefix-matching:** Allow users to use unambiguous prefixes for convenience.
 - **Defaults:** Simplify user input by auto-filling missing values.
-- **Mutual-Exclusion:** Prevent duplicate assignments in defined groups.
+- **Correlations:** Handale relationship of exclusion/dependence/uniqueness/sibling
 - **Automation:** Works in both interactive and automated/scripted contexts.
 
 ---
@@ -37,7 +37,7 @@ PFILTER(Parameter Filter) is a new function of flexible validation and defaultin
 Each entry in PFILTER follows:
 
 ```
-[param_name]="type:data:meg"
+[param_name]="type:data:mcg"
 ```
 
 bosparse uses an identifier entry in PFILTER to validate the PFILTER(value of the entry is not important, only the key matters):
@@ -46,68 +46,71 @@ bosparse uses an identifier entry in PFILTER to validate the PFILTER(value of th
 # Required identifier entry to recognize PFILTER
 [PARA-FILTER]=":"
 # or
-[PARA-FILTER]="PFILTER is a bad idea" # value doesn't matter, only the key matters
+[PARA-FILTER]="PFILTER is a bad idea" # value doesn't matter, the key matters
 ```
 
-### Supported Types
+## Supported Types
 
-- **bool**
-  - Accepts only `true` or `false`
-  - Default value can be set in the `data` field.
-  - Useful for flags and switches.
-  - Example:
+**bool**
 
-    ```bash
-    [verbose]="bool:false:"
-    [force]="bool:true"
-    [debug]="bool"
-    ```
+- Accepts only `true` or `false`
+- Default value can be set in the `data` field.
+- Useful for flags and switches.
+- Example:
 
-    If not provided,
-    - `verbose` defaults to `false`;
-    - `force` defaults to `true`;
-    - `debug` remains unset unless provided.
+  ```bash
+  [verbose]="bool:false:"
+  [force]="bool:true"
+  [debug]="bool"
+  ```
 
-- **string**
-  - Accepts any string value.
-  - Default value can be set in the `data` field.
-  - Useful for free-form user input, names, paths, etc.
-  - Example:
+  If not provided,
+  - `verbose` defaults to `false`;
+  - `force` defaults to `true`;
+  - `debug` remains unset unless provided.
 
-    ```bash
-    [username]="string:guest:"
-    [output]="string:/tmp/result.txt"
-    [comment]="string:"
-    ```
+**string**
 
-    - If not provided,
-      - `username` defaults to `guest`;
-      - `output` defaults to `/tmp/result.txt`;
-      - `comment` remains unset unless provided.
+- Accepts any string value.
+- Default value can be set in the `data` field.
+- Useful for free-form user input, names, paths, etc.
+- Example:
 
-- **enum**
-  - Accepts only values listed in the `data` field, separated by `|`
-  - Default is the first value unless specified otherwise.
-  - When no value supplied, last enum matched
-  - When a enum value contains `|`, it should be escaped(`\|`)
-  - Useful for mode selection, limited options, etc.
-  - Prefix-matching support on enum values(`L` matching `Linux` in `enum:Linux|macOS/Windows`)
-  - Example:
+  ```bash
+  [username]="string:guest:"
+  [output]="string:/tmp/result.txt"
+  [comment]="string:"
+  ```
 
-    ```bash
-    [mode]="enum:fast|safe|debug:"
-    [color]="enum:red|green|blue"
-    [size]="enum:small|medium|large"
-    ["os"]="enum:Linux|macOS|Windows"
-    ```
+  - If not provided,
+    - `username` defaults to `guest`;
+    - `output` defaults to `/tmp/result.txt`;
+    - `comment` remains unset unless provided.
 
-    - If not provided:
-      - `mode` defaults to `fast`;
-      - `color` defaults to `red`;
-      - `size` defaults to `small`.
-    - If user provides `-os=L`, `Linux` assighed to `os` (prefix-matching)
-    - If user provides `-mo`, `mode` assigned with `debug` (last-item-matching and prefix-matching)(when no PFILTER/amf supplied, `mode` will be parsed as bool and set to `true` since it's a prefix of `mode`)
-    - If user provides `-color=yellow`, validation fails(not in enums).
+**enum**
+
+- Accepts only values listed in the `data` field, separated by `|`
+- Default is the first value unless specified otherwise.
+- When no value supplied, last enum matched
+- When a enum value contains `|`, it should be escaped(`\|`)
+- Useful for mode selection, limited options, etc.
+- Prefix-matching support on enum values(`L` matching `Linux` in `enum:Linux|macOS/Windows`)
+- Example:
+
+  ```bash
+  [mode]="enum:fast|safe|debug:"
+  [color]="enum:red|green|blue"
+  [size]="enum:small|medium|large"
+  [os]="enum:Linux|macOS|Windows"
+  ```
+
+  - If not provided:
+    - `mode` defaults to `fast`;
+    - `color` defaults to `red`;
+    - `size` defaults to `small`.
+  - If user provides `-os=L`, `Linux` assighed to `os` (prefix-matching)
+  - If user provides `-mo`, `mode` assigned with `debug` (prefix-matching/last-enum-matching)(when no PFILTER/amf supplied, `mo` will be parsed as bool and set to `true` since it has no arg followed)
+  - If user provides `-color=yellow`, validation fails(not in enums).
 
 ### Data Fields
 
@@ -115,36 +118,47 @@ Data fields in PFILTER are designed as follows:
 
 - for type `bool`/`string`, it stores the default value;
 - for type `enum`, it stores all the possible values separated by `|`;
+- for type `resym`, it stores the value length and/or excluded `resyms`
 
-### Mutual Exclusion Groups
+### Mutual Correlation Groups
 
-PFILTER supports mutual exclusion groups(MEG).
-Mutual exclusion groups are used to define mutual exclusion between option parameters.
-Bosparse supports two kinds of mutual exclusion:
+PFILTER supports mutual correlation groups(MCG).
+Mutual correlation groups used to define relationships among option parameters.
+Bosparse supports the following relationships:
 
-- **Value-based mutual exclusion**: Parameters in the same MEG must be assigned to different values.
-- **Presence-based mutual exclusion**: Parameters in the same MEG cannot be present at the same time.
+- **exclusion**: Parameters in the same MCG cannot supplied at the same time.
+- **Uniqueness**: Parameters in the same MCG must assigned to different values.
+- **Dependence**: Parameters in the same MCG depend on a specific member.
+- **Sibling**: Parameters in the same MCG should present/absent simutaneously
 
-bosparse uses prefix 'n|N' to identify presence-based mutual exclusion group(NMEG), while value-based mutual
-exclusion group(VMEG) is identified by prefix 'v|V'. For example:
+bosparse MCG name:
+
+- prefix 'u': identifies value uniqueness groups
+- prefix 'e': identifies exclusion groups
+- prefix 'd|D': identifies dependence groups
+- prefix 's': identifies sibling group
 
 ```bash
-[role_a]="string:admin:nrole"
-[role_b]="string::nrole"
-[role_c]="string:viewer:vgrole"
-[role_d]="string::vgrole"
+[role_a]="string::erole"
+[role_b]="string::erole"
+[role_c]="string::ug_role"
+[role_d]="string::ug_ole"
+[role_e]="string::D-role"
+[role_f]="string::d-role"
+[role_g]="string::d-role"
+[role_h]="string::s-role"
+[role_i]="string::s-role"
 ```
 
-In this example, `role_a` and `role_b` belong to the same presence-based mutual exclusion group `nrole`.
-This means that if a user tries to set `-role_a=admin -role_b=developer`, bosparse will raise a
-mutual-exclusion error since both `role_a` and `role_b` cannot be present at the same time.
+In this example, `role_a` and `role_b` belong to the same presence-exclusion group `nrole`. This means that if a user tries to set `-role_a=admin -role_b=developer`, bosparse will raise a mutual-exclusion error since both `role_a` and `role_b` cannot be present at the same time.
 
-For value-based mutual exclusion, if `role_c` and `role_d` belong to the same value-based mutual
-exclusion group(VMEG) `vgrole`, they must have different values. For example, if a user tries to set
-`-role_a=admin -role_b=admin`, bosparse will raise a mutual-exclusion error since both `role_c` and
-`role_d` cannot have the same value.
+For value-uniqueness group `vg_role`, `role_c` and `role_d` belong to the same value uniqueness group `vg_role`, they must have different values. For example, if a user tries to set `-role_a=admin -role_b=admin`, bosparse will raise an error since both `role_c` and `role_d` cannot have the same value.
 
-If a parameter belongs to multiple groups, it must be unique across all those groups. For example, if `role_a` belongs to both `nrole` and `vproject`, it must have a unique value that does not conflict with any other parameter in either group.
+`D-role` and `d-role` represent the same dependence group, members with group name start with 'd'(normal member) denends on the member with group name start with 'D'(capical member), means normal members cannot supplied without capical member. If `role_f` and/or `role_g` supplied but capital member `role_e` didn't, bosparse will raise an error. Only one capital member allowed in a group.
+
+Members `role_h` and `role_i` in the sibling group `s-role` must supplied at same time, or absent at same time either.
+
+If a parameter belongs to multiple groups, it must respect rules of every group it belongs to, bosparse will validate every group to ensure the rules satisfied.
 
 ## prefix-matching parameter name
 
@@ -161,7 +175,7 @@ If a parameter belongs to multiple groups, it must be unique across all those gr
   In the above example,
   - if user provides `-h`/`-he`/`-hel`/`-help`, it will set `help` to `true` (since it's a bool type);
   - if user provides `-com="This is a comment"`, it will set `comment` to "This is a comment";
-  - if user provides `-col=gr`, it will set `color` to `green` (prefix-matching enums).
+  - if user provides `-col=gr`, it will set `color` to `green` (enum-prefix-matching).
   - If user provideds `-co=green`, parser will raise an error since `-co` is ambiguous between
     `-color` and `-comment`.
   - If user provides `-color=yellow`, validation fails(not in enums).
@@ -212,9 +226,9 @@ Always pass PFILTER using the reserved PSet `~pf`. bosparse will use this to fin
 
 ### Edge Cases & Notes
 
-- Parameters in PFILTER but not on the command line and without defaults, exit with a error.
+- Parameters not belong to any MCG in PFILTER, if not supplied and without defaults, bosparse will exit with an error.
 - Invalid defaults (e.g., not in enum) cause validation errors.
-- Mutual-exclusion applies only within the same group.
+- Mutual-correlation applies only within the same group.
 - If a parameter provided on the command line but not defined in PFILTER, it will be assigned without validation (unless `~amf` set).
 - When PSet `~amf`(all matching filter) set(`true`), any parameter not defined in PFILTER will cause parsing failure; if PFILTER is not provided, parsing will fail.
 

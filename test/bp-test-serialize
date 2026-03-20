@@ -20,4 +20,13 @@ declare -A pfilter=(
 
 source ../utils/bp_serialize_assoc_array
 echo "PFILTER string:"
-bp_serialize_assoc_array pfilter | jq .
+
+rtn=0
+bp_serialize_assoc_array pfilter | jq . || rtn=$?
+
+echo
+if [[ ${rtn} -qe 0 ]]; then
+	printf 'Script %s \e[32mSUCCEEDED\e[0m\n' "$(basename "$0")"
+else
+	printf 'Script %s \e[33mFAILED\e[0m\n' "$(basename "$0")"
+fi
