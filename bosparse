@@ -2,7 +2,7 @@
 
 # BosParse - a parameter parser in & for bash script
 # author: blovecobo
-# version: 0.1.3
+# version: 0.1.4
 # platform: bash 4.4+
 # usage:
 #   - source mode:
@@ -52,16 +52,13 @@ function load_consts() {
 		["NO_PFILTER"]="no-param-filter" # identifying no PFILTER supplied
 		["PFILTER_ID"]="PARAM-FILTER"    # use it as an array key to identify a valid PFILTER
 
-		["NO_BFILTER"]="no-bpseting-filter" # identifying no BFILTER supplied
-		["BFILTER_ID"]="BPSETING-FILTER"    # use it as an array key to identify a valid BFILTER
-
 		["OAN"]=BP_Options     # name of array to store Option parameters
 		["SAN"]=BP_Strings     # name of array to store String-Options
 		["BAN"]=BP_Bools       # name of array to store Bool-Options
 		["PAN"]=BP_Positionals # name of array to store Positional parameters
 
-		["BFS"]=":"
-		["BES"]="|"
+		["FLD_SEP"]=":"
+		["ELM_SEP"]="|"
 
 		["VERSION"]="0.1.3" # version number of BosParse
 	)
@@ -77,7 +74,7 @@ function definitions() {
 	local -n BOSPARSE_CONSTS_ref=$2
 	local -n PSETS_ref=$3
 	local -n PRIORS_ref=$4
-	local -n LIDS_ref=$5
+	local -n SUPERS_ref=$5
 	local -n RESERVED_SYMBOLS_ref=$6
 	local -n EXCEPTIONS_ref=$7
 	local -n EXIT_MSG_ref=$8
@@ -95,7 +92,6 @@ function definitions() {
 	local run="run_mode"
 	local mode="${run}"
 	local json="output_as_json"
-	local eoe="exit_on_error"
 
 	# directives(5)
 	local Banner="directive_bannaer"
@@ -105,7 +101,7 @@ function definitions() {
 
 	# FILTER(5)
 	local bf="bp_settings_filter"
-	local bf_id="bfilter_id"
+	# local bf_id="bfilter_id"
 	local pf="param_filter"
 	local pf_id="pfilter_id"
 	local amf="all_matching_filter"
@@ -118,6 +114,7 @@ function definitions() {
 	local pan="positionals_array_name"
 
 	# parsing-aid sympbols(10)
+	local slid="super_lid"
 	local prlid="prior_lid"
 	local plid="pset_lid"
 	local ulid="option_lid"
@@ -126,10 +123,10 @@ function definitions() {
 	local td="trailing_tag_default"
 	local zs="zn_sep"
 	local os="oa_sep"
+	# local pfs="filter_field_sep"
+	# local pes="filter_element_sep"
 	local fs="filter_field_sep"
 	local es="filter_element_sep"
-	local bfs="bpset_filter_field_sep"
-	local bes="bpset_filter_element_sep"
 
 	# output control(6)
 	local config="show_config"
@@ -143,15 +140,15 @@ function definitions() {
 		["run"]="${run}"
 		["mode"]="${run}" # alias of 'run'
 		["json"]="${json}"
-		["eoe"]="${eoe}"
+		# ["eoe"]="${eoe}"
 
 		["Defaults"]="${Defaults}"
 		["Banner"]="${Banner}"
 		["Resymbols"]="${Resymbols}"
 		["Version"]="${Version}"
 
-		["bf"]="${bf}"
-		["bf_id"]="${bf_id}"
+		# ["bf"]="${bf}"
+		# ["bf_id"]="${bf_id}"
 		["pf"]="${pf}"
 		["pf_id"]="${pf_id}"
 		["amf"]="${amf}"
@@ -162,6 +159,7 @@ function definitions() {
 		["san"]="${san}"
 		["pan"]="${pan}"
 
+		["slid"]="${slid}"
 		["prlid"]="${prlid}"
 		["plid"]="${plid}"
 		["ulid"]="${ulid}"
@@ -170,10 +168,10 @@ function definitions() {
 		["td"]="${td}"
 		["zs"]="${zs}"
 		["os"]="${os}"
+		# ["pfs"]="${pfs}"
+		# ["pes"]="${pes}"
 		["fs"]="${fs}"
 		["es"]="${es}"
-		["bfs"]="${bfs}"
-		["bes"]="${bes}"
 
 		["config"]="${config}"
 		["quiet"]="${quiet}"
@@ -181,77 +179,6 @@ function definitions() {
 		["extra"]="${extra}"
 		["debug"]="${debug}"
 		["trace"]="${trace}"
-	)
-
-	# BosParse configs
-	BOSPARSE_CONFIGS_ref=(
-		# running mode
-		["${run}"]=auto   # ~run/mode, maybe "source", "eval" or "capture"
-		["${json}"]=false # ~json, output  to stdout as json
-		["${eoe}"]=true   # ~eoe, exit on error instead of continue running
-
-		# directives
-		["${Defaults}"]=false  # ~Default,  output CONFIGS to stdout
-		["${Banner}"]=false    # ~Banner,   show tag
-		["${Resymbols}"]=false # ~Resymbols, show reserved symbols
-		["${Version}"]=false   # ~Version,  show version
-
-		# filter related
-		["${bf}"]="${BOSPARSE_CONSTS_ref[NO_BFILTER]}"    # filter or a mark for unsupplied
-		["${bf_id}"]="${BOSPARSE_CONSTS_ref[BFILTER_ID]}" # the key in BFILTER to identify itself
-		["${pf}"]="${BOSPARSE_CONSTS_ref[NO_PFILTER]}"    # filter or a mark for unsupplied
-		["${pf_id}"]="${BOSPARSE_CONSTS_ref[PFILTER_ID]}" # the key in PFILTER to identify itself
-		# mandatories
-		["${amf}"]=false # all parameters should match PFILTER entries
-		["${apfd}"]=true # fulfill user parameters even if not supplied(for non-mcgs)
-
-		# parse result arrays
-		["${oan}"]="${BOSPARSE_CONSTS_ref["OAN"]}" # ~oan, name of array to store Options
-		["${ban}"]="${BOSPARSE_CONSTS_ref["BAN"]}" # ~ban, name of array to store Bool-Options
-		["${san}"]="${BOSPARSE_CONSTS_ref["SAN"]}" # ~san, name of array to store String-Options
-		["${pan}"]="${BOSPARSE_CONSTS_ref["PAN"]}" # ~pan, name of array to store Positionals
-
-		# runtime output control
-		["${config}"]=false  # ~/~~~config, output current CONFIGS after a parsing stage
-		["${quiet}"]=false   # ~/~~~quiet    output level, 0
-		["${standard}"]=true # ~/~~~standard output level, 1(default)
-		["${extra}"]=false   # ~/~~~extra    output level, 2
-		["${debug}"]=false   # ~/~~~debug    output level, 3
-		["${trace}"]=false   # ~/~~~trace    output level, 4
-		# ["${trace}"]=true # ~/~~~trace    output level, 4
-		# ["${debug}"]=true # ~/~~~debug    output level, 3
-
-		# Parsing-aid symbols
-		# lids
-		["${prlid}"]='~~~' # ~~~prlid,  leading id sighn for priors, psets and seps
-		["${plid}"]='~'    # ~~~plid,   leading id sign for setting-parameters
-		["${ulid}"]='-'    # ~~~ulid,   leading id sign for user-parameters
-		# separators
-		["${zs}"]='--' # ~~~zs, separator between VAR_ZONE and PP_ZONE
-		["${os}"]='='  # ~~~os, separator between parameter names and their args
-		["${fs}"]=':'  # ~~~fs,   seperator between filter fields
-		["${es}"]='|'  # ~~~es,   seperator between field elements in filter
-		# separators reserved for configs
-		["${bfs}"]="${BOSPARSE_CONSTS_ref["BFS"]}" # setup-banned
-		["${bes}"]="${BOSPARSE_CONSTS_ref["BES"]}" # setup-banned
-		# trailing-tags
-		["${tt}"]='+'  # ~~~tt, tag character for 'true'
-		["${tf}"]='-'  # ~~~tf, tag character for 'false'
-		["${td}"]=true # ~~~td, defaut tag value(when tag omitted)
-	)
-
-	# # parsing result arrays
-	# local o_array=${BOSPARSE_CONFIGS_ref["${oan}"]}
-	# local b_array=${BOSPARSE_CONFIGS_ref["${ban}"]}
-	# local s_array=${BOSPARSE_CONFIGS_ref["${san}"]}
-	# local p_array=${BOSPARSE_CONFIGS_ref["${pan}"]}
-	# declare -gA "${o_array}" "${b_array}" "${s_array}"
-	# declare -ga "${p_array}"
-
-	LIDS_ref=(
-		["prlid"]="${BOSPARSE_CONFIGS_ref[${prlid}]}"
-		["plid"]="${BOSPARSE_CONFIGS_ref[${plid}]}"
-		["ulid"]="${BOSPARSE_CONFIGS_ref[${ulid}]}"
 	)
 
 	# PRIORS/PSETS used to validate Priors/PSets; schemas similar to that of
@@ -278,17 +205,20 @@ function definitions() {
 		["debug"]="${debug}:bool::eg_sv"
 		["trace"]="${trace}:bool::eg_sv"
 	)
+	SUPERS_ref=(
+		["slid"]="${slid}:resym:4"
+	)
 	PRIORS_ref=(
 		["prlid"]="${prlid}:resym:3:ug_lid"
 		["plid"]="${plid}:resym::ug_lid"
 		["ulid"]="${ulid}:resym::ug_lid"
 
-		["zs"]="${zs}:resym:2\|&"
-		["os"]="${os}:resym:-_"
-		["fs"]="${fs}:resym::ug_entry_sep"
-		["es"]="${es}:resym::ug_entry_sep"
-		["tt"]="${tt}:resym::ug_ttag"
-		["tf"]="${tf}:resym::ug_ttag"
+		["zs"]="${zs}:resym:2&"
+		["os"]="${os}:resym:-_:ug_ttag"
+		# ["pfs"]="${pfs}:resym::ug_entry_sep"
+		# ["pes"]="${pes}:resym::ug_entry_sep"
+		["tt"]="${tt}:resym:=:ug_ttag"
+		["tf"]="${tf}:resym:=:ug_ttag"
 		["td"]="${td}:bool"
 
 		["config"]="${config}:bool:"
@@ -303,14 +233,14 @@ function definitions() {
 		["run"]="${run}:enum:auto|source|capture|eval"
 		["mode"]="${run}:enum:auto|source|capture|eval" # same meaning as 'run'
 		["json"]="${json}:bool"
-		["eoe"]="${eoe}:bool"
+		# ["eoe"]="${eoe}:bool"
 
 		["Defaults"]="${Defaults}:bool::eg-directive"
 		["Banner"]="${Banner}:bool::eg-directive"
 		["Resymbols"]="${Resymbols}:boo::eg-directive"
 		["Version"]="${Version}:bool::eg-directive"
 
-		["bf"]="${bf}:string:"
+		# ["bf"]="${bf}:string:"
 		["pf"]="${pf}:string::D-pfilter"
 		["amf"]="${amf}:bool::d-pfilter"
 		["apfd"]="${apfd}:bool::d-pfilter"
@@ -337,10 +267,23 @@ function definitions() {
 		["dependency_leader"]="enum:D"
 	)
 
+	declare -A prior_resyms=(
+		["all"]="~-=_+&%@"
+		["${plid}"]="all"
+		["${ulid}"]="all"
+
+		["${zs}"]="~-=_+%@"
+		["${os}"]="~=+&%@"
+		# ["${pfs}"]=":|()"
+		# ["${pes}"]=":|()"
+		["${tt}"]="~-_+&%@"
+		["${tf}"]="~-_+&%@"
+
+	)
 	# reserved symbols for LIDs and SEPs
 	RESERVED_SYMBOLS_ref=(
 		'~'
-		'-' # cannot be used as OASEP
+		'-'
 		'='
 		'_'
 		'+'
@@ -367,22 +310,82 @@ function definitions() {
 		[' ']="SPACE"
 		['~']="TILDE"
 		['|']="VERTICAL_BAR"
+		['(']="PARENTHESIS_LEFG"
+		[')']="PARENTHESIS_RIGHT"
+		['[']="BRACKET_LEFT"
+		[']']="BRACKET_RIGHT"
+		['{']="BRACE_LEFT"
+		['}']="BRACE_RIGHT"
 	)
+
 	# exceptions for bash variable naming convention, replacing hyphens with underscores
 	EXCEPTIONS_ref=(
 		['-']="_"
 	)
 
-	# pros_tag=""
-	# pros_tag2=""
-	# pros_tag3=""
-	# pros_tag4=""
-	# pros_tag5=""
+	# BosParse configs
+	BOSPARSE_CONFIGS_ref=(
+		# running mode
+		["${run}"]=auto   # ~run/mode, maybe "source", "eval" or "capture"
+		["${json}"]=false # ~json, output  to stdout as json
+		# ["${eoe}"]=true   # ~eoe, exit on error instead of continue running
+
+		# directives
+		["${Defaults}"]=false  # ~Default,  output CONFIGS to stdout
+		["${Banner}"]=false    # ~Banner,   show tag
+		["${Resymbols}"]=false # ~Resymbols, show reserved symbols
+		["${Version}"]=false   # ~Version,  show version
+
+		# filter related
+		# ["${bf}"]="${BOSPARSE_CONSTS_ref[NO_BFILTER]}"    # filter or a mark for unsupplied
+		# ["${bf_id}"]="${BOSPARSE_CONSTS_ref[BFILTER_ID]}" # the key in BFILTER to identify itself
+		["${pf}"]="${BOSPARSE_CONSTS_ref[NO_PFILTER]}"    # filter or a mark for unsupplied
+		["${pf_id}"]="${BOSPARSE_CONSTS_ref[PFILTER_ID]}" # the key in PFILTER to identify itself
+		# mandatories
+		["${amf}"]=false # all parameters should match PFILTER entries
+		["${apfd}"]=true # fulfill user parameters even if not supplied(for non-mcgs)
+
+		# parse result arrays
+		["${oan}"]="${BOSPARSE_CONSTS_ref["OAN"]}" # ~oan, name of array to store Options
+		["${ban}"]="${BOSPARSE_CONSTS_ref["BAN"]}" # ~ban, name of array to store Bool-Options
+		["${san}"]="${BOSPARSE_CONSTS_ref["SAN"]}" # ~san, name of array to store String-Options
+		["${pan}"]="${BOSPARSE_CONSTS_ref["PAN"]}" # ~pan, name of array to store Positionals
+
+		# runtime output control
+		["${config}"]=false  # ~/~~~config, output current CONFIGS after a parsing stage
+		["${quiet}"]=false   # ~/~~~quiet    output level, 0
+		["${standard}"]=true # ~/~~~standard output level, 1(default)
+		["${extra}"]=false   # ~/~~~extra    output level, 2
+		["${debug}"]=false   # ~/~~~debug    output level, 3
+		["${trace}"]=false   # ~/~~~trace    output level, 4
+		# ["${trace}"]=true    # ~/~~~trace    output level, 4
+		# ["${debug}"]=true    # ~/~~~debug    output level, 3
+
+		# Parsing-aid symbols
+		# lids
+		["${slid}"]='~~~~'
+		["${prlid}"]='~~~' # ~~~prlid,  leading id sighn for priors, psets and seps
+		["${plid}"]='~'    # ~~~plid,   leading id sign for setting-parameters
+		["${ulid}"]='-'    # ~~~ulid,   leading id sign for user-parameters
+		# separators
+		["${zs}"]='--' # ~~~zs, separator between VAR_ZONE and PP_ZONE
+		["${os}"]='='  # ~~~os, separator between parameter names and their args
+		# ["${pfs}"]=':'  # ~~~pfs,   seperator between filter fields
+		# ["${pes}"]='|'  # ~~~pes,   seperator between field elements in filter
+		# separators reserved for configs
+		["${fs}"]="${BOSPARSE_CONSTS_ref["FLD_SEP"]}" # setup-banned
+		["${es}"]="${BOSPARSE_CONSTS_ref["ELM_SEP"]}" # setup-banned
+		# trailing-tags
+		["${tt}"]='+'  # ~~~tt, tag character for 'true'
+		["${tf}"]='-'  # ~~~tf, tag character for 'false'
+		["${td}"]=true # ~~~td, defaut tag value(when tag omitted)
+	)
 
 	EXIT_MSG_ref=(
 		["0"]="Parsing succeeded."
 		["1"]="Parsing failed."
 		["2"]="No parameter supplied."
+		["3"]="${pros_tag}"
 
 		# system
 		["10"]="'jq' required but not available."
@@ -527,7 +530,7 @@ function key_of_array_member() {
 #   - by default, if an entry with empty value, test fail
 #   - when a true passed as $3, an entry with empty value will pass the test.
 function is_array_key() {
-	local key=$1
+	local key="$1"
 	local -n arr_ref=${2:-} # array might not available
 	local approve_empty_member=${3:-false}
 	local k
@@ -608,8 +611,8 @@ function exit_with_msg() {
 		# use developer message
 		# is_array_key "$((exit_code + 100))" EXIT_MSG && ((exit_code += 100))
 		[[ -v EXIT_MSG["$((exit_code + 100))"] ]] && ((exit_code += 100))
-		trc
 	fi
+	trc
 
 	if [[ "${verbose:-0}" -gt 0 ]]; then
 		msg="${EXIT_MSG[${exit_code}]}"
@@ -630,47 +633,26 @@ function exit_with_msg() {
 	exit "${exit_code}"
 }
 
-# get the entry separator
-function get_sep() {
-	local lid=$1 sep_type=$2
-	if [[ ${lid} == "${ULID}" ]]; then
-		# seps for user-params
-		if [[ ${sep_type} == "field" ]]; then
-			# field sep for user-params
-			echo "${FLD_SEP}"
-		elif [[ ${sep_type} == "element" ]]; then
-			# element sep for user-params
-			echo "${ELM_SEP}"
-		fi
-	elif [[ ${lid} == "${PLID}" || ${lid} == "${PRLID}" ]]; then
-		# seps for psets
-		if [[ ${sep_type} == "field" ]]; then
-			# field sep for psets
-			echo "${BFLD_SEP}"
-		elif [[ ${sep_type} == "element" ]]; then
-			# element sep for psets
-			echo "${BELM_SEP}"
-		fi
-	else
-		:
-	fi
-}
 # Test if a string contains a leading-id
 #   if lid specified, test with it
-#   or try all lids
+#   if not, try all lids recursively
 function with_lid() {
 	local param=$1 lid=${2:-}
+	local lid_len="${#lid}"
 	if [[ -n ${lid} ]]; then
-		[[ ${param} == "${lid}" ]] && return 0
-		[[ ${param} =~ ^${lid}[^${lid:0:1}].*$ ]] && return 0
-		return 1
+		[[ ${param} == "${lid}" ]] && return 0 # match a solitary LID
+		# lids are made of special characters
+		[[ ${param} =~ ^[${lid}]{${lid_len}}[^${lid:0:1}].*$ ]] && return 0
 	else
-		# try all lids
-		for lid in "${LIDS[@]}"; do
-			[[ ${param} == ${lid}* ]] && return 0
+		# try all lids(include ligas)
+		local Lid
+		local lids=("${SLID}" "${PRLID}" "${PLID}" "${ULID}")
+		lids+=("${PLID}${PLID}" "${ULID}${ULID}")
+		for Lid in "${lids[@]}"; do
+			with_lid "${param}" "${Lid}" && return 0
 		done
-		return 1
 	fi
+	return 1
 }
 
 # calculate the max length amoung MEMBERs of an array
@@ -835,7 +817,7 @@ function is_in_resyms() {
 	local param=$1
 	local resym
 	for resym in "${RESYMS[@]}"; do
-		[[ ${param} =~ ^${resym}+$ ]] && return 0
+		[[ ${param} =~ ^[${resym}]+$ ]] && return 0
 	done
 	return 1
 }
@@ -854,10 +836,6 @@ function check_param_type() {
 
 	local param_name arg
 
-	# echo "${lid} | ${current} | ${next}"
-	# echo "lid:  $lid"
-	# echo "curr: $current | next: $next"
-
 	param_ref="${current}"
 
 	if with_lid "${current}" "${lid}${lid}"; then
@@ -865,17 +843,18 @@ function check_param_type() {
 		return 1
 	elif with_lid "${current}" "${lid}"; then
 		# '-current ' like, with lid
-		if [[ "${current}" == *${OA_SEP}* ]]; then
+		if [[ "${current}" == ${lid}*${OA_SEP}* ]]; then
 			# '-current=arg' like, depends on arg
-			param_name=${current%%"${OA_SEP}"*} # %% incase arg contains OA_SEP
-			arg=${current#*"${OA_SEP}"}         # extract arg
+			param_name=${current#"${lid}"}         # remove lid in case '$lid==$OA_SEP'
+			param_name=${param_name%%"${OA_SEP}"*} # %% in case arg contains OA_SEP
+			arg=${current#*"${OA_SEP}"}            # extract arg
 			if [[ ${arg} == true ]]; then
 				# '-currnt=true' like, a bool
-				param_ref="${param_name}${TAG_TRUE}"
+				param_ref="${lid}${param_name}${TAG_TRUE}"
 				return 2
 			elif [[ ${arg} == false ]]; then
 				# '-current=false' like, a bool
-				param_ref="${param_name}${TAG_FALSE}"
+				param_ref="${lid}${param_name}${TAG_FALSE}"
 				return 2
 			else
 				# '-current="right now"' like, a string
@@ -897,19 +876,20 @@ function check_param_type() {
 				return 3
 			else
 				# '-current "year of 1984"' like, a string(next is not a boolean value)
-				param_ref="${current}=${next}"
+				param_ref="${current}${OA_SEP}${next}"
 				return 5
 			fi
 		fi
 	elif with_lid "${current}"; then
-		# '<alter-lid>current ' like, match other lids
+		# '<alter-lid>current ' like, match other lids(include ligas)
 		if with_lid "${next}" || [[ -z "${next}" ]]; then
 			# '<alter-lid>current <lid>next' like
 			# or '<alter-lid>current --' like, not consume an arg
 			return 6
 		else
 			# '<lid>current next' like, will consume an arg
-			# when 'current == *${OA_SEP}*' like, it will be an input error
+			# when 'current == *${OA_SEP}*' like, or
+			#      'current == -param-' like, might be an input error
 			# leave it to alter-lid parsing to handle
 			return 7
 		fi
@@ -944,7 +924,7 @@ function apply_setup() {
 		BP_OPTIONS["${ps}"]="${BP_BOOLS[${ps}]}"
 	done
 
-	msg_bp 4 "  ${title} before applying settings:" >&2
+	msg_bp 4 "  ${title} after applying settings:" >&2
 	# apply settings to CONFIGS
 	field_len=$(
 		for ps in "${!BP_OPTIONS[@]}"; do
@@ -1111,10 +1091,6 @@ function extract_filter_schema() {
 	local lid=$1 p_schema=$2
 	local -n p_type=$3 p_data=$4
 
-	# use different field separator for user filters and pset filters
-	local FSEP="${FLD_SEP}"
-	[[ ${lid} == "${ULID}" ]] || FSEP="${BFLD_SEP}"
-
 	if [[ $# == 5 ]]; then
 		local -n p_mcg=${5:-}
 	else
@@ -1122,20 +1098,20 @@ function extract_filter_schema() {
 	fi
 
 	# escape FLD-SETs
-	escape_symbol p_schema "${FSEP}"
+	escape_symbol p_schema "${FLD_SEP}"
 	# p_schema="${p_schema//\\:/__COLON__}"
 
 	# for PLID/PRLID, remove conf_name field
-	[[ ${lid} == "${ULID}" ]] || p_schema=${p_schema#*"${FSEP}"}
+	[[ ${lid} == "${ULID}" ]] || p_schema=${p_schema#*"${FLD_SEP}"}
 
 	# use 'read' instead of 'awk' to speed up
-	local IFS="${FSEP}"
+	local IFS="${FLD_SEP}"
 	read -r p_type p_data p_mcg <<<"${p_schema}"
 
 	# restore escaped FLD_SEPs
-	escape_symbol p_type "${FSEP}" "regress"
-	escape_symbol p_data "${FSEP}" "regress"
-	escape_symbol p_mcg "${FSEP}" "regress"
+	escape_symbol p_type "${FLD_SEP}" "regress"
+	escape_symbol p_data "${FLD_SEP}" "regress"
+	escape_symbol p_mcg "${FLD_SEP}" "regress"
 
 	# p_type="${p_type//__COLON__/\\:}"
 	# p_data="${p_data//__COLON__/\\:}"
@@ -1160,7 +1136,7 @@ function pfilter_integrity_check() {
 	local pf_key entry_schema
 
 	for mcg_type in "${MCG_TYPES[@]}"; do
-		mcg_types+=("${mcg_type#*"${BFLD_SEP}"}") # assumes MCG_TYPES schema="type:value"
+		mcg_types+=("${mcg_type#*"${FLD_SEP}"}") # assumes MCG_TYPES schema="type:value"
 	done
 
 	for pf_key in "${!p_filter[@]}"; do
@@ -1381,6 +1357,17 @@ function extract_options() {
 	local i
 
 	for i in "${!CML[@]}"; do
+		# presess priors
+		if [[ ${lid} == "${PRLID}" ]]; then
+			with_lid "${CML[i]}" "${PRLID}" || continue
+			if [[ ${CML[i]} == *${OA_SEP}* ]]; then
+				strings_ref+=("${CML[i]}")
+			else
+				bools_ref+=("${CML[i]}")
+			fi
+			continue
+		fi
+
 		if [[ "${arg_consumed}" == true ]]; then
 			# param is the ARG of last param, skip
 			arg_consumed=false
@@ -1575,7 +1562,8 @@ function parse_options() {
 	local lid=$1
 	local -n strings_ref=$2 bools_ref=$3 ligas_ref=$4
 
-	parse_ligas "${lid}${lid}" ligas_ref
+	# no liga for priors
+	[[ ${lid} == "${PRLID}" ]] || parse_ligas "${lid}${lid}" ligas_ref
 	parse_bools "${lid}" bools_ref
 	parse_strings "${lid}" strings_ref
 }
@@ -1592,7 +1580,7 @@ function parse_positionals() {
 
 # validate:
 #   test exactly match an array member
-#   if not, try prefix-matching
+#   if not, try prefix-matching/postfix-matching(depends on $4)
 # output:
 #	non-matched:      ""
 #   one matched:      expactly/prefixly matched
@@ -1603,17 +1591,18 @@ function prefix_matching() {
 	local lid=$1
 	local candidate=$2
 	local -n matching_list=$3
-	local pk fld_sep="${FLD_SEP}"
+	local prefix=${4:-prefix}
 
-	[[ ${lid} == "${ULID}" ]] || fld_sep="${BFLD_SEP}"
+	local pk
+
 	declare -a matched=()
 
 	msg_bp 4 "      prefix-matching: ${candidate} to ${matching_list[*]}"
 
 	# in case candidate needs escape(\)
 	candidate_escaped="$(printf '%q' "${candidate}")"
-	# FLD_SEP and BFLD_SEP must be escaped, candidate shuld be escape too
-	candidate_escaped="${candidate_escaped//"${fld_sep}"/\\"${fld_sep}"}"
+	# FLD_SEP must be escaped, candidate should be escape too
+	candidate_escaped="${candidate_escaped//"${FLD_SEP}"/\\"${FLD_SEP}"}"
 
 	msg_bp 4 "      candidate escaped: ${candidate_escaped}"
 
@@ -1623,9 +1612,18 @@ function prefix_matching() {
 		return 0
 	fi
 
-	# try prefix-matching
+	# try prefix/postfix matching
 	for pk in "${matching_list[@]}"; do
-		[[ ${pk} =~ ^${candidate_escaped} ]] && matched+=("${pk}")
+		if [[ ${prefix} == "prefix" ]]; then
+			# prefix matching
+			[[ ${pk} =~ ^${candidate_escaped} ]] && matched+=("${pk}")
+		elif [[ "postfix" =~ ^${prefix} ]]; then
+			# postfix-matching
+			[[ ${pk} =~ ${candidate_escaped}$ ]] && matched+=("${pk}")
+		else
+			pros_tag="Wrong options '${prefix}' when calling 'prefix-matching()'"
+			exit_with_msg 3
+		fi
 	done
 
 	if [[ "${#matched[@]}" -eq 1 ]]; then
@@ -1693,11 +1691,6 @@ function validate_param_arg() {
 	# echo param: $param
 	local val=${v_options[${e_param}]}
 	declare pm_arr=()
-	local ESEP="${ELM_SEP}" FSEP="${FLD_SEP}"
-	[[ ${lid} == "${ULID}" ]] || {
-		ESEP="${BELM_SEP}"
-		FSEP="${BFLD_SEP}"
-	}
 
 	pros_tag="${ptitle}"
 
@@ -1709,15 +1702,15 @@ function validate_param_arg() {
 		# split enum string safely into array, handling escaped pipes
 		local pf_data_orig="${pf_data}"
 		escape_symbol pf_data "\\"
-		escape_symbol pf_data "${FSEP}"
-		escape_symbol pf_data "${ESEP}"
+		escape_symbol pf_data "${FLD_SEP}"
+		escape_symbol pf_data "${ELM_SEP}"
 		# pf_data="${pf_data//\\|/__PIPE__}"
-		local IFS="${ESEP}"
+		local IFS="${ELM_SEP}"
 		read -ra enum_list <<<"${pf_data}"
 		# regress enum values
 		for i in "${!enum_list[@]}"; do
-			escape_symbol enum_list[i] "${ESEP}" "regress"
-			escape_symbol enum_list[i] "${FSEP}" "regress"
+			escape_symbol enum_list[i] "${ELM_SEP}" "regress"
+			escape_symbol enum_list[i] "${FLD_SEP}" "regress"
 			escape_symbol enum_list[i] "\\" "regress"
 			# Restore escaped pipes
 			# enum_list[i]="${enum_list[i]//__PIPE__/\|}"
@@ -1749,7 +1742,7 @@ function validate_param_arg() {
 		2) # multiple matched
 			pros_tag="enum value of"
 			pros_tag2="${lid}${param}=${val}"
-			# pros_tag3="${pfm_names[*]//"${ESEP}"/\/}"
+			# pros_tag3="${pfm_names[*]//"${ELM_SEP}"/\/}"
 			pros_tag3="${pfm_names[*]}"
 			exit_with_msg 56
 			;;
@@ -1805,18 +1798,15 @@ function get_all_mcg_names() {
 	local lid=$1
 	local -n pfilter=$2 mcg_groups_ref=$3
 	local mem dummy mcg mcg_name
-	local ESEP
-
-	ESEP="$(get_sep "${lid}" "element")"
 
 	for mem in "${!pfilter[@]}"; do
 		extract_filter_schema "${lid}" "${pfilter[${mem}]}" dummy dummy mcg
 		if [[ -n ${mcg} ]]; then
-			escape_symbol mcg "${ESEP}"
+			escape_symbol mcg "${ELM_SEP}"
 			# a param might belongs to multiple groups
-			for mcg_name in ${mcg//"${ESEP}"/ }; do
+			for mcg_name in ${mcg//"${ELM_SEP}"/ }; do
 				# clean up mcg-name
-				escape_symbol mcg_name "${ESEP}" "regress"
+				escape_symbol mcg_name "${ELM_SEP}" "regress"
 				mcg_groups_ref["${mcg_name}"]=true
 			done
 		fi
@@ -1827,14 +1817,12 @@ function get_all_mcg_names() {
 function validate_mcg_types() {
 	local -n mcg_names_ref=$1
 
-	local mem SEP
+	local mem
 	declare -a mcg_types=()
-
-	SEP="$(get_sep "${lid}" "field")"
 
 	# all available type in PFILTER
 	for mem in "${MCG_TYPES[@]}"; do
-		mcg_types+=("${mem#*"${SEP}"}")
+		mcg_types+=("${mem#*"${FLD_SEP}"}")
 	done
 
 	# validate each parameter's mcg type
@@ -1875,7 +1863,7 @@ function validate_sibling_groups() {
 		# find members in the same mcg
 		for member in "${!filter_ref2[@]}"; do
 			member_mcg=${filter_ref2[${member}]##*:}
-			local IFS="${ESEP}"
+			local IFS="${ELM_SEP}"
 			read -ra member_mcgs <<<"${member_mcg}"
 			if is_array_member "${mcg}" member_mcgs; then
 				mcg_members+=("${member}")
@@ -1983,10 +1971,6 @@ function validate_option_mcgs() {
 	declare -A ug_values=()
 	declare -a ug_supplied=()
 
-	local FSEP ESEP
-	FSEP="$(get_sep "${lid}" "field")"
-	ESEP="$(get_sep "${lid}" "element")"
-
 	# get all mcg names(field/element escape should be regressed)
 	get_all_mcg_names "${lid}" filter_ref mc_groups
 	# echo2 "lid: $lid"
@@ -2013,12 +1997,12 @@ function validate_option_mcgs() {
 		# collect members in the this mcg
 		for member in "${!filter_ref[@]}"; do
 			extract_filter_schema "${lid}" "${filter_ref[${member}]}" def_type def_data def_mcg
-			escape_symbol def_mcg "${ESEP}"
-			local IFS="${ESEP}"
+			escape_symbol def_mcg "${ELM_SEP}"
+			local IFS="${ELM_SEP}"
 			read -ra member_mcg_names <<<"${def_mcg}"
 			for mcg_name in "${!member_mcg_names[@]}"; do
 				# clean up
-				escape_symbol member_mcg_names["${mcg_name}"] "${ESEP}" "regress"
+				escape_symbol member_mcg_names["${mcg_name}"] "${ELM_SEP}" "regress"
 			done
 			if is_array_member "${mcg}" member_mcg_names; then
 				mcg_members+=("${member}")
@@ -2094,11 +2078,11 @@ function validate_option_mcgs() {
 					# msg_bp -4 "      member " "'${member}' not supplied, use CONFIGS value for checking"
 					# msg_bp -4 "      member " "'${member}' default: ${CONFIGS[${PSETS[${member}]%%:*}]}"
 					if [[ ${lid} == "${PLID}" ]]; then
-						default_value="${CONFIGS[${PSETS[${member}]%%"${BFLD_SEP}"*}]}"
+						default_value="${CONFIGS[${PSETS[${member}]%%"${FLD_SEP}"*}]}"
 						msg_bp -4 "      member " "'${member}' un-supplied, default: '${default_value}'"
 						ug_values["${default_value}"]=true
 					elif [[ ${lid} == "${PRLID}" ]]; then
-						default_value="${CONFIGS[${PRIORS[${member}]%%"${BFLD_SEP}"*}]}"
+						default_value="${CONFIGS[${PRIORS[${member}]%%"${FLD_SEP}"*}]}"
 						msg_bp -4 "      member " "'${member}' un-supplied, default: '${default_value}'"
 						ug_values["${default_value}"]=true
 					fi
@@ -2330,16 +2314,16 @@ function validate_user_options() {
 
 	msg_bp 3 "  Validate PFILTER"
 	# in case the name 'PFILTER' used by user
-	if [[ ${CONFIGS[${PSETS["pf"]%%"${BFLD_SEP}"*}]} != "PFILTER" ]]; then
+	if [[ ${CONFIGS[${PSETS["pf"]%%"${FLD_SEP}"*}]} != "PFILTER" ]]; then
 		declare -A PFILTER
 	fi
-	validate_pfilter "${CONFIGS[${PSETS["pf"]%%"${BFLD_SEP}"*}]}"
+	validate_pfilter "${CONFIGS[${PSETS["pf"]%%"${FLD_SEP}"*}]}"
 
 	msg_bp 3 "  validate params with PFILTER"
 	validate_options_by_filter "${ULID}" "${mandatory}"
 
 	# fulfilling un-supplied parameters if '~apfd' set
-	if [[ ${CONFIGS["${PSETS[apfd]%%"${BFLD_SEP}"*}"]} == true ]]; then
+	if [[ ${CONFIGS["${PSETS[apfd]%%"${FLD_SEP}"*}"]} == true ]]; then
 		msg_bp 3 "  - assign default values if not supplied"
 		[[ ${verbose} -ge 4 ]] && printf "    \e[4;33m%-12s - %6s | %14s | %-10s | %s\e[0m\n" \
 			"param" "type" "data" "mcg" "status" >&2
@@ -2604,8 +2588,8 @@ function bosparse() {
 	local pros_tag="" pros_tag2="" pros_tag3="" pros_tag4="" pros_tag5=""
 	# local pros_tag pros_tag2 pros_tag3 pros_tag4 pros_tag5
 
-	declare -A CONFIGS CONSTS PRIORS PSETS SVERBOSE
-	declare -A LIDS EXCEPTIONS EXIT_MSG MCG_TYPES ESYMBOLS
+	declare -A CONFIGS CONSTS SUPERS PRIORS PSETS SVERBOSE
+	declare -A EXCEPTIONS EXIT_MSG MCG_TYPES ESYMBOLS
 	declare -a RESYMS PFILTER_ENTRY_TYPES
 
 	definitions \
@@ -2613,7 +2597,7 @@ function bosparse() {
 		CONSTS \
 		PSETS \
 		PRIORS \
-		LIDS \
+		SUPERS \
 		RESYMS \
 		EXCEPTIONS \
 		EXIT_MSG \
@@ -2622,24 +2606,20 @@ function bosparse() {
 		SVERBOSE \
 		ESYMBOLS
 
-	declare -n PRLID='LIDS["prlid"]'
-	declare -n PLID='LIDS["plid"]'
-	declare -n ULID='LIDS["ulid"]'
+	declare -n SLID="CONFIGS[${SUPERS["slid"]%%:*}]"
+	declare -n PRLID="CONFIGS[${PRIORS["prlid"]%%:*}]"
+	declare -n PLID="CONFIGS[${PRIORS["plid"]%%:*}]"
+	declare -n ULID="CONFIGS[${PRIORS["ulid"]%%:*}]"
 	declare -n RUN_MODE="CONFIGS[${PSETS["run"]%%:*}]"
 	declare -n ZN_SEP="CONFIGS[${PRIORS["zs"]%%:*}]"
 	declare -n OA_SEP="CONFIGS[${PRIORS["os"]%%:*}]"
-	declare -n FLD_SEP="CONFIGS[${PRIORS["fs"]%%:*}]"
-	declare -n ELM_SEP="CONFIGS[${PRIORS["es"]%%:*}]"
-	declare -n BFLD_SEP="CONSTS[BFS]"
-	declare -n BELM_SEP="CONSTS[BES]"
+	declare -n FLD_SEP="CONSTS[FLD_SEP]"
+	declare -n ELM_SEP="CONSTS[ELM_SEP]"
 	declare -n TAG_TRUE="CONFIGS[${PRIORS["tt"]%%:*}]"
 	declare -n TAG_FALSE="CONFIGS[${PRIORS["tf"]%%:*}]"
 	declare -n TAG_DEFAULT="CONFIGS[${PRIORS[td]%%:*}]"
 	declare -n NO_PFILTER='CONSTS["NO_PFILTER"]'
 	declare -n PFILTER_ID='CONSTS["PFILTER_ID"]'
-
-	# echo2 "BFLD_SEP: $BFLD_SEP"
-	# echo2 "BELM_SEP: $BELM_SEP"
 
 	# arrays for parsing result
 	#   - BP_OPTIONS is the main result array for all types of Options
@@ -2655,10 +2635,10 @@ function bosparse() {
 	declare -A "${CONFIGS[${PSETS["ban"]%%:*}]}"
 	declare -ga "${CONFIGS[${PSETS["pan"]%%:*}]}"
 
-	declare -n "BP_OPTIONS=${CONFIGS[${PSETS["oan"]%%:*}]}"
-	declare -n "BP_STRINGS=${CONFIGS[${PSETS["san"]%%:*}]}"
-	declare -n "BP_BOOLS=${CONFIGS[${PSETS["ban"]%%:*}]}"
-	declare -n "BP_POSITIONALS=${CONFIGS[${PSETS["pan"]%%:*}]}"
+	declare -n BP_OPTIONS="${CONFIGS[${PSETS["oan"]%%:*}]}"
+	declare -n BP_STRINGS="${CONFIGS[${PSETS["san"]%%:*}]}"
+	declare -n BP_BOOLS="${CONFIGS[${PSETS["ban"]%%:*}]}"
+	declare -n BP_POSITIONALS="${CONFIGS[${PSETS["pan"]%%:*}]}"
 
 	# echo ---------------------
 	# echo $* >&2
@@ -2671,15 +2651,16 @@ function bosparse() {
 
 	# supper verbose for Priors parsing
 	local super_verbose="" sver
-	# remove '~pf' from cml
+	# remove '~pf' from cml in case SLID included in PFILTER
 	local CMLM=("$@") i
 	for i in "${!CMLM[@]}"; do
 		if [[ ${CMLM[i]} =~ ^\~pf= ]]; then
 			unset "CMLM[i]"
+			break
 		fi
 	done
 	for sver in "${!SVERBOSE[@]}"; do
-		if [[ ${CMLM[*]} =~ ~~~~${sver} ]]; then
+		if [[ ${CMLM[*]} =~ ${SLID}${sver} ]]; then
 			super_verbose="${BASH_REMATCH[0]}"
 			echo2 "super_verbose: ${super_verbose}"
 			super_verbose="${BASH_REMATCH[0]##*\~}"
