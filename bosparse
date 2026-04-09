@@ -470,7 +470,7 @@ function definitions() {
 # Primitives -------------------------------------------------------------------
 
 # check if the parameter is a array key
-function echo2() { echo >&2 "$@"; }
+function echo2() { echo -e >&2 "$@"; }
 
 # operations:
 #   escape: symbol-with-escape-mark -> name-pattern(default)
