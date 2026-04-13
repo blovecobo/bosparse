@@ -10,7 +10,7 @@ Use PFILTER when you want:
 - default values for missing parameters
 - unambiguous prefix matching for options and enum values
 - exact control over unknown options
-- parameter relationships such as exclusion, dependency, uniqueness, and sibling rules
+- parameter relationships such as exclusion, dependency, uniqueness, master and sibling
 
 ## Quick Start
 
@@ -20,7 +20,7 @@ Every PFILTER must include a `PARAM-FILTER` identifier entry:
 
 ```bash
 declare -A PFILTER=(
-  [PARAM-FILTER]="PFILTER is a bad idea"
+  ["PARAM-FILTER"]="PFILTER is a bad idea"
   [help]="bool:false:"
   [mode]="enum:fast|safe|debug:"
   [output]="string:/tmp/result.txt:"
@@ -40,19 +40,19 @@ bosparse ~pf=PFILTER "$@"
 - Eval mode:
 
 ```bash
-pfilter=$(serialize_assoc_array PFILTER)
+pfilter=$(serialize-pfilter PFILTER)
 eval "$(./bosparse ~pf="${pfilter}" "$@")"
 ```
 
 - Capture mode:
 
 ```bash
-PF_JSON=$(serialize_assoc_array PFILTER)
+PF_JSON=$(serialize-pfilter PFILTER)
 result=$(./bosparse ~pf="$PF_JSON" ~json "$@")
 echo "$result" | jq '.'
 ```
 
-### 3. Validate and assign
+### 3. Validation and assignment
 
 BosParse parses options, validates values against PFILTER, and then assigns values or defaults as configured.
 
@@ -64,7 +64,7 @@ Each entry has the form:
 [param_name]="type:data:mcg"
 ```
 
-- `type`: `bool`, `string`, or `enum`
+- `type`: `bool`, `string` or `enum`
 - `data`: default value or enum list
 - `mcg`: mutual-correlation group name(s)
 
@@ -80,7 +80,7 @@ Each entry has the form:
 [debug]="bool:"
 ```
 
-- Accepts only `true` or `false`
+- Accepts `true` or `false`
 - `data` is the default value
 - `-debug` sets `debug=true`
 
@@ -93,7 +93,7 @@ Each entry has the form:
 ```
 
 - Accepts any string value
-- If missing and `~apfd` is enabled, BosParse assigns the default
+- If missing and `~apfd` enabled, BosParse assigns the default
 
 ### enum
 
@@ -102,17 +102,17 @@ Each entry has the form:
 [color]="enum:red|green|blue:"
 ```
 
-- Accepts only values listed in `data`
+- Accepts values listed in `data`
 - Supports prefix matching for enum values
-- The first listed value becomes the default when `~apfd` is enabled and no value is supplied
+- The first listed value becomes the default when `~apfd` enabled and no value supplied
 
 ## PFILTER Control PSets
 
-- `~pf`: PFILTER input
+- `~pf`: pass PFILTER via PFILTER name reference or a serialized json string from PFILTER
 - `~amf`: all-match-filter
   - `~amf` enables strict validation and rejects unknown parameters
   - `~amf-` allows unknown parameters
-- `~apfd`: apply PFILTER defaults
+- `~apfd`: apply PFILTER defaults for un-grouped parameters
   - enabled by default
   - `~apfd-` disables default assignment
 
@@ -122,7 +122,7 @@ PFILTER supports unambiguous prefix matching for parameter names and enum values
 
 ```bash
 declare -A PFILTER=(
-  [PARAM-FILTER]="PFILTER is a bad idea"
+  ["PARAM-FILTER"]=""
   [help]="bool:false:"
   [username]="string:guest:"
   [color]="enum:red|green|blue:"
@@ -131,9 +131,9 @@ declare -A PFILTER=(
 
 Examples:
 
-- `-h` matches `-help`
-- `-user=alice` matches `-username`
-- `-col=gr` matches `-color=green`
+- `-h`, `-he`, `-hel`and `-help` matches `-help`
+- `-user=alice` matches `-username=alice`
+- `-c=g` matches `-color=green`
 
 If a prefix is ambiguous, parsing fails.
 
@@ -143,7 +143,7 @@ PFILTER supports group-based relationships.
 
 ### Exclusion groups (`e` prefix)
 
-Only one parameter in the group may be supplied.
+One parameter in the group may supply.
 
 ```bash
 [option_a]="string::erole"
@@ -159,18 +159,28 @@ Parameters must receive different values.
 [item_b]="string::ug_items"
 ```
 
-### Dependency groups (`d`/`D` prefix)
+### Dependency groups (`d`|`D` prefix)
 
-Lowercase members depend on the uppercase group leader.
+Lowercase members depend on the capital group member.
 
 ```bash
 [master]="string::D-auth"
 [slave]="string::d-auth"
 ```
 
+### Master groups (`M`|`m` prefix)
+
+Lowercase member set to supplied capital member's name.
+
+```bash
+["master1"]="bool::Master"
+["master2"]="bool::Master"
+["follower"]="string:master3:master"
+```
+
 ### Sibling groups (`s` prefix)
 
-Either all members are supplied or none are.
+Either all members supplied or none does.
 
 ```bash
 [host]="string::s-net"
@@ -182,16 +192,16 @@ Either all members are supplied or none are.
 PFILTER uses special schema characters:
 
 - `:` field separator
-- `|` enum/group separator
+- `|` enum value/group name separator
 - `\` escape character
 
-Escape these characters when they appear literally.
+Escape these characters when they appear.
 
 Example:
 
 ```bash
 declare -A PFILTER=(
-  [PARAM-FILTER]="escape"
+  ["PARAM-FILTER"]="escape"
   [punctuation]="enum:,|.|;|\\:|\\||\\\\|?:"
 )
 ```
@@ -199,7 +209,7 @@ declare -A PFILTER=(
 ## Troubleshooting
 
 - Missing `PARAM-FILTER` makes PFILTER invalid
-- Unknown option errors usually mean `~amf` is enabled or the option is not defined in PFILTER
+- Unknown option errors might mean `~amf` enabled but the option is not defined in PFILTER
 - Ambiguous prefix errors mean the prefix matches more than one parameter
 - Enum validation errors mean the value is not in the allowed list
 

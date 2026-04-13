@@ -60,7 +60,7 @@ OP-ZONE -- PP-ZONE
 
 - `OP-ZONE`: options and parser settings
 - `PP-ZONE`: positional values
-- `--`: recommended separator
+- `--`: default zone separator(ZN-SEP)
 
 ## Supported Parameters
 
@@ -70,7 +70,7 @@ OP-ZONE -- PP-ZONE
 - `-name value`
 - `-flag+` sets boolean true
 - `-flag-` sets boolean false
-- `-flag` treated as `true`
+- `-flag` set `true` (default setting)
 
 Example:
 
@@ -92,22 +92,23 @@ Ligatures compress boolean flags:
 
 ```bash
 ./script.sh --abcd --
+./script.sh --2abcdef --
 ```
 
-This sets `a=true`, `b=true`, `c=true`, and `d=true`.
+This sets `a=true`, `b=true`, `c=true`, `d=true`, or `ab=true`, `cd=true`, `ef=true`.
 
 ## Parser Settings (`~` PSets)
 
-Parser settings use the `~` prefix.
+Parser setting parameters use the `~` prefix.
 
 Common settings:
 
 - `~json`: produce JSON output
-- `~run=source`, `~run=eval`, `~run=capture`
+- `~run=source`, `~run=eval`, `~run=capture`: run-mode setting
 - `~mode` alias for `~run`
-- `~quiet`, `~debug`, `~trace`
+- `~quiet`, `~standard`, `~extra`, `~debug`, `~trace`: output control
 - `~oan`, `~san`, `~ban`, `~pan` to rename result arrays
-- `~Banner`, `~Version`, `~Resymbols`, `~Defaults`
+- `~Banner`, `~Version`, `~Resymbols`, `~Defaults`: display BosParse properties
 
 Example:
 
@@ -146,12 +147,12 @@ Result:
 
 - `name=alice`
 - `active=false`
-- `BP_Positionals[0]=file1.txt`
+- `BP_Positionals_0=file1.txt`
 
 ### Capture / JSON mode
 
 ```bash
-./script.sh ~json -name=alice -active+ -- file1.txt
+./bosparse ~json -name=alice -active+ -- file1.txt | jq .
 ```
 
 Result:

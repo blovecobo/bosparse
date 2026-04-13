@@ -1,6 +1,12 @@
-# BosParse Advanced Manual
+# BosParse User's Manual
 
-This manual covers advanced BosParse features not included in the basic README or PFILTER guide. It includes parsing-aid symbols, customization, preserved symbols, and detailed mutual-correlation group rules.
+This manual covers detail information of BosParse not included in the basic README or PFILTER guide. It includes parsing-aid symbols, customization, preserved symbols, and detailed mutual-correlation group rules.
+
+## Naming Option Parameters
+
+BosParse parsed Options to key-value pairs for script usage, that requires parameter names should be valid bash variable names.
+
+As an exception, using the hyphen `-` in parameter name permitted if not at the beginning or end(e.g. -user-name), and BosParse will replace hyphens `-` to underscores `_` in the final result.
 
 ## Parsing-Aid Symbols (PAS)
 
@@ -9,7 +15,7 @@ BosParse uses configurable symbols to identify and parse command-line parameters
 ### Leading IDs (LIDs)
 
 - User-option LID (ULID): `-` for user options (default)
-- User-option LIGA LID (ULIGA): `--` for user ligatures (default)
+- User-option LIGA LID (ULIGA): `--` for user ligatures (auto-set to double ULID)
 - PSet LID (PLID): `~` for parser settings (default)
 - PSet LIGA LID (PLIGA): `~~` for ligature PSets (auto-set to double PLID)
 - Prior LID (PRLID): `~~~` for prior-parsing PSets (default)
@@ -25,33 +31,35 @@ BosParse uses configurable symbols to identify and parse command-line parameters
 - Zone separator (ZN-SEP): `--` separates options from positionals (default)
 - Option-ARG separator (OA-SEP): `=` separates option names from values (default)
 - Field separator (FLD-SEP): `:` separates PFILTER fields (default)
-- Element separator (ELM-SEP): `|` separates enum values or group names (default)
+- Element separator (ELM-SEP): `|` separates PFILTER enum values or MCG names (default)
 
-Note: 
-- for user options, a space or spaces used to separate ARGs from Option names supported
+Note:
 
+- For user options, a space or spaces used to separate Option names from ARGs supported;
+- Except FLD-SEP, ELM-SEP and PRLID, all other PAS characters can be customized by user, but some restrictions apply(see RESYMS section).
+- Always use ZN-SEP to separate options from positionals, even if only one zone exists, to avoid parsing errors.
 
 ## Customizing Parsing-Aid Symbols (Priors)
 
-Prior PSets (PRLID `~~~`) parsed before others, sequence in CML does't matter:
+Prior PSets (PRLID `~~~`) parsed before others, sequence in CML doesn't matter:
 
 ```bash
-./bosparse -name=value ~~~ulid=& ~~~plid=@ ~~~tt=- ~~~tf=~ -- file.txt
+./bosparse %name@value ~~~ulid=% ~~~plid=+ +trace! ~~~os=@ ~~~tt=! --
 ```
 
-In `source` mode, repeatedly BosParse calling supported:
+Repeatedly BosParse calling supported:
 
 ```bash
 source ./bosparse
 # setting first
-bosparse  ~~~ulid=& ~~~plid=@ ~~~tt=- ~~~tf=~ --
+bosparse  ~~~ulid=% ~~~plid=@ ~~~tt=- ~~~tf=~ --
 # user params
-bosparse -name=value -- file.txt
+bosparse %name=value %registered~ @debug- -- file.txt
 ```
 
 This changes:
 
-- ULID from `-` to `&`
+- ULID from `-` to `%`
 - PLID from `~` to `@`
 - TT from `+` to `-`
 - TF from `-` to `~`
@@ -59,53 +67,56 @@ This changes:
 Example command:
 
 ```bash
-bosparse ~~~ulid=& ~~~plid=@ &name=value @json -- file.txt
+JSON=$(bosparse !name=value ~~~ulid=! ~~~plid=@ @json ~~~zs=== == file.txt)
 ```
 
-Note:
-- ZN-SEP(`~~~zs`) can only be set in source mode via separated BosParse calling.
+Available Priors:
 
+- `~~~plid`,`~~~ulid`: set PSet LID and User-option LID
+- `~~~zs`, `~~os`: set ZN-SEP and OA-SEP
+- `~~~tt`, `~~~tf`: set trailing-tags
+- `~~~td`: set TD value
 
 ## Preserved Symbols (RESYMS)
 
-RESYMS are characters reserved for PAS and PFILTER fields.
+RESYMS are characters reserved for PAS.
 Some restrictions apply:
 
 - All LIDs: duplicate values not permitted(include LIGAs)
-- TT & TD: different values
-- OA-SEP: `-`/`_` excluded(conflicts with parameter names)
-- ZN-SEP: `|`/`&` excluded(interfers Bash globbing)
-- FLD-SEP/ELM-SEP: should be escaped when using in fields
+- TT & TF: `=` excluded; `+` and `-` recommended for clarity and consistency with common conventions
+- OA-SEP: `-`/`_` excluded (conflicts with parameter names)
+- FLD-SEP/ELM-SEP: should escape when using in fields; customize not supported
 
-RESYMS set can be checked with directive:
+RESYMS set can be checked with direct command:
 
 ```bash
-bosparse ~Resymbols 
+bosparse ~Resymbols
 ```
 
 ## Mutual-Correlation Group (MCG) Rules
 
-MCGs enforce relationships between parameters. Parameters can belong to multiple groups.
+MCGs enforce relationships between parameters. Parameters can belong to more than one group.
 
 ### Group Types
 
-- **Exclusion (`e` prefix)**: Only one parameter in the group can be supplied
+- **Exclusion (`e` prefix)**: One or none parameter in the group can supply
 - **Uniqueness (`u` prefix)**: Parameters must have different values
-- **Dependency (`d`/`D` prefix)**: Lowercase members depend on uppercase leader
-- **Sibling (`s` prefix)**: All members must be supplied together or omitted together
+- **Dependency (`d`/`D` prefix)**: Lowercase members depend on capital member
+- **Masters(`m`/`M`)**: Lowercase member assigned to the name of supplied capital member
+- **Sibling (`s` prefix)**: All members must supplied together or omitted together
 
 ### Detailed Rules
 
 #### Exclusion Groups
 
-If more than one member is supplied, parsing fails.
+If more than one member supplied, parsing fails.
 
 ```bash
 [role_a]="string::erole"
 [role_b]="string::erole"
 ```
 
-Error if both `-role_a=admin -role_b=user` are provided.
+Error if both `-role_a=admin` and `-role_b=user` supplied.
 
 #### Uniqueness Groups
 
@@ -121,33 +132,47 @@ Error if `-item_a=apple -item_b=apple`.
 
 #### Dependency Groups
 
-Lowercase members (`d`) require the uppercase leader (`D`) to be supplied.
+Lowercase members (`d`) require the capital (`D`) supplied.
 
 ```bash
-[master]="string::D-auth"
-[slave]="string::d-auth"
-[worker]="string::d-auth"
+[director]="string::D-auth"
+[actor1]="string::d-auth"
+[actor2]="string::d-auth"
 ```
 
-Error if `-slave=val` without `-master=val`.
+Error if `-actor1=name1` or/and `-actor2=name2` supplied without `-director=director_name`.
+
+#### Master Groups
+
+Lowercase member(`m`) assigned to the supplied capital member(`M`)'s name; used default value if none supplied.
+
+```bash
+["backup"]="bool::M-mode"
+["restore"]="bool::M-mode"
+["operation"]="string:sync:m-mode"
+```
+
+`-b -> operation=backup`
+
+Error if both `-backup` and `-restore` supplied; `operation="sync"` if either.
 
 #### Sibling Groups
 
-All members must be supplied together, or all omitted. Defaults are assigned to missing members if available.
+All members must supply together, or all omitted. Defaults assigned to missing members if available.
 
 ```bash
 [host]="string::s-net"
 [port]="string::s-net"
 ```
 
-Error if only `-host=localhost` without `-port=8080`.
+Error if `-host=localhost` without `-port=8080`(no default value); `port` set to default if existed.
 
 ### MCG Validation Order
 
 1. Check sibling rules and assign defaults
-2. Check exclusion rules
-3. Check uniqueness rules
-4. Check dependency rules
+2. Check exclusion/uniqueness rules
+3. Check dependency rules
+4. Check master rules
 
 ## Advanced PFILTER Features
 
@@ -156,9 +181,9 @@ Error if only `-host=localhost` without `-port=8080`.
 Serialize PFILTER to JSON for eval/capture modes:
 
 ```bash
-serialize_assoc_array() {
+serialize-pfilter() {
   local -n arr=$1
-  local json="{"
+  local json="{" first=1
   for k in "${!arr[@]}"; do
     [[ $first -eq 0 ]] && json+="," || first=0
     json+="\"$k\":\"${arr[$k]}\""
@@ -167,7 +192,7 @@ serialize_assoc_array() {
   echo "$json"
 }
 
-PF_JSON=$(serialize_assoc_array PFILTER)
+PF_JSON=$(serialize-pfilter PFILTER)
 result=$(./bosparse ~pf="$PF_JSON" ~json "$@")
 ```
 
@@ -184,21 +209,46 @@ fi
 PFILTER[username]="string:guest:"
 ```
 
+### Bulk Varialbles Assighment
+
+```bash
+declare -A vars=(
+["PARAM-FILTER"]=""
+[var1]="string:val1"
+[var2]="bool:false"
+...
+[var100]="enum:val100"
+)
+eval $(./bosparse ~apfd ~pf="$(serialize-pfilter vars)")
+```
+
 ## Run Mode Details
 
 ### Source Mode
 
 - Variables created in current shell
+- Parsing result loaded into:
+  - key-value pairs for all options(`-port=80` -> `port=80`; `-verbose` -> `verbose=true`)
+  - BP_Options(): all option parameters (`BP_Options["port"]=80`)
+  - BP_Stings(): all options with string type
+  - BP_Bools(): all options with boolean type
+  - BP_Positionals(): all positional parameters (`BP_Positionals[0]="first-positional-param`)
+  - Array names can change by `~oan ~san ~ban ~pan`
 - Best for scripts sourcing BosParse
 
 ### Eval Mode
 
 - Outputs shell assignments
+- Parsing result supplied by:
+  - key-value pair for all options like that in Source mode
+  - key-value pair for all positional parameters with `BP_Positionals_0="first positional param"`
+    name prefix "BP_Positionals" can change by `~pan`
 - Use `eval "$(bosparse "$@")"`
 
 ### Capture Mode
 
 - Outputs JSON
+- Best for programmatic consumption
 - Use `result=$(bosparse ~json "$@")`
 
 ## Performance Notes
