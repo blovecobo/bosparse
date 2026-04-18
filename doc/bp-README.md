@@ -4,7 +4,7 @@
 
 ## Quick Start
 
-### Source mode (recommended inside scripts)
+- Source mode 
 
 ```bash
 #!/usr/bin/env bash
@@ -22,7 +22,7 @@ Run it:
 ./script.sh -name=alice -verbose+ -- file1.txt file2.txt
 ```
 
-### Eval mode
+- Eval mode
 
 ```bash
 #!/usr/bin/env bash
@@ -36,7 +36,7 @@ Run it:
 ./script.sh -name alice -- data.txt
 ```
 
-### Capture mode (JSON output)
+- Capture mode (JSON output)
 
 ```bash
 #!/usr/bin/env bash
@@ -107,7 +107,7 @@ Common settings:
 - `~run=source`, `~run=eval`, `~run=capture`: run-mode setting
 - `~mode` alias for `~run`
 - `~quiet`, `~standard`, `~extra`, `~debug`, `~trace`: output control
-- `~oan`, `~san`, `~ban`, `~pan` to rename result arrays
+- `~oan`, `~san`, `~ban`, `~pan`: specify array names of parsing result
 - `~Banner`, `~Version`, `~Resymbols`, `~Defaults`: display BosParse properties
 
 Example:
@@ -155,7 +155,7 @@ Result:
 ./bosparse ~json -name=alice -active+ -- file1.txt | jq .
 ```
 
-Result:
+output:
 
 ```json
 {
@@ -167,7 +167,7 @@ Result:
 
 ## Best Practices
 
-- Always use `--` before positional arguments
+- Always use `--` to separate options and positional arguments
 - Quote values with spaces or special characters
 - Use clear, consistent option names
 - Reserve `~` values for parser settings

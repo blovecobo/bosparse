@@ -11,7 +11,7 @@
 #   source bp_serialize_assoc_array
 #   pf_str=$(bp_serialize_assoc_array PFILTER)
 
-function bp_serialize_assoc_array() {
+function bp_serialize_pfilter() {
 	local -n arr=$1
 
 	command -v jq >/dev/null 2>&1 || {
@@ -35,5 +35,5 @@ function bp_serialize_assoc_array() {
 }
 
 if [[ $(basename "$(realpath "${BASH_SOURCE[0]}")") == $(basename "$0") ]]; then
-	bp_serialize_assoc_array "$@"
+	bp_serialize_pfilter "$@"
 fi

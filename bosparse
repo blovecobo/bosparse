@@ -42,7 +42,7 @@ function on_exit_bp() {
 
 # origin ----------------------------------------------------------------------
 # Constants
-function load_consts() {
+function consts() {
 	local -n BOSPARSE_CONSTS_ref2=$1
 	local -n PFILTER_ENTRY_TYPES_ref2=$2
 
@@ -83,7 +83,7 @@ function definitions() {
 	local -n SVERBOSE_ref=${11}
 	local -n ESCAPE_SYMBOLS_ref="${12}"
 
-	load_consts \
+	consts \
 		BOSPARSE_CONSTS_ref \
 		PFILTER_ENTRY_TYPES_ref
 
@@ -206,9 +206,9 @@ function definitions() {
 		["plid"]="${plid}:resym::ug_lid"
 		["ulid"]="${ulid}:resym::ug_lid"
 
-		["zs"]="${zs}:resym:2"         
+		["zs"]="${zs}:resym:2"
 		["os"]="${os}:resym:-_:ug_ttag" # in case missmatch param-name or tags
-		["tt"]="${tt}:resym:=:ug_ttag" # in case `-param=`
+		["tt"]="${tt}:resym:=:ug_ttag"  # in case `-param=`
 		["tf"]="${tf}:resym:=:ug_ttag"
 		["td"]="${td}:bool"
 
@@ -227,7 +227,7 @@ function definitions() {
 
 		["Defaults"]="${Defaults}:bool::eg-directive"
 		["Banner"]="${Banner}:bool::eg-directive"
-		["Resymbols"]="${Resymbols}:boo::eg-directive"
+		["Resymbols"]="${Resymbols}:bool::eg-directive"
 		["Version"]="${Version}:bool::eg-directive"
 
 		["pf"]="${pf}:string::D-pfilter"
@@ -408,12 +408,13 @@ function definitions() {
 
 		["35"]="Invalid PFILTER enum entry \${pros_tag}: missing enum values."
 
-		["36"]="MCG member(s) '\${pros_tag}' in '\${pros_tag2}' depends on a leader member but not found in PFILTER."
+		["36"]="MCG member(s) '\${pros_tag}' in '\${pros_tag2}' depends on capital member(s) but not found in PFILTER."
 
 		["37"]="Invalid MCG name: '\${pros_tag}', a valid MCG name must start with '\${pros_tag2}'"
 		["137"]="MCG name '\${pros_tag}' should satisfy MCG_TYPES, starting with '\${pros_tag2}'"
 
-		["38"]="Only one leader member in \${pros_tag} MCG '\${pros_tag2}' permitted, but multiple found: '\${pros_tag3}'"
+		# multiple D-capital members allowed now
+		["38"]="Only one capital member in \${pros_tag} MCG '\${pros_tag2}' permitted, but multiple found: '\${pros_tag3}'"
 
 		["39"]="Invalid master MCG '\${pros_tag}' setting, \${pros_tag2}"
 
@@ -1116,8 +1117,8 @@ function extract_filter_schema() {
 #   - mcg-name matching MCG_TYPES
 #   - MCG rules
 # MCG integrity test items:
-#	- dependency: leader existence
-#	- exclusion:
+#	- dependency: capital member existence
+#	- exclusion: no checking
 #	- masters: existence; one follower only
 #   - siblings: default value existence
 #   - uniqueness:
@@ -1143,7 +1144,7 @@ function pfilter_integrity_check() {
 		extract_filter_schema "${ULID}" "${entry_schema}" entry_type entry_data entry_mcg
 		# echo2 "entry_mcg: $entry_mcg"
 
-		# validate mcg names; collecting leader member data for further validating
+		# validate mcg names; collecting capital member data for further validating
 		if [[ -n ${entry_mcg} ]]; then
 			# mcg names, a paramter might belongs to  multiple mcgs
 			escape_symbol entry_mcg "${ELM_SEP}"
@@ -1161,7 +1162,7 @@ function pfilter_integrity_check() {
 				# record mcg names and remove duplicated
 				mcg_names["${mcg_name}"]=true
 				msg_bp 4 "    - member: ${pf_key}@${mcg_name}"
-				# validate type; record leader members
+				# validate type; record capital members
 				case ${mcg_name:0:1} in
 				D)
 					dc_members["${mcg_name}"]="${dc_members[${mcg_name}]:-}|${pf_key}"
@@ -1236,17 +1237,18 @@ function pfilter_integrity_check() {
 			exit_with_msg 38
 		fi
 
-		# D-member, count 0/1 permitted
-		if [[ "${dc_count[${mcg_name}]:-0}" -gt 1 ]]; then
-			pros_tag="dependency"
-			pros_tag2="${mcg_name}"
-			pros_tag3="${dc_members[${mcg_name}]#\|}"
-			exit_with_msg 38
-		fi
+		# multiple capitals permitted
+		# # D-member, count 0/1 permitted
+		# if [[ "${dc_count[${mcg_name}]:-0}" -gt 1 ]]; then
+		# 	pros_tag="dependency"
+		# 	pros_tag2="${mcg_name}"
+		# 	pros_tag3="${dc_members[${mcg_name}]#\|}"
+		# 	exit_with_msg 38
+		# fi
 
 		# d-member depends on D-member
 		if [[ ${dl_count["${mcg_name}"]:-0} -gt 0 ]] &&
-			[[ ${dc_count["${mcg_name^}"]:-0} -ne 1 ]]; then
+			[[ ${dc_count["${mcg_name^}"]:-0} -lt 1 ]]; then
 			pros_tag="${dl_members[*]#\|}"
 			pros_tag2="${mcg_name}"
 			exit_with_msg 36
@@ -1953,14 +1955,15 @@ function validate_sibling_groups() {
 #           - check:
 #             - user-params: values uniqueness on supplied members
 #             - priors/psets: checking all members
-#   - 'd/D' dependency: the Leader required by others
+#   - 'd/D' dependency: the capitals required by others
 #			MCG names with only difference of the first character's case status are point to
-#			the same group, members with their names begin with lower case letters(lower member)
-#			depends on the member whose name begin with a upper case chracter(leader member).
+#			the same group, members with their group names begin with lower case letters
+#			(lower member) depends on the members whose group names begin with a upper case
+#			chracter (capital member).
 #           - no fulfill
 #           - check:
-#             - Leader-member: exclusion, no more than one leader-member within a group
-#             - lower-member: if supplied, requires Leader-member supplied
+#             - Capital-member: there may be more than one capital-member within a group
+#             - lower-member: if supplied, requires at least one capital-member supplied
 #   - 's':  sibling: present/absent together
 #           any member supplied, fulfill others; no default will result an error unless supplied
 #           - check:
@@ -1992,7 +1995,7 @@ function validate_option_mcgs() {
 	declare -A dg_members=() dg_members_unsupplied=()
 	declare -a eg_members=()
 
-	declare -A leaders=() leaders_unsupplied=()
+	declare -A capitals=() capitals_unsupplied=()
 	declare -A ug_values=()
 	declare -a ug_supplied=()
 
@@ -2064,16 +2067,16 @@ function validate_option_mcgs() {
 				fi
 				;;
 			D | E)
-				# extract leaders
+				# extract capitals
 				# if is_array_key "${member}" vpe_options; then
 				if [[ -v vpe_options["${member}"] ]]; then
 					# msg_bp -4 "      member " "'${member}' supplied"
-					leaders["${mcg}"]="${member}"
+					capitals["${mcg}"]="${member}"
 				else
 					# msg_bp -4 "      \e[2mmember " "\e[2m'${member}' un-supplied\e[0m"
-					leaders_unsupplied["${mcg}"]="${member}"
+					capitals_unsupplied["${mcg}"]="${member}"
 				fi
-				# only one leader for each group
+				# may be multiple capitals in each group
 				;;
 			e) # exclusion group lower members, count supplied only, skip others
 				# if is_array_key "${member}" vpe_options; then
@@ -2167,18 +2170,18 @@ function validate_option_mcgs() {
 	done
 
 	# validate dependecy groups
-	# echo2 "supplied leaders: "
-	# show_array leaders " | "
-	# echo2 "un-supplied leaders: "
-	# show_array leaders_unsupplied " | "
-	local leader_groups
-	leader_groups=("${!leaders[@]}" "${!leaders_unsupplied[@]}")
+	# echo2 "supplied capitals: "
+	# show_array capitals " | "
+	# echo2 "un-supplied capitals: "
+	# show_array capitals_unsupplied " | "
+	local capital_groups
+	capital_groups=("${!capitals[@]}" "${!capitals_unsupplied[@]}")
 	local IFS="${ELM_SEP}"
-	for cap_mcg in "${leader_groups[@]}"; do
-		[[ -n ${leaders["${cap_mcg}"]:-} ]] &&
-			msg_bp -4 "      member " "'${leaders[${cap_mcg}]}'@${cap_mcg} supplied"
-		[[ -n ${leaders_unsupplied["${cap_mcg}"]:-} ]] &&
-			msg_bp -4 "      member " "'${leaders_unsupplied[${cap_mcg}]}'@${cap_mcg} un-supplied"
+	for cap_mcg in "${capital_groups[@]}"; do
+		[[ -n ${capitals["${cap_mcg}"]:-} ]] &&
+			msg_bp -4 "      member " "'${capitals[${cap_mcg}]}'@${cap_mcg} supplied"
+		[[ -n ${capitals_unsupplied["${cap_mcg}"]:-} ]] &&
+			msg_bp -4 "      member " "'${capitals_unsupplied[${cap_mcg}]}'@${cap_mcg} un-supplied"
 		# all un-supplied lower members
 		if [[ -n ${dg_members_unsupplied[${cap_mcg,}]:-} ]]; then
 			read -ra lower_members <<<"${dg_members_unsupplied[${cap_mcg,}]}"
@@ -2192,14 +2195,14 @@ function validate_option_mcgs() {
 			for lower_member in "${lower_members[@]}"; do
 				msg_bp -4 "      member " "'${lower_member}'@${cap_mcg,} supplied"
 			done
-			if [[ -n ${leaders["${cap_mcg}"]:-} ]]; then
+			if [[ -n ${capitals["${cap_mcg}"]:-} ]]; then
 				msg_bp 3 "      - MCG ${cap_mcg,}: PASSED"
 			else
 				msg_bp 3 "      - MCG ${cap_mcg,}: FAILED"
 				case ${lid} in
-				"${PRLID}") pros_tag="Prior '${lid}${leaders_unsupplied[${cap_mcg}]}'" ;;
-				"${PLID}") pros_tag="PSet '${lid}${leaders_unsupplied[${cap_mcg}]}'" ;;
-				*) pros_tag="Parameter '${lid}${leaders_unsupplied[${cap_mcg}]}'" ;;
+				"${PRLID}") pros_tag="Prior '${lid}${capitals_unsupplied[${cap_mcg}]}'" ;;
+				"${PLID}") pros_tag="PSet '${lid}${capitals_unsupplied[${cap_mcg}]}'" ;;
+				*) pros_tag="Parameter '${lid}${capitals_unsupplied[${cap_mcg}]}'" ;;
 				esac
 				pros_tag2="${lid}${lower_members[*]}"
 				pros_tag3="${cap_mcg,}"
@@ -2741,13 +2744,13 @@ function bosparse() {
 	# echo ---------------------
 	# echo $* >&2
 
-	# treat empty "$@"
+	# process empty "$@"
 	[[ $# -eq 0 || $* == '--' || $* == "${ZN_SEP}" ]] && {
 		verbose=1
 		exit_with_msg 2
 	}
 
-	# supper verbose for Priors parsing
+	# supper verbose for Priors parse monitoring
 	local super_verbose="" sver
 	# remove '~pf' from cml in case SLID included in PFILTER
 	local CMLM=("$@") i
@@ -2790,6 +2793,7 @@ function bosparse() {
 		msg_bp 3 "Extract Priors"
 		extract_options "${PRLID}" strings bools ligas op_zone
 
+		# process Priors ---------------------------------------------
 		# if no priors supplied, skip parsing priors
 		if [[ ${#strings[@]} -ne 0 || ${#bools[@]} -ne 0 || ${#ligas[@]} -ne 0 ]]; then
 			msg_bp 2 "Parse Priors"
@@ -2830,6 +2834,7 @@ function bosparse() {
 		msg_bp 3 "Extract PSets"
 		extract_options "${PLID}" strings bools ligas op_zone
 
+		# parsing PSets ----------------------------------------------
 		# in case no PSets supplied
 		if [[ ${#strings[@]} -ne 0 || ${#bools[@]} -ne 0 || ${#ligas[@]} -ne 0 ]]; then
 			msg_bp 2 "Parse PSets"
@@ -2859,7 +2864,7 @@ function bosparse() {
 		# PSet parsed, update run-mode in case not specified
 		update_run_mode
 
-		# parsing user parameter parsing
+		# parsing user parameters-------------------------------------
 		msg_bp 2 "Extract user-options"
 		extract_options "${ULID}" strings bools ligas op_zone
 
@@ -2874,11 +2879,11 @@ function bosparse() {
 		update_run_mode
 	fi
 
-	# positional prameter supplied
+	# parsing optional parameters ---------------------------------
 	msg_bp 2 "Parse user-positionals"
 	parse_positionals "${pp_zone[@]}"
 
-	# prepare parsing result on user requirement
+	# output parsing result ---------------------------------------
 	msg_bp 2 "Output parsing result"
 
 	case ${RUN_MODE} in
