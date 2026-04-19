@@ -6,7 +6,7 @@ This manual covers detail information of BosParse not included in the basic READ
 
 BosParse parsed Options to key-value pairs for script usage, that requires parameter names should be valid bash variable names.
 
-As an exception, using the hyphen `-` in parameter name permitted if not at the beginning or end(e.g. -user-name), and BosParse will replace hyphens `-` to underscores `_` in the final result.
+As an exception, using the hyphen `-` in parameter name permitted if not at the beginning or end, BosParse will replace hyphens `-` by underscores `_` in the final result.
 
 ## Parsing-Aid Symbols (PAS)
 
@@ -28,16 +28,16 @@ BosParse uses configurable symbols to identify and parse command-line parameters
 
 ### Separators (SEPs)
 
-- Zone separator (ZN-SEP): `--` separates options from positionals (default)
+- Zone separator (ZN-SEP): `--` separates options from positionals for CML (default)
 - Option-ARG separator (OA-SEP): `=` separates option names from values (default)
 - Field separator (FLD-SEP): `:` separates PFILTER fields (default)
 - Element separator (ELM-SEP): `|` separates PFILTER enum values or MCG names (default)
 
 Note:
 
-- For user options, a space or spaces used to separate Option names from ARGs supported;
-- Except FLD-SEP, ELM-SEP and PRLID, all other PAS characters can be customized by user, but some restrictions apply(see RESYMS section).
-- Always use ZN-SEP to separate options from positionals, even if only one zone exists, to avoid parsing errors.
+- For user options, a space or spaces used to separate Option names from values supported;
+- All PAS characters are customizable by the user, with the exception of FLD-SEP, ELM-SEP, and PRLID. Note that some restrictions apply (see RESYMS section).
+- Always use ZN-SEP to separate options from positional parameters, even if only one zone exists, to avoid parsing errors.
 
 ## Customizing Parsing-Aid Symbols (Priors)
 
@@ -101,8 +101,8 @@ MCGs enforce relationships between parameters. Parameters can belong to more tha
 
 - **Exclusion (`e` prefix)**: One or none parameter in the group can supply
 - **Uniqueness (`u` prefix)**: Parameters must have different values
-- **Dependency (`d`/`D` prefix)**: Lowercase members depend on capital member
-- **Masters(`m`/`M`)**: Lowercase member assigned to the name of supplied capital member
+- **Dependency (`d`/`D` prefix)**: Lowercase members depend on capital members
+- **Masters(`m`/`M`)**: Lowercase member assigned to the name of the supplied capital member
 - **Sibling (`s` prefix)**: All members must supplied together or omitted together
 
 ### Detailed Rules
@@ -132,15 +132,16 @@ Error if `-item_a=apple -item_b=apple`.
 
 #### Dependency Groups
 
-Lowercase members (`d`) require the capital (`D`) supplied.
+Lowercase members (`d`) require capital(s) (`D`) supplied.
 
 ```bash
 [director]="string::D-auth"
+[producer]="string::D-auth"
 [actor1]="string::d-auth"
 [actor2]="string::d-auth"
 ```
 
-Error if `-actor1=name1` or/and `-actor2=name2` supplied without `-director=director_name`.
+Error if `-actor1=name1` or/and `-actor2=name2` supplied but all `-director` and `-producer` un-supplied
 
 #### Master Groups
 
@@ -154,7 +155,7 @@ Lowercase member(`m`) assigned to the supplied capital member(`M`)'s name; used 
 
 `-b -> operation=backup`
 
-Error if both `-backup` and `-restore` supplied; `operation="sync"` if either.
+Error if both `-backup` and `-restore` supplied; `operation="sync"` if neither.
 
 #### Sibling Groups
 
@@ -227,13 +228,10 @@ eval $(./bosparse ~apfd ~pf="$(serialize-pfilter vars)")
 ### Source Mode
 
 - Variables created in current shell
-- Parsing result loaded into:
+- Parsing result output by:
   - key-value pairs for all options(`-port=80` -> `port=80`; `-verbose` -> `verbose=true`)
-  - BP_Options(): all option parameters (`BP_Options["port"]=80`)
-  - BP_Stings(): all options with string type
-  - BP_Bools(): all options with boolean type
-  - BP_Positionals(): all positional parameters (`BP_Positionals[0]="first-positional-param`)
-  - Array names can change by `~oan ~san ~ban ~pan`
+  - BP_Positionals(): all positional parameters (`BP_Positionals[0]="first-positional-param`); The array name may change by `~pan`
+  - User can specify output all Options, String Options and Boolean Options in associative arrays by `~oan`, `~san` and `~ban`
 - Best for scripts sourcing BosParse
 
 ### Eval Mode
@@ -241,15 +239,14 @@ eval $(./bosparse ~apfd ~pf="$(serialize-pfilter vars)")
 - Outputs shell assignments
 - Parsing result supplied by:
   - key-value pair for all options like that in Source mode
-  - key-value pair for all positional parameters with `BP_Positionals_0="first positional param"`
-    name prefix "BP_Positionals" can change by `~pan`
+  - key-value pair for all positional parameters with `BP_Positionals_0="first positional param"`, name prefix "BP_Positionals" change by `~pan`
 - Use `eval "$(bosparse "$@")"`
 
 ### Capture Mode
 
 - Outputs JSON
 - Best for programmatic consumption
-- Use `result=$(bosparse ~json "$@")`
+- Use `result_json=$(bosparse ~json "$@")`
 
 ## Performance Notes
 
