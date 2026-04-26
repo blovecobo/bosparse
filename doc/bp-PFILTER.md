@@ -141,24 +141,6 @@ If a prefix is ambiguous, parsing fails.
 
 PFILTER supports group-based relationships.
 
-### Exclusion groups (`e` prefix)
-
-One parameter in the group may supply.
-
-```bash
-[option_a]="string::erole"
-[option_b]="string::erole"
-```
-
-### Uniqueness groups (`u` prefix)
-
-Parameters must receive different values.
-
-```bash
-[item_a]="string::ug_items"
-[item_b]="string::ug_items"
-```
-
 ### Dependency groups (`d`|`D` prefix)
 
 Lowercase members depend on the capital group member.
@@ -166,6 +148,15 @@ Lowercase members depend on the capital group member.
 ```bash
 [master]="string::D-auth"
 [slave]="string::d-auth"
+```
+
+### Exclusion groups (`e` prefix)
+
+One parameter in the group may supply.
+
+```bash
+[option_a]="string::erole"
+[option_b]="string::erole"
 ```
 
 ### Master groups (`M`|`m` prefix)
@@ -177,10 +168,21 @@ Lowercase member set to supplied capital member's name.
 ["master2"]="bool::Master"
 ["follower"]="string:master3:master"
 ```
+### Required groups(`rquired`)
+All members in the Required group must be supplied or can be assigned a default.
 
 ### Sibling groups (`s` prefix)
 
 Either all members supplied or none does.
+
+### Uniqueness groups (`u` prefix)
+
+Parameters must receive different values.
+
+```bash
+[item_a]="string::ug_items"
+[item_b]="string::ug_items"
+```
 
 ```bash
 [host]="string::s-net"
