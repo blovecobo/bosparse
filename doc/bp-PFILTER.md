@@ -6,11 +6,11 @@ PFILTER is BosParse's advanced parameter validation system. It defines expected 
 
 Use PFILTER when you want:
 
-- strict validation for option values
+- strict validation for Option values
 - default values for missing parameters
-- unambiguous prefix matching for options and enum values
-- exact control over unknown options
-- parameter relationships such as exclusion, dependency, uniqueness, master and sibling
+- unambiguous prefix matching for Options and enum values
+- exact control over unknown Options
+- parameter relationships such as exclusion, dependency, uniqueness and master
 
 ## Quick Start
 
@@ -54,7 +54,7 @@ echo "$result" | jq '.'
 
 ### 3. Validation and assignment
 
-BosParse parses options, validates values against PFILTER, and then assigns values or defaults as configured.
+BosParse parses Options, validates values against PFILTER, and then assigns values or defaults as configured.
 
 ## PFILTER Entry Format
 
@@ -93,7 +93,7 @@ Each entry has the form:
 ```
 
 - Accepts any string value
-- If missing and `~apfd` enabled, BosParse assigns the default
+- If missing and `~afd` enabled, BosParse assigns the default
 
 ### enum
 
@@ -104,17 +104,14 @@ Each entry has the form:
 
 - Accepts values listed in `data`
 - Supports prefix matching for enum values
-- The first listed value becomes the default when `~apfd` enabled and no value supplied
+- The first listed value becomes the default when `~afd` enabled and no value supplied
 
 ## PFILTER Control PSets
 
 - `~pf`: pass PFILTER via PFILTER name reference or a serialized json string from PFILTER
-- `~amf`: all-match-filter
-  - `~amf` enables strict validation and rejects unknown parameters
-  - `~amf-` allows unknown parameters
-- `~apfd`: apply PFILTER defaults for un-grouped parameters
-  - enabled by default
-  - `~apfd-` disables default assignment
+- `~rup`: restrict unknown parameters, causing parsing to fail if an option parameter is not defined in PFILTER
+- `~afd`: apply PFILTER defaults for un-grouped parameters
+- `~fmi`: forbid m-member input for Master groups
 
 ## Prefix Matching
 
@@ -137,7 +134,7 @@ Examples:
 
 If a prefix is ambiguous, parsing fails.
 
-## Mutual Correlation Groups
+## Mutual Correlation Groups(MCG)
 
 PFILTER supports group-based relationships.
 
@@ -164,16 +161,14 @@ One parameter in the group may supply.
 Lowercase member set to supplied capital member's name.
 
 ```bash
-["master1"]="bool::Master"
-["master2"]="bool::Master"
-["follower"]="string:master3:master"
+["backup"]="bool::Mg-mode"
+["resotre"]="bool::Mg-mode"
+["op-mode"]="string::mg-mode"
 ```
-### Required groups(`rquired`)
+
+### Required groups (`rquired`)
+
 All members in the Required group must be supplied or can be assigned a default.
-
-### Sibling groups (`s` prefix)
-
-Either all members supplied or none does.
 
 ### Uniqueness groups (`u` prefix)
 
@@ -182,11 +177,6 @@ Parameters must receive different values.
 ```bash
 [item_a]="string::ug_items"
 [item_b]="string::ug_items"
-```
-
-```bash
-[host]="string::s-net"
-[port]="string::s-net"
 ```
 
 ## Escaping PFILTER Characters
@@ -211,7 +201,7 @@ declare -A PFILTER=(
 ## Troubleshooting
 
 - Missing `PARAM-FILTER` makes PFILTER invalid
-- Unknown option errors might mean `~amf` enabled but the option is not defined in PFILTER
+- Unknown Option errors might mean `~rup` enabled but the Option is not defined in PFILTER
 - Ambiguous prefix errors mean the prefix matches more than one parameter
 - Enum validation errors mean the value is not in the allowed list
 
