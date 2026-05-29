@@ -1,7 +1,18 @@
+# shellcheck shell=bash
+# shellcheck disable=SC2153,SC2154
+# Module 07-output: Default assignment and result output
+#   assign_user_param_defaults() — assign PFILTER defaults to un-supplied params
+#   validate_user_options()      — validate user params against PFILTER
+#   create_variables()           — export bool/string params as shell variables
+#   output_param_arrays()        — create named result arrays
+#   output_eval()                — emit variable assignment statements
+#   output_json()                — emit JSON object (capture mode)
+#   update_run_mode()            — auto-detect source vs eval vs capture
+#   direct_pset_commands()       — execute directive PSets
+# --------------------------------------------------------------------------------
 
-# Default & output ----------------------------------------------------------------
-
-function assign_user_param_defaults() {
+# assign PFILTER default value to an un-supplied parameter
+function assign_user_param_defaults {
 	local param=$1 pf_type=$2 pf_data=$3 pf_mcg=$4
 	local default_enum
 
@@ -49,7 +60,7 @@ function assign_user_param_defaults() {
 #	PFILTER_ID: identify the PFILTER
 #   ~rup: all parameters must be defined in PFILTER(false by defautl)
 #   ~afd: apply PFILTER defaults on parameters(true by default)
-function validate_user_options() {
+function validate_user_options {
 	msg_bp 2 "Validate user option parameters"
 
 	local param pf_type pf_data pf_mcg
@@ -111,7 +122,7 @@ function validate_user_options() {
 }
 
 # create variables for option parameters as parsing result
-function create_variables() {
+function create_variables {
 	local var
 	if [[ ${CONFIGS["${PSETS[dvo]%%:*}"]} == true ]]; then
 		msg_bp 2 "  - Options output disabled."
@@ -143,7 +154,7 @@ function create_variables() {
 # These arrays are for run-mode source, not for run-mode eval/capture since variables output
 # in other formats in both mode; for example, in eval mode, output as variable assignment
 # statements, and in capture, output as JSON string.
-function output_param_arrays() {
+function output_param_arrays {
 	local option_an bools_an strings_an positional_an
 	local i key_max_len
 
@@ -219,7 +230,7 @@ function output_param_arrays() {
 }
 
 # output parsing result as variable assignment statements, for run-mode eval
-function output_eval() {
+function output_eval {
 	local index pvn_prefix
 
 	for index in "${!BP_OPTIONS[@]}"; do
@@ -234,7 +245,7 @@ function output_eval() {
 }
 
 # output parsing result as JSON, for run-mode capture
-function output_json() {
+function output_json {
 	# output $BP_OPTIONS in JSON using a single jq -n call
 
 	local param val idx=0
@@ -245,7 +256,10 @@ function output_json() {
 
 	# helper: valid number check (no leading zeros except '0')
 	function is_number() {
-		[[ $1 =~ ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$ ]]
+		if [[ $1 =~ ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$ ]]; then
+			return 0
+		fi
+		return 1
 	}
 
 	for param in "${!BP_OPTIONS[@]}"; do
@@ -279,7 +293,7 @@ function output_json() {
 }
 
 # Run-mode detection --------------------------------------------------------------
-function update_run_mode() {
+function update_run_mode {
 	# unless '~run' or '~mode' specified, autodetect
 	if [[ ${RUN_MODE} == 'auto' ]]; then
 		# autodetect
@@ -299,12 +313,102 @@ function update_run_mode() {
 	fi
 }
 
-# direct_pset_commands: execute directive PSets (Banner, Version, Resymbols, Defaults)
-function direct_pset_commands() {
+# display comprehensive online help for BosParse
+function show_help {
+	echo "BosParse ${CONSTS["VERSION"]} — parameter parser in & for bash"
+	echo
+	echo "USAGE"
+	echo "    source bosparse && bosparse [options] -- [positionals]"
+	echo "    eval \$(./bosparse [options] -- [positionals])"
+	echo "    json=\$(./bosparse ~json [options] -- [positionals])"
+	echo
+	echo "CML STYLES"
+	echo "    watershed    options before '--', positionals after '--' (default)"
+	echo "    islands      options start with LID(${ULID}), positionals without LID"
+	echo "    ~~~~style=islands|watershed   set at runtime"
+	echo
+	echo "PARAMETER TYPES"
+	echo "    bool         ${ULID}name, ${ULID}name${TAG_TRUE}, ${ULID}name${TAG_FALSE}"
+	echo "    string       ${ULID}name${OA_SEP}value, ${ULID}name value"
+	echo "    enum         like string, matched against enum list in PFILTER"
+	echo "    liga         ${ULID}${ULID}nparams (expands to params of length n; n=1 may omit)"
+	echo
+	echo "RUN MODES (auto-detected)"
+	echo "    source       sourced in script, exports variables"
+	echo "    eval         prints \"key=value\" statements"
+	echo "    capture      outputs JSON (requires jq)"
+	echo
+	echo "PSETs (~ prefix):"
+	echo "    ~run=<mode>         set run mode (auto/source/eval/capture)"
+	echo "    ~json               force JSON output"
+	echo "    ~dvo                disable variable output (source mode)"
+	echo "    ~pf=<pfilter>       pass PFILTER (array/json/keys-values)"
+	echo "    ~rup                restrict unknown parameters"
+	echo "    ~afd                apply PFILTER defaults"
+	echo "    ~prem               prefix-matching (default: on)"
+	echo "    ~oan=<name>         options array name"
+	echo "    ~ban=<name>         bools array name"
+	echo "    ~san=<name>         strings array name"
+	echo "    ~pan=<name>         positionals array name"
+	echo "    ~config             show config after parsing"
+	echo "    ~Defaults           show default configs"
+	echo "    ~Banner             show banner"
+	echo "    ~Version            show version"
+	echo "    ~Resymbols          show reserved symbols"
+	echo "    ~Help               show this help"
+	echo
+	echo "PRIORS (~~~ prefix, customize at runtime):"
+	echo "    ~~~plid=<resym>     PSET lid (default: ${PLID})"
+	echo "    ~~~ulid=<resym>     user-param lid (default: ${ULID})"
+	echo "    ~~~zs=<resym2>      zone separator (default: ${ZN_SEP})"
+	echo "    ~~~os=<resym>       OA separator (default: ${OA_SEP})"
+	echo "    ~~~tt=<resym>       true tag (default: ${TAG_TRUE})"
+	echo "    ~~~tf=<resym>       false tag (default: ${TAG_FALSE})"
+	echo "    ~~~td=<bool>        default bool tag (default: ${TAG_DEFAULT})"
+	echo
+	echo "SUPERS (~~~~ prefix):"
+	echo "    ~~~~quiet           verbose level 0"
+	echo "    ~~~~standard        verbose level 1 (default)"
+	echo "    ~~~~extra           verbose level 2"
+	echo "    ~~~~debug           verbose level 3"
+	echo "    ~~~~trace           verbose level 4"
+	echo "    ~~~~style=<style>   set CML style (watershed/islands)"
+	echo
+	echo "OUTPUT"
+	echo "    source mode:   exports variables + named arrays"
+	echo "    eval mode:     prints key=value statements"
+	echo "    capture mode:  prints JSON via jq"
+	echo
+	echo "PFILTER FORMAT"
+	echo "    \"type:data:mcg\"  with '${FLD_SEP}' field sep, '${ELM_SEP}' element sep"
+	echo "    type: bool|string|enum"
+	echo "    data: default value or enum list (element-separated)"
+	echo "    mcg:  mutual-correlate group (d/D/e/m/M/r/u prefix)"
+	echo
+	echo "MCG TYPES"
+	echo "    d/D   dependency (d-members require D-member supplied)"
+	echo "    e     exclusion (at most one member may be supplied)"
+	echo "    m/M   master (M-member supplies its name to m-member)"
+	echo "    r     required (all members must be supplied or have defaults)"
+	echo "    u     uniqueness (all supplied member values must differ)"
+	echo
+	echo "EXIT CODES"
+	echo "    0     success"
+	echo "    2     no input or error"
+	echo "    10    jq not available"
+	echo "    20+   parameter/filter errors (see doc/BosParse-Reference-Manual.md)"
+	echo
+	echo "For details: doc/BosParse-Reference-Manual.md  doc/bp-PFILTER.md"
+}
+
+# direct_pset_commands: execute directive PSets (Help, Banner, Version, Resymbols, Defaults)
+function direct_pset_commands {
 	# direct commands for some special PSets, which will not be output user parameters but
 	# executed directly in BosParse, e.g. show version or print a message
 
-	if [[ "${CONFIGS[${PSETS["Banner"]%%:*}]}" == true ]]; then
+	if [[ "${CONFIGS[${PSETS["Help"]%%:*}]}" == true ]]; then
+		show_help
+	elif [[ "${CONFIGS[${PSETS["Banner"]%%:*}]}" == true ]]; then
 		# show banner
 		echo -e "${CONSTS["BANNER"]} with love"
 	elif [[ "${CONFIGS[${PSETS["Version"]%%:*}]}" == true ]]; then

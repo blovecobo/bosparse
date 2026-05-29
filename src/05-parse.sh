@@ -1,12 +1,28 @@
-# Parsing tasks -------------------------------------------------------------------
+# shellcheck shell=bash
+# shellcheck disable=SC2206
+# Module 05-parse: Core parsing logic
+#   extract_options()      — iterate CML tokens, classify via check_param_type()
+#   check_cml_style()      — detect watershed vs islands from ~~~~style prior
+#   extract_watershed()    — split CML at ZN_SEP (--) into op_zone / pp_zone
+#   extract_islands()      — split CML by LID presence (options vs positionals)
+#   parse_ligas()          — expand ligatures (~abc) into multiple bools
+#   parse_bools()          — parse boolean params with trailing tags (+/-)
+#   parse_strings()        — parse string params with OA_SEP (=)
+#   parse_options()        — orchestrate liga/bool/string parsing for a LID
+#   parse_positionals()    — store remaining params as positional array
+#   prefix_matching()      — exact then prefix then postfix matching
+# --------------------------------------------------------------------------------
 
-function show_all_params() {
+# debugging helper: print all BP_OPTIONS, BP_STRINGS, BP_BOOLS to stderr
+function show_all_params {
 	echo "all options: " >&2
 	show_array BP_OPTIONS '-OP-' 1
 	show_array BP_STRINGS '-STR-' 1
 	show_array BP_BOOLS '-BOOL-' 1
 }
-function extract_options() {
+
+# iterate CML tokens, classify via check_param_type, sort into strings/bools/ligas
+function extract_options {
 	local lid=$1
 	local -n strings_ref=$2 bools_ref=$3 ligas_ref=$4 # for passing back PSets
 	local -n CML=$5
@@ -31,8 +47,8 @@ function extract_options() {
 			continue
 		fi
 
+		# skip if param is the ARG of last param
 		if [[ "${arg_consumed}" == true ]]; then
-			# param is the ARG of last param, skip
 			arg_consumed=false
 			continue
 		fi
@@ -70,7 +86,7 @@ function extract_options() {
 }
 
 # check command line style
-function update_cml_style() {
+function check_cml_style {
 	local CML_arr=("$@")
 	local param pset_list param_name matched stl super_list
 
@@ -83,7 +99,7 @@ function update_cml_style() {
 
 	msg_bp 2 "Test CML style"
 	for param in "${CML_arr[@]}"; do
-		with_lid "${SLID}" || continue
+		with_lid "${param}" "${SLID}" || continue
 		param_name="${param%%=*}"
 		param_name=${param_name##"${SLID}"}
 		if matched=$(prefix_matching "${param_name}" super_list); then
@@ -116,8 +132,9 @@ function update_cml_style() {
 	done
 
 }
+
 # extract islands style cml
-function extract_islands() {
+function extract_islands {
 	local -n op_zone_ref=$1 pp_zone_ref=$2
 
 	shift 2
@@ -134,19 +151,23 @@ function extract_islands() {
 		fi
 	done
 }
+
 # extract watershed style cml
-function extract_watershed() {
+function extract_watershed {
 	local -n op_zone_ref=$1 pp_zone_ref=$2
 
 	# msg_bp 2 "Extract Watershed"
 
 	shift 2
-	local EZ_CML="$*" param zsep_count
+	local param zsep_count zn_sep_pos
 
-	# count ZN_SEP
+	# count ZN_SEP and record its position
 	zsep_count=0
+	zn_sep_pos=-1
 	for param in "$@"; do
-		[[ ${param} != "${ZN_SEP}" ]] || ((zsep_count += 1))
+		if [[ ${param} == "${ZN_SEP}" ]]; then
+			((zsep_count += 1))
+		fi
 	done
 
 	op_zone_ref=()
@@ -157,32 +178,39 @@ function extract_watershed() {
 		pros_tag="${CONFIGS[${PRIORS["zs"]%%:*}]}"
 		pros_tag2="${zsep_count}"
 		exit_with_msg 20
-	elif [[ "${EZ_CML}" == *[[:space:]]${ZN_SEP} ]]; then
-		# OP_ZONE only with trailing ZN_SEP
-		op_zone_ref=("$@")
-		# remove last param which is ZN_SEP
-		unset "op_zone_ref[$(($# - 1))]"
-		return 0
-	elif [[ ${EZ_CML} == ${ZN_SEP}[[:space:]]* ]]; then
-		# PP_ZONE only with leading zone-sep
-		pp_zone_ref=("$@")
-		unset "pp_zone_ref[0]"            # remove first param which is ZN_SEP
-		pp_zone_ref=("${pp_zone_ref[@]}") # re-index array after unset
-		return 0
-	elif [[ ${EZ_CML} == *[[:space:]]${ZN_SEP}[[:space:]]* ]]; then
-		# two zones separated by a a ZONE_SEP
-		local seen_zsep=false
-		for param in "$@"; do
-			if [[ ${seen_zsep} == false ]]; then
-				if [[ ${param} == "${ZN_SEP}" ]]; then
-					seen_zsep=true
-				else
-					op_zone_ref+=("${param}")
-				fi
-			else
-				pp_zone_ref+=("${param}")
+	elif [[ ${zsep_count} -eq 1 ]]; then
+		# locate the ZN_SEP position (1-based indirection)
+		local i
+		for ((i = 1; i <= $#; i++)); do
+			if [[ ${!i} == "${ZN_SEP}" ]]; then
+				zn_sep_pos=$((i - 1))
+				break
 			fi
 		done
+		if [[ ${zn_sep_pos} -eq 0 ]]; then
+			# PP_ZONE only with leading zone-sep
+			pp_zone_ref=("$@")
+			unset "pp_zone_ref[0]"
+			pp_zone_ref=("${pp_zone_ref[@]}") # re-index
+		elif [[ zn_sep_pos -eq $(( $# - 1 )) ]]; then
+			# OP_ZONE only with trailing ZN_SEP
+			op_zone_ref=("$@")
+			unset "op_zone_ref[$(($# - 1))]"
+		else
+			# two zones separated by ZONE_SEP
+			local seen_zsep=false
+			for param in "$@"; do
+				if [[ ${seen_zsep} == false ]]; then
+					if [[ ${param} == "${ZN_SEP}" ]]; then
+						seen_zsep=true
+					else
+						op_zone_ref+=("${param}")
+					fi
+				else
+					pp_zone_ref+=("${param}")
+				fi
+			done
+		fi
 	else
 		# no ZONE_SEP: route params by LID
 		for param in "$@"; do
@@ -198,7 +226,7 @@ function extract_watershed() {
 # split liga into bools, parse values, load into result array
 # used for ligas for Pirors/PSets/U-Options
 # only shell variable validating applied on param names.
-function parse_ligas() {
+function parse_ligas {
 	local lid=$1
 	local -n ligas_ref2=$2
 
@@ -242,7 +270,7 @@ function parse_ligas() {
 
 # parse boolean parameter with trailing-tag; load into result array
 # check if a valid shell variable
-function parse_bools() {
+function parse_bools {
 	local lid=$1
 	local -n bs_ref=$2
 
@@ -265,7 +293,7 @@ function parse_bools() {
 
 # parse string parameter and load result into array
 # validate if the param name is a valid shell variable(with exception subsititution)
-function parse_strings() {
+function parse_strings {
 	local lid=$1
 	local -n str_ref=$2
 
@@ -288,7 +316,7 @@ function parse_strings() {
 }
 
 # parse Options with all types of params, and load results into arrays
-function parse_options() {
+function parse_options {
 	local lid=$1
 	local -n strings_ref=$2 bools_ref=$3 ligas_ref=$4
 
@@ -299,7 +327,7 @@ function parse_options() {
 }
 
 # parse positionals, which are all params in PP_ZONE, and load results into array
-function parse_positionals() {
+function parse_positionals {
 	BP_POSITIONALS=("$@")
 	local i
 	msg_bp 3 "  positionals parsed: "
@@ -317,23 +345,25 @@ function parse_positionals() {
 #   multiple matched: matching names
 # note:
 #   this script assumes that no duplicated members in matching-list
-function prefix_matching() {
-	# local lid=$1
+function prefix_matching {
 	local candidate=$1
 	local -n matching_list=$2
 	local prefix=${3:-prefix}
 
-	local pk candidate_escaped
+	local pk candidate_regex
+	local re_char
 
 	declare -a matched=()
 
-	# in case candidate needs escape(\)
-	candidate_escaped="$(printf '%q' "${candidate}")"
-	# FLD_SEP must be escaped, candidate may contain FLD_SEP, which will cause regex matching failure
-	candidate_escaped="${candidate_escaped//"${FLD_SEP}"/\\"${FLD_SEP}"}"
+	# build regex-safe pattern from candidate
+	candidate_regex="${candidate}"
+	# escape regex metacharacters (backslash first to avoid double-escaping)
+	for re_char in "${BP_REGEX_METACHARS[@]}"; do
+		candidate_regex="${candidate_regex//"${re_char}"/\\"${re_char}"}"
+	done
 
-	# try exactly match
-	if is_array_member "${candidate_escaped}" matching_list; then
+	# try exactly match (plain string comparison, no regex)
+	if is_array_member "${candidate}" matching_list; then
 		echo "${candidate}"
 		return 0
 	fi
@@ -342,10 +372,10 @@ function prefix_matching() {
 	for pk in "${matching_list[@]}"; do
 		if [[ ${prefix} == "prefix" ]]; then
 			# prefix matching
-			[[ ${pk} =~ ^${candidate_escaped} ]] && matched+=("${pk}")
+			[[ ${pk} =~ ^${candidate_regex} ]] && matched+=("${pk}")
 		elif [[ "postfix" =~ ^${prefix} ]]; then
 			# postfix-matching
-			[[ ${pk} =~ ${candidate_escaped}$ ]] && matched+=("${pk}")
+			[[ ${pk} =~ ${candidate_regex}$ ]] && matched+=("${pk}")
 		else
 			pros_tag="Wrong options '${prefix}' when calling 'prefix-matching()', 'prefix(default)|postfix' available."
 			exit_with_msg 3

@@ -56,7 +56,7 @@ BosParse supports two main styles of command line structures: `watershed` and `i
 
 ```bash
 [OP-ZONE] [ZN-SEP] [PP-ZONE] # watershed style
-[OPTIONS | POSITIONANLS]     # islands style
+[OPTIONS | POSITIONALS]      # islands style
 ```
 
 - `OP-ZONE`: Options and parser settings
@@ -69,7 +69,7 @@ The main difference between the two styles is how they handle the separation of 
 
 - `watershed` style(default) uses `ZN-SEP` to separate Options and Positionals, while `islands` style allows intermixing Options and Positionals.
 - In `watershed` style, Options must come before `ZN-SEP`, and Positionals must come after.
-- In `islands` style, Options and Positionals can be mixed in any order, but Options must use `OA-SEP` (e.g., `=`) to separate name and value.
+- In `islands` style, Options and Positionals can be mixed in any order, but Options must use `OA-SEP` ( `=` by default) to separate name and value, while space(s) allowd in `watershed` style CML.
 
 ## Supported Parameters
 
@@ -89,7 +89,7 @@ Example:
 
 ### Positional parameters
 
-In `watershed` stype CML, everything after `--` becomes Positional values in the `BP_Positionals` array:
+In `watershed` stype CML, everything after `ZN-SEP (-- by default)` becomes Positional values in the `BP_Positionals` array:
 
 ```bash
 ./script.sh -name=bob -- one two three
@@ -120,7 +120,7 @@ They do not set variables directly but affect the parsing process and output for
 
 ### Common settings
 
-- `~~~style`: command line structure style, `watershed`(default) or `islands`
+- `~~~~style`: command line structure style, `watershed`(default) or `islands`
 - `~json`: produce JSON output
 - `~run`: run-mode setting, `auto` (default), `source`, `eval`, `capture`
 - `~dvo`: disable variables output; for source mode only
@@ -136,7 +136,7 @@ Example:
 
 ## Important Features
 
-- BosParse supports PSet prefix-matching in all PSets scope, e.g. `~r=j` -> `~run=json`
+- BosParse supports PSet names prefix-matching in all PSets scope, e.g. `~r=j` -> `~run=json`
 - Options sequence is insensitive for PSets and User-params in OP-ZONE(`watershed`) or in whole CML(`islands`)
 - If the same parameter supplied multiple times, the latter wins
 
@@ -192,7 +192,7 @@ output:
 ## Best Practices
 
 - Always use `ZN-SEP` to separate Options and Positional arguments for `watershed` style CML
-- `islands` style CML allows intermixing Options and Positionals, but using `ZN-SEP` can improve readability
+- `islands` style CML allows intermixing Options and Positionals, `ZN-SEP` not required but permitted
 - `OA-SEP` must be used to separate Option name and value in `islands` style CML, while `space(s)` as `OA-SEP` allowed in `watershed` style CML
 - Quote values with spaces or special characters
 - Use clear, consistent Option names
@@ -202,7 +202,7 @@ output:
 
 For advanced validation, default values, prefix matching, and parameter relationships, see `doc/bp-PFILTER.md`.
 
-For advanced features like parsing-aid symbols and customization, see `doc/BosParse-Referenc-Mauanl.md`.
+For details about BosParse like parsing-aid symbols and customization, see `doc/BosParse-Reference-Manual.md`.
 
 ## Requirements
 

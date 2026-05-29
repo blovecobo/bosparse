@@ -1,6 +1,19 @@
-# PFILTER functions ---------------------------------------------------------------
+# shellcheck shell=bash
+# shellcheck disable=SC2153,SC2206
+# Module 04-pfilter: PFILTER validation and serialization
+#   serialize_pfilter()     — assoc array to JSON string (via jq)
+#   deserialize_to_pfilter() — JSON string to assoc array (via jq)
+#   extract_filter_schema() — split "type:data:mcg" entry into components
+#   extract_enum_list()     — split enum values from |-delimited string
+#   _validate_pfilter_entry_type() — check type is one of bool/string/enum
+#   _validate_pfilter_default() — ensure default value matches declared type
+#   _process_mcg_name()     — classify MCG member (d/D/e/m/M) and record
+#   pfilter_integrity_check() — full cross-member MCG validation
+#   validate_pfilter()      — entry point: accept name-ref / JSON / keys-values
+# --------------------------------------------------------------------------------
 
-function serialize_pfilter() {
+# serialize an associative array to JSON string via jq
+function serialize_pfilter {
 	local -n arr=$1
 
 	# validate jq
@@ -33,9 +46,10 @@ function serialize_pfilter() {
 
 	echo "${json}"
 }
+
 # usage
 #   deserialize_to_pfilter "$pf_str" PFILTER
-function deserialize_to_pfilter() {
+function deserialize_to_pfilter {
 	local json="$1"
 	local -n arr_name="$2"
 	local keyj valuej
@@ -47,15 +61,10 @@ function deserialize_to_pfilter() {
 	done < <(jq -r 'to_entries[] | "\(.key) \(.value)"' <<<"${json}")
 }
 
-function extract_filter_schema() {
+# split PFILTER entry "type:data:mcg" into its component fields
+function extract_filter_schema {
 	local lid=$1 p_schema=$2
-	local -n p_type=$3 p_data=$4
-
-	if [[ $# == 5 ]]; then
-		local -n p_mcg=${5:-}
-	else
-		local p_mcg=""
-	fi
+	local -n p_type=$3 p_data=$4 p_mcg=$5
 
 	# escape FLD-SEPs
 	escape_symbol p_schema "${FLD_SEP}"
@@ -74,9 +83,8 @@ function extract_filter_schema() {
 	return 0
 }
 
-# extract enum values
 # extract enum values string to array and pass back
-function extract_enum_list() {
+function extract_enum_list {
 	local enum_str=$1
 	local -n enum_arr=$2
 
@@ -97,8 +105,9 @@ function extract_enum_list() {
 		escape_symbol enum_arr[i] "\\" "regress"
 	done
 }
+
 # validate a single PFILTER entry type against PFILTER_ENTRY_TYPES
-function _validate_pfilter_entry_type() {
+function _validate_pfilter_entry_type {
 	local entry_type=$1
 	if ! is_array_member "${entry_type}" PFILTER_ENTRY_TYPES; then
 		pros_tag="${entry_type}"
@@ -109,7 +118,7 @@ function _validate_pfilter_entry_type() {
 }
 
 # validate default value matches entry type (string/bool/enum)
-function _validate_pfilter_default() {
+function _validate_pfilter_default {
 	local entry_type=$1 entry_data=$2 pf_key=$3 entry_schema=$4
 	pros_tag="${entry_schema}"
 	pros_tag2="${entry_type}"
@@ -123,7 +132,7 @@ function _validate_pfilter_default() {
 		*) ;;
 		esac
 	elif [[ ${entry_type} == 'enum' ]]; then
-		# no enum list
+		# empty enum list
 		pros_tag=$(printf '%s' "[\"${pf_key}\"]=\"${entry_schema}\"")
 		exit_with_msg 35
 	fi
@@ -131,7 +140,7 @@ function _validate_pfilter_default() {
 }
 
 # validate MCG name, record it, and classify member by type
-function _process_mcg_name() {
+function _process_mcg_name {
 	local pf_key=$1 mcg_name=$2
 	local -n _mcg_types=$3 _mcg_names=$4
 	local -n _dc_members=$5 _dc_count=$6 _dl_members=$7 _dl_count=$8
@@ -184,7 +193,7 @@ function _process_mcg_name() {
 }
 
 # validate exclusion group: at least two members within same MCG
-function _validate_mcg_exclusion() {
+function _validate_mcg_exclusion {
 	local mcg_name=$1
 	local -n _el_count=$2 _el_members=$3
 
@@ -192,13 +201,11 @@ function _validate_mcg_exclusion() {
 		pros_tag="${mcg_name}"
 		pros_tag2="${_el_members[${mcg_name}]#\|}"
 		exit_with_msg 38
-	elif [[ ${_el_count["${mcg_name}"]:-0} -eq 0 ]]; then
-		:
 	fi
 }
 
 # validate d-member depends on D-member for a single MCG
-function _validate_mcg_dependency() {
+function _validate_mcg_dependency {
 	local mcg_name=$1
 	local -n _dl_count=$2 _dc_count=$3 _dl_members=$4
 
@@ -212,7 +219,7 @@ function _validate_mcg_dependency() {
 }
 
 # validate m/M master-group relationship for a single MCG
-function _validate_mcg_master() {
+function _validate_mcg_master {
 	local mcg_name=$1
 	local -n _ml_count=$2 _mc_count=$3 _ml_members=$4 _mc_members=$5
 
@@ -240,7 +247,8 @@ function _validate_mcg_master() {
 	fi
 }
 
-function pfilter_integrity_check() {
+# validate all MCG cross-references: dependency, master, exclusion integrity
+function pfilter_integrity_check {
 	declare -a mcg_types=() mcg_name_entry=()
 	local mcg_type mcg_name
 	declare -A mcg_names=()
@@ -295,9 +303,9 @@ function pfilter_integrity_check() {
 # three ways to pass PFILTER in:
 #   1. PFILTER name_ref    - for an associative array, used in source run-mode
 #   2. serialized PFILTER  - a json string, used for all run-modes
-#   3. "keys-values" pairs - ~pf="${!pfilter[*]} ${pfilter[*]}"
+#   3. "keys values" pairs - ~pf="${!pfilter[*]} ${pfilter[*]}"
 # a valid PFILTER must include a member whose key is "PARAM-FILTER" as identifier
-function validate_pfilter() {
+function validate_pfilter {
 	local pk new_pk
 
 	# msg_bp 4 "    param-filter: ${PARAM_FILTER}"
@@ -340,7 +348,8 @@ function validate_pfilter() {
 			fi
 		else
 			# a string, may be keys+values stream
-			local pf_arr=(${PARAM_FILTER})
+			local -a pf_arr
+			read -ra pf_arr <<< "${PARAM_FILTER}"
 			local len=${#pf_arr[@]}
 			if [[ $((len % 2)) -ne 0 ]]; then
 				# length not an even number

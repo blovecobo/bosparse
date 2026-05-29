@@ -1,6 +1,17 @@
-# Helper functions ----------------------------------------------------------------
+# shellcheck shell=bash
+# shellcheck disable=SC2154
+# Module 03-helpers: Helper functions for parsing workflow
+#   reset_verbose() / update_verbose() — manage output verbosity levels (0-4)
+#   is_in_resyms() — check if a string consists entirely of reserved symbols
+#   check_param_type() — classify a CML token (bool/string/liga/arg) by context
+#   parse_bool_tag() — extract trailing true/false tag from parameter name
+#   apply_setup() — merge BP_STRINGS/BP_BOOLS into BP_OPTIONS and write to CONFIGS
+#   reset_intermediate_arrays() — clear working arrays for re-parsing
+#   show_configs() — display current CONFIGS (for ~config and ~~~Defaults directives)
+# --------------------------------------------------------------------------------
 
-function reset_verbose() {
+# reset all verbose flags to default (standard, level 1)
+function reset_verbose {
 	local v
 	for v in "quiet" "extra" "debug" "trace"; do
 		CONFIGS["${PSETS[${v}]%%:*}"]=false
@@ -8,13 +19,14 @@ function reset_verbose() {
 	CONFIGS["${PSETS["standard"]%%:*}"]=true
 	verbose=1
 }
+
 # turn output settings to verbose
 # trace > debug > extra > standard > quiet
-function update_verbose() {
+function update_verbose {
 	local spr
 
 	for spr in "${supers[@]}"; do
-		if [[ -v CONFIGS["${SVERBOSE[${spr}]%%:*}"] ]]; then
+		if [[ -v CONFIGS["${SUPERS[${spr}]%%:*}"] ]]; then
 			CONFIGS["${PSETS["${spr}"]%%:*}"]=true
 		fi
 	done
@@ -65,7 +77,9 @@ function update_verbose() {
 	}
 	return 0
 }
-function is_in_resyms() {
+
+# check if parameter consists entirely of a single repeated reserved symbol
+function is_in_resyms {
 	local param=$1
 	local resym
 	for resym in "${RESYMS[@]}"; do
@@ -75,7 +89,18 @@ function is_in_resyms() {
 	done
 	return 1
 }
-function check_param_type() {
+
+# classify a CML token: returns type code (0=arg, 1=liga, 2=bool, 4=string, etc.)
+# return codes:
+#   0: arg (no lid, not recognized as parameter, leave it to caller to handle)
+#   1: liga (with lid, recognized as parameter, no consume)
+#   2: bool (with lid, recognized as parameter, no consume)
+#   3: bool (with lid, recognized as parameter, consume next token as arg)
+#   4: string (with lid, recognized as parameter, consume next token as arg)
+#   5: string (with lid, recognized as parameter, consume next token as arg)
+#   6: a-param (with alter-lid, recognized as parameter, no consume)
+#   7: a-param (with alter-lid, recognized as parameter, consume next token as arg)
+function check_param_type {
 	local lid=$1 current=$2 next=$3
 	local -n param_ref=$4
 
@@ -142,7 +167,9 @@ function check_param_type() {
 		return 0
 	fi
 }
-function parse_bool_tag() {
+
+# extract trailing true/false tag character from parameter name
+function parse_bool_tag {
 	local param=$1
 	local tag=${param: -1}
 
@@ -152,7 +179,9 @@ function parse_bool_tag() {
 	*) echo "${TAG_DEFAULT}" ;;
 	esac
 }
-function apply_setup() {
+
+# merge parsed Priors/PSets into BP_OPTIONS then write to CONFIGS
+function apply_setup {
 	local title=$1
 	local -n setup_ref=$2
 
@@ -186,7 +215,7 @@ function apply_setup() {
 }
 
 # Reset all intermediate results arrays, for re-parsing if needed
-function reset_intermediate_arrays() {
+function reset_intermediate_arrays {
 	local reset_zone_arra=${1:-true}
 	local arr_name
 	for arr_name in BP_OPTIONS BP_BOOLS BP_STRINGS BP_POSITIONALS strings bools ligas; do
@@ -200,7 +229,7 @@ function reset_intermediate_arrays() {
 }
 
 # display current CONFIGS settings, for debugging & directives
-function show_configs() {
+function show_configs {
 	local output_as_json key param len_key
 
 	[[ ${CONFIGS[${PSETS["json"]%%:*}]} == true ]] && output_as_json=true || output_as_json=false
@@ -208,13 +237,8 @@ function show_configs() {
 
 	# output to stdout if '~config' set, or to stderr for debugging
 	# ~/~~~config set to true, output current CONFIGS settings to stdout
-	declare -A mappings=() show_arr=()
-	for key in "${!PRIORS[@]}"; do
-		mappings["${key}"]="${PRIORS[${key}]%%:*}"
-	done
-	for key in "${!PSETS[@]}"; do
-		mappings["${key}"]="${PSETS[${key}]%%:*}"
-	done
+	local -n mappings=__BP_SC_MAP
+	declare -A show_arr=()
 	for param in "${!CONFIGS[@]}"; do
 		key=$(key_of_array_member "${param}" mappings) || continue
 		show_arr["${key}"]="${CONFIGS[${param}]}"

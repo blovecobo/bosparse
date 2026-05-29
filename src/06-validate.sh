@@ -1,6 +1,20 @@
-# Option validation ---------------------------------------------------------------
+# shellcheck shell=bash
+# shellcheck disable=SC2153,SC2154,SC2015
+# Module 06-validate: Parameter validation against PFILTER and MCG rules
+#   validate_option_name()       — match param name against filter (exact/prefix/multi)
+#   validate_option_args()       — validate value per type (bool/string/enum/resym)
+#   get_all_mcg_names()          — collect all MCG names from PFILTER entries
+#   validate_mcg_types()         — ensure MCG names start with valid type prefixes
+#   validate_required_groups()   — enforce required MCG members are supplied
+#   _build_mcg_membership_map()  — invert PFILTER: MCG name to member list
+#   _validate_dependence_groups() — d-member supplied requires D-member supplied
+#   _validate_master_groups()    — M/m MCG rules
+#   validate_option_mcgs()       — orchestrate all MCG validation by type
+#   validate_options_by_filter() — validate BP_OPTIONS against a definition set
+# --------------------------------------------------------------------------------
 
-function validate_option_name() {
+# match a param name against filter keys (exact, prefix, or multi-match)
+function validate_option_name {
 	local lid=$1
 	local -n param_ref=$2 matching_filter=$3
 	local mandatory=${4:-true}
@@ -36,7 +50,9 @@ function validate_option_name() {
 	fi
 	return 0
 }
-function validate_option_args() {
+
+# validate a parameter's value against its PFILTER type (bool/string/enum/resym)
+function validate_option_args {
 	local lid=$1
 	local param=$2 e_param=$3 pf_type=$4 pf_data=$5 pf_mcg=$6
 
@@ -146,7 +162,9 @@ function validate_option_args() {
 	esac
 	return 0
 }
-function get_all_mcg_names() {
+
+# collect all unique MCG names referenced across PFILTER entries
+function get_all_mcg_names {
 	local lid=$1
 	local -n pfilter=$2 mcg_groups_ref=$3
 	local mem dummy mcg mcg_name
@@ -165,13 +183,16 @@ function get_all_mcg_names() {
 		fi
 	done
 }
-function validate_mcg_types() {
+
+# verify each MCG name starts with a valid type prefix (d/D/e/m/M/r/u)
+function validate_mcg_types {
 	local -n mcg_names_ref=$1
 
 	local mem
 	declare -a mcg_types=()
 
 	# all available type in PFILTER
+	# assum MCG_TYPE schema: 'type:name-or-prefix'
 	for mem in "${MCG_TYPES[@]}"; do
 		mcg_types+=("${mem#*"${FLD_SEP}"}")
 	done
@@ -179,6 +200,7 @@ function validate_mcg_types() {
 	declare -A mcg_type_map=()
 	for mem in "${mcg_types[@]}"; do mcg_type_map["${mem}"]=true; done
 
+	# group names should match initial letters
 	for mem in "${mcg_names_ref[@]}"; do
 		[[ -v mcg_type_map[${mem:0:1}] ]] || {
 			pros_tag="${mem}"
@@ -189,16 +211,16 @@ function validate_mcg_types() {
 }
 
 # validate_required_groups: ensure all members of Required MCGs are supplied or have defaults
-function validate_required_groups() {
+function validate_required_groups {
 	local -n groups=$1 filter_ref2=$2
 
-	local mcg member def_type def_data
+	local mcg member def_type def_data def_mcg
 	local member_mcg
 	declare -a mcg_members=()
 
 	msg_bp 3 "    checking Required MCGs"
 	for mcg in "${groups[@]}"; do
-		[[ ${mcg,,} == required* ]] || continue
+		[[ "require" =~ ^${mcg,,} ]] || continue
 		# msg_bp -3 "    - checking MCG - " "${mcg}"
 
 		member_mcg=""
@@ -207,9 +229,13 @@ function validate_required_groups() {
 		# find members in the same mcg
 		for member in "${!filter_ref2[@]}"; do
 			member_mcg=${filter_ref2[${member}]##*:}
-			if [[ "required" =~ ^${member_mcg,,} ]]; then
-				mcg_members+=("${member}")
-			fi
+			local IFS="${ELM_SEP}" mcg_entry
+			for mcg_entry in ${member_mcg}; do
+				if [[ "${mcg}" =~ ^${mcg_entry,,} ]]; then
+					mcg_members+=("${member}")
+					break
+				fi
+			done
 		done
 
 		# check if all members available(supplied or can be fulfilled)
@@ -218,7 +244,7 @@ function validate_required_groups() {
 				msg_bp -4 "      member " "'${member}@${mcg}' supplied"
 				continue
 			else
-				extract_filter_schema "${lid}" "${filter_ref2[${member}]}" def_type def_data
+				extract_filter_schema "${lid}" "${filter_ref2[${member}]}" def_type def_data def_mcg
 				if [[ -n ${def_data} ]]; then
 					msg_bp -4 "      member " "'${member}@${mcg}' fulfill with default"
 					vpe_options["${member}"]="${def_data}"
@@ -238,8 +264,9 @@ function validate_required_groups() {
 		msg_bp 3 "      - MCG ${mcg}: PASSED"
 	done
 }
+
 # single-pass: build mcg -> members mapping from all PFILTER entries
-function _build_mcg_membership_map() {
+function _build_mcg_membership_map {
 	local lid=$1
 	local -n _pf=$2 _ms=$3
 	local member def_type def_data def_mcg mcg_name
@@ -261,7 +288,7 @@ function _build_mcg_membership_map() {
 }
 
 # validate dependence groups: any d-member supplied requires D-member supplied
-function _validate_dependence_groups() {
+function _validate_dependence_groups {
 	local -n _dc_supplied=$1 _dc_unsupplied=$2 _dl_supplied=$3 _dl_unsupplied=$4
 	local lid=$5
 
@@ -311,7 +338,7 @@ function _validate_dependence_groups() {
 #   1 if any m-member supplied, fails
 #   2 if just one / none M-member supplied, pass
 #   3 assign supplied M-member's name to m-member
-function _validate_master_groups() {
+function _validate_master_groups {
 	local -n _mc_members=$1 _mc_count=$2
 	local -n _ml_supplied=$3 _ml_unsupplied=$4
 	local -n _mc_supplied=$5 _mc_unsupplied=$6
@@ -356,7 +383,7 @@ function _validate_master_groups() {
 }
 
 # orchestrate all MCG validation: classify, then validate per-type rules
-function validate_option_mcgs() {
+function validate_option_mcgs {
 	local lid=$1
 	local -n filter_ref=$2
 	local -n vpe_options=$3 vpe_bools=$4 vpe_strings=$5
@@ -390,7 +417,8 @@ function validate_option_mcgs() {
 
 	# classify members for each MCG
 	for mcg in "${mcg_list[@]}"; do
-		[[ ${mcg:0:1} == [sorR] ]] && continue
+		# skip r/R (required — handled by validate_required_groups) and non-MCG names
+		[[ ${mcg:0:1} == [rR] ]] && continue
 
 		IFS="${ELM_SEP}" read -ra mcg_members <<<"${mcg_members_map[${mcg}]#|}"
 		eg_supplied=()
@@ -398,7 +426,7 @@ function validate_option_mcgs() {
 		ug_supplied=()
 
 		for member in "${mcg_members[@]}"; do
-			extract_filter_schema "${lid}" "${filter_ref[${member}]}" def_type def_data
+			extract_filter_schema "${lid}" "${filter_ref[${member}]}" def_type def_data def_mcg
 			case ${mcg:0:1} in
 			d)
 				if [[ -v vpe_options["${member}"] ]]; then
@@ -497,7 +525,7 @@ function validate_option_mcgs() {
 }
 
 # validate BP_OPTIONS(Priors/PSets/User-Options) with their definitions(PRIORS/PSETS/PFILTER)
-function validate_options_by_filter() {
+function validate_options_by_filter {
 	local lid=$1 mandatory=${2:-true}
 
 	declare -A v_options=() v_strings=() v_bools=()

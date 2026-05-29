@@ -1,30 +1,15 @@
-# Main function -------------------------------------------------------------------
+# shellcheck shell=bash
+# Module 08-main: Entry point and high-level orchestration
+#   bosparse() — main function, called when script is executed (not sourced)
+#   Workflow: init configs -> detect style -> extract zones ->
+#   parse Priors -> parse PSets -> parse User params -> parse Positionals -> output
+#   Module-level: BP_ESC_PFX (random escape marker), __BP_READY (sourced marker)
+# --------------------------------------------------------------------------------
 
-function bosparse() {
-
-	# trap on_exit_bp EXIT
-
-	local local_script_path
-	# local local_script_dir
-	local local_script_name
-
+# initialize runtime configs by calling definitions() and setting CONFIGS defaults
+function bosparse_initialize_runtime {
 	local_script_path="$(realpath "${BASH_SOURCE[0]}")"
-	# local_script_dir="${local_script_path%\/*}"
 	local_script_name="${local_script_path##*\/}"
-
-	declare -a op_zone=() pp_zone=()
-	declare -a strings=() bools=() ligas=()
-
-	# local variables
-	local verbose
-	# local run_mode
-	local __QUIET __STANDARD __EXTRA __DEBUG __TRACE
-	local pros_tag="" pros_tag2="" pros_tag3="" pros_tag4="" pros_tag5=""
-	# local pros_tag pros_tag2 pros_tag3 pros_tag4 pros_tag5
-
-	declare -A CONFIGS CONSTS SUPERS PRIORS PSETS SVERBOSE
-	declare -A EXCEPTIONS EXIT_MSG MCG_TYPES SYMNAMES
-	declare -a RESYMS PFILTER_ENTRY_TYPES
 
 	definitions \
 		CONFIGS \
@@ -37,203 +22,94 @@ function bosparse() {
 		EXIT_MSG \
 		PFILTER_ENTRY_TYPES \
 		MCG_TYPES \
-		SVERBOSE \
 		SYMNAMES
 
-	declare -n SLID="CONFIGS[${SUPERS["slid"]%%:*}]"
-	declare -n PRLID="CONFIGS[${SUPERS["prlid"]%%:*}]"
-	declare -n CML_STYLE="CONFIGS[${SUPERS["style"]%%:*}]"
+	CONFIGS["run_mode"]="auto"
+	CONFIGS["style_of_commandline"]="watershed"
+	CONFIGS["output_as_json"]=false
+	CONFIGS["param_filter"]="${CONSTS["NO_PFILTER"]}"
+}
 
-	declare -n PLID="CONFIGS[${PRIORS["plid"]%%:*}]"
-	declare -n ULID="CONFIGS[${PRIORS["ulid"]%%:*}]"
-	declare -n ZN_SEP="CONFIGS[${PRIORS["zs"]%%:*}]"
-	declare -n OA_SEP="CONFIGS[${PRIORS["os"]%%:*}]"
-	declare -n TAG_TRUE="CONFIGS[${PRIORS["tt"]%%:*}]"
-	declare -n TAG_FALSE="CONFIGS[${PRIORS["tf"]%%:*}]"
-	declare -n TAG_DEFAULT="CONFIGS[${PRIORS[td]%%:*}]"
-
-	declare -n RUN_MODE="CONFIGS[${PSETS["run"]%%:*}]"
-	declare -n PARAM_FILTER="CONFIGS[${PSETS["pf"]%%:*}]"
-
-	declare -n NO_PFILTER='CONSTS["NO_PFILTER"]'
-	declare -n PFILTER_ID='CONSTS["PFILTER_ID"]'
-	declare -n FLD_SEP="CONSTS[FLD_SEP]"
-	declare -n ELM_SEP="CONSTS[ELM_SEP]"
-
-	# arrays for parsing result
-	#   - BP_OPTIONS is the main result array for all types of Options
-	#   - BP_STRINGS/BP_BOOLS are for storing string/bool type Options separately
-	#   - BP POSITIONALS entries are all position parameters
-	# BP_POSITIONALS defined as global array since it is always needed for run-mode Source,
-	# while others defined as local arrays to reduce global variable usage and avoid potential
-	# conflicts with user variables; for eval/capture, these arrays will not be used directly,
-	# so it does not matter if they are global or local.
-
-	declare -A "${CONFIGS[${PSETS["oan"]%%:*}]}"
-	declare -A "${CONFIGS[${PSETS["san"]%%:*}]}"
-	declare -A "${CONFIGS[${PSETS["ban"]%%:*}]}"
-	declare -ga "${CONFIGS[${PSETS["pan"]%%:*}]}"
-
-	declare -n BP_OPTIONS="${CONFIGS[${PSETS["oan"]%%:*}]}"
-	declare -n BP_STRINGS="${CONFIGS[${PSETS["san"]%%:*}]}"
-	declare -n BP_BOOLS="${CONFIGS[${PSETS["ban"]%%:*}]}"
-	declare -n BP_POSITIONALS="${CONFIGS[${PSETS["pan"]%%:*}]}"
-
-	# echo --------------------- >&2
-	# echo $* >&2
-
-	# process empty "$@"
-	[[ $# -eq 0 || $* == '--' || $* == "${ZN_SEP}" ]] && {
-		verbose=1
-		exit_with_msg 2
-	}
-
-	# supper verbose for Priors parse monitoring
-	local supers=() spr matched_spr
-	# remove '~pf' from cml in case SLID included in PFILTER
-	local CMLM=("$@") i
-	for i in "${!CMLM[@]}"; do
-		if [[ ${CMLM[i]} =~ ^\~pf= ]]; then
-			unset "CMLM[i]"
-			break
-		fi
-	done
-	for spr in "${!SVERBOSE[@]}"; do
-		if [[ ${CMLM[*]} =~ ${SLID}${spr} ]]; then
-			matched_spr="${BASH_REMATCH[0]}"
-			supers+=("${BASH_REMATCH[0]##*\~}")
-		fi
-	done
-
-	update_verbose
-	unset spr supers
-
-	msg_bp 3 "Command line: " "$*"
-	# echo "Command line: $*" >&2
-	msg_bp -2 "verbose: " "${verbose}"
-
-	reset_intermediate_arrays
-
-	# check cml style
-	update_cml_style "$@"
-	# msg_bp 2 "CML style: ${CML_STYLE}"
+# split CML into op_zone (options) and pp_zone (positionals) by current CML_STYLE
+function bosparse_extract_zones {
 	if [[ ${CML_STYLE} == "watershed" ]]; then
-		# disassemble command line parameters
 		msg_bp 2 "Extract Watershed-style CML"
 		extract_watershed op_zone pp_zone "$@"
 	else
 		msg_bp 2 "Extract Islands-style CML"
 		extract_islands op_zone pp_zone "$@"
 	fi
-
 	msg_bp 4 "op zone:" "${op_zone[*]}"
 	msg_bp 4 "pp zone:" "${pp_zone[*]}"
+}
 
-	# in case no parameter supplied
-	[[ ${#op_zone[@]} -eq 0 && ${#pp_zone[@]} == 0 ]] && exit_with_msg 2
+# show CONFIGS if ~config PSet is set; optionally clear flag after display
+function bosparse_show_config_if_needed {
+	local setup_map_name=$1
+	local clear_after_show=${2:-false}
+	local -n setup_ref="${setup_map_name}"
 
-	if [[ ${#op_zone[@]} -ne 0 ]]; then
-		# option parameter supplied
-		msg_bp 3 "Extract Priors"
-		extract_options "${PRLID}" strings bools ligas op_zone
+	if [[ ${CONFIGS[${setup_ref["config"]%%:*}]} == true ]]; then
+		show_configs
+		[[ ${clear_after_show} == true ]] && CONFIGS["${setup_ref["config"]%%:*}"]=false
+	fi
+	return 0
+}
 
-		# process Priors ---------------------------------------------
-		# if no priors supplied, skip parsing priors
-		if [[ ${#strings[@]} -ne 0 || ${#bools[@]} -ne 0 || ${#ligas[@]} -ne 0 ]]; then
-			msg_bp 2 "Parse Priors"
-			parse_options "${PRLID}" strings bools ligas
+# orchestrate a single parsing stage (Priors/PSets): extract → parse → validate → apply
+function bosparse_parse_stage {
+	local stage_label=$1
+	local lid=$2
+	local setup_map_name=$3
+	local rebuild_zones=${4:-false}
+	local clear_after_show=${5:-false}
+	local reset_after=${6:-true}
+	shift 6
 
-			msg_bp 3 "Validate Priors"
-			validate_options_by_filter "${PRLID}" true
+	msg_bp 3 "Extract ${stage_label}"
+	extract_options "${lid}" strings bools ligas op_zone
 
-			# show_array CONFIGS "CF"
+	if [[ ${#strings[@]} -ne 0 || ${#bools[@]} -ne 0 || ${#ligas[@]} -ne 0 ]]; then
+		msg_bp 2 "Parse ${stage_label}"
+		parse_options "${lid}" strings bools ligas
 
-			msg_bp 3 "Apply Priors"
-			apply_setup "Priors" PRIORS
-			# unset "${super_verbose}"
-			update_verbose
+		msg_bp 3 "Validate ${stage_label}"
+		validate_options_by_filter "${lid}" true
 
+		msg_bp 3 "Apply ${stage_label}"
+		apply_setup "${stage_label}" "${setup_map_name}"
+		update_verbose
+
+		if [[ ${reset_after} == true ]]; then
 			reset_intermediate_arrays
-			if [[ ${CONFIGS[${PRIORS["config"]%%:*}]} == true ]]; then
-				# if config is true, show configs after parsing Priors
-				show_configs
-				# set config to false after showing configs, to avoid showing configs again
-				# after parsing PSets
-				CONFIGS["${PRIORS["config"]%%:*}"]=false
-			# else
-			# 	[[ ${verbose} -ge 3 ]] && show_configs
-			fi
-
-			# msg_bp 2 "CML stype: ${CML_STYLE}"
-			if [[ ${CML_STYLE} == "watershed" ]]; then
-				# re-extract zones for PSets and user Options, in case some prior settings changed
-				msg_bp 2 "Extract Watershed-style CML Again"
-				extract_watershed op_zone pp_zone "$@"
-			else
-				msg_bp 2 "Extract Islands-style CML Again"
-				extract_islands op_zone pp_zone "$@"
-			fi
-
-			msg_bp 4 "op zone:" "${op_zone[*]}"
-			msg_bp 4 "pp zone:" "${pp_zone[*]}"
 		else
-			msg_bp 3 "  no Priors supplied, skip parsing Priors"
-		fi
-
-		# Psets
-		msg_bp 3 "Extract PSets"
-		extract_options "${PLID}" strings bools ligas op_zone
-
-		# parsing PSets ----------------------------------------------
-		# in case no PSets supplied
-		if [[ ${#strings[@]} -ne 0 || ${#bools[@]} -ne 0 || ${#ligas[@]} -ne 0 ]]; then
-			msg_bp 2 "Parse PSets"
-			parse_options "${PLID}" strings bools ligas
-
-			msg_bp 3 "Validate PSets"
-			validate_options_by_filter "${PLID}" true
-
-			msg_bp 3 "Apply PSets"
-			apply_setup "PSets" PSETS
-			update_verbose
-
-			# directives for some special PSets, which will not be output as user parameters but
-			# executed directly in BosParse, e.g. show version or print Banner
-			direct_pset_commands
-
 			reset_intermediate_arrays false
-			if [[ ${CONFIGS[${PSETS["config"]%%:*}]} == true ]]; then
-				# if config is true, show configs after parsing PSets
-				show_configs
-			# else
-			# 	[[ ${verbose} -ge 3 ]] && show_configs
-			fi
-		else
-			msg_bp 3 "  no PSets supplied, skip parsing PSets"
 		fi
-		# PSet parsed, update run-mode in case not specified
-		update_run_mode
 
-		# parsing user parameters-------------------------------------
-		msg_bp 2 "Extract user-options"
-		extract_options "${ULID}" strings bools ligas op_zone
-
-		msg_bp 2 "Parse user-options"
-		parse_options "${ULID}" strings bools ligas
-
-		if [[ ${#BP_OPTIONS[@]} -ne 0 ]] ||
-			[[ ${CONFIGS["${PSETS["afd"]%%:*}"]} == true ]]; then
-			validate_user_options
-		fi
-	else
-		update_run_mode
+		bosparse_show_config_if_needed "${setup_map_name}" "${clear_after_show}"
+		[[ ${rebuild_zones} == true ]] && bosparse_extract_zones "$@"
+		return 0
 	fi
 
-	# parsing optional parameters ---------------------------------
-	msg_bp 2 "Parse user-positionals"
-	parse_positionals "${pp_zone[@]}"
+	msg_bp 3 "  no ${stage_label} supplied, skip parsing ${stage_label}"
+}
 
-	# output parsing result ---------------------------------------
+# parse user-supplied option params: extract, parse, then validate against PFILTER
+function bosparse_parse_user_options {
+	msg_bp 2 "Extract user-options"
+	extract_options "${ULID}" strings bools ligas op_zone
+
+	msg_bp 2 "Parse user-options"
+	parse_options "${ULID}" strings bools ligas
+
+	if [[ ${#BP_OPTIONS[@]} -ne 0 ]] ||
+		[[ ${CONFIGS["${PSETS["afd"]%%:*}"]} == true ]]; then
+		validate_user_options
+	fi
+}
+
+# emit parsed results in the selected run-mode (source/eval/capture)
+function bosparse_emit_output {
 	msg_bp 2 "Output parsing result"
 
 	case ${RUN_MODE} in
@@ -252,8 +128,131 @@ function bosparse() {
 		;;
 	*) ;;
 	esac
+}
+
+# reject empty input, lone '--', or lone ZN_SEP before any parsing
+function bosparse_validate_input {
+	if [[ $# -eq 0 || $* == '--' || $* == "${ZN_SEP}" ]]; then
+		verbose=1
+		exit_with_msg 2
+	fi
+}
+
+# collect super-verbose (~~~~) flags from CML before main parsing starts
+function bosparse_collect_super_flags {
+	local CMLM=("$@") spr param="${SLID}"
+
+	for i in "${!CMLM[@]}"; do
+		if [[ ${CMLM[i]} =~ ^\~pf= ]]; then
+			unset "CMLM[i]"
+			break
+		fi
+	done
+
+	for spr in "${!SUPERS[@]}"; do
+		[[ ${SUPERS[${spr}]##*:} == "eg_sv" ]] || continue
+		for i in "${!CMLM[@]}"; do
+			if [[ ${CMLM[i]} =~ ${param}${spr} ]]; then
+				supers+=("${spr}")
+				break
+			fi
+		done
+	done
+
+	update_verbose
+}
+
+# store remaining non-option params from pp_zone as positionals
+function bosparse_parse_positionals {
+	msg_bp 2 "Parse user-positionals"
+	parse_positionals "${pp_zone[@]}"
+}
+
+# mark parsing complete (disables exit-trace in sourced mode)
+function bosparse_finalize {
 	BP_PARSING_STAGE="Mission complete."
 	msg_bp 3 "${BP_PARSING_STAGE}"
+}
+
+# main entry: orchestrate full parsing pipeline (Priors to PSets to User to Positionals to Output)
+function bosparse {
+	# trap on_exit_bp EXIT
+	local verbose
+	local pros_tag="" pros_tag2="" pros_tag3="" pros_tag4="" pros_tag5=""
+
+	declare -a op_zone=() pp_zone=()
+	declare -a strings=() bools=() ligas=()
+	declare -A CONFIGS CONSTS SUPERS PRIORS PSETS
+	declare -A EXCEPTIONS EXIT_MSG MCG_TYPES SYMNAMES
+	declare -a RESYMS PFILTER_ENTRY_TYPES
+
+	bosparse_initialize_runtime
+	declare -n SLID="CONFIGS[${SUPERS["slid"]%%:*}]"
+	declare -n PRLID="CONFIGS[${SUPERS["prlid"]%%:*}]"
+	declare -n CML_STYLE="CONFIGS[style_of_commandline]"
+	declare -l param="$SLID"
+
+	declare -n PLID="CONFIGS[${PRIORS["plid"]%%:*}]"
+	declare -n ULID="CONFIGS[${PRIORS["ulid"]%%:*}]"
+	declare -n ZN_SEP="CONFIGS[${PRIORS["zs"]%%:*}]"
+	declare -n OA_SEP="CONFIGS[${PRIORS["os"]%%:*}]"
+	declare -n TAG_TRUE="CONFIGS[${PRIORS["tt"]%%:*}]"
+	declare -n TAG_FALSE="CONFIGS[${PRIORS["tf"]%%:*}]"
+	declare -n TAG_DEFAULT="CONFIGS[${PRIORS[td]%%:*}]"
+
+	declare -n RUN_MODE="CONFIGS[run_mode]"
+	declare -n PARAM_FILTER="CONFIGS[param_filter]"
+
+	declare -n NO_PFILTER='CONSTS["NO_PFILTER"]'
+	declare -n PFILTER_ID='CONSTS["PFILTER_ID"]'
+	declare -n FLD_SEP="CONSTS[FLD_SEP]"
+	declare -n ELM_SEP="CONSTS[ELM_SEP]"
+
+	declare -A "${CONFIGS[${PSETS["oan"]%%:*}]}"
+	declare -A "${CONFIGS[${PSETS["san"]%%:*}]}"
+	declare -A "${CONFIGS[${PSETS["ban"]%%:*}]}"
+	declare -ga "${CONFIGS[${PSETS["pan"]%%:*}]}"
+
+	declare -n BP_OPTIONS="${CONFIGS[${PSETS["oan"]%%:*}]}"
+	declare -n BP_STRINGS="${CONFIGS[${PSETS["san"]%%:*}]}"
+	declare -n BP_BOOLS="${CONFIGS[${PSETS["ban"]%%:*}]}"
+	declare -n BP_POSITIONALS="${CONFIGS[${PSETS["pan"]%%:*}]}"
+
+	# build static mapping cache for show_configs
+	declare -A __BP_SC_MAP
+	for key in "${!PRIORS[@]}"; do
+		__BP_SC_MAP["${key}"]="${PRIORS[${key}]%%:*}"
+	done
+	for key in "${!PSETS[@]}"; do
+		__BP_SC_MAP["${key}"]="${PSETS[${key}]%%:*}"
+	done
+
+	declare -a supers=()
+	bosparse_validate_input "$@"
+	bosparse_collect_super_flags "$@"
+
+	msg_bp 3 "Command line: " "$*"
+	msg_bp -2 "verbose: " "${verbose}"
+
+	reset_intermediate_arrays
+	check_cml_style "$@"
+	bosparse_extract_zones "$@"
+
+	[[ ${#op_zone[@]} -eq 0 && ${#pp_zone[@]} -eq 0 ]] && exit_with_msg 2
+
+	if [[ ${#op_zone[@]} -ne 0 ]]; then
+		bosparse_parse_stage "Priors" "${PRLID}" PRIORS true true true "$@"
+		bosparse_parse_stage "PSets" "${PLID}" PSETS false false false "$@"
+		direct_pset_commands
+		update_run_mode
+		bosparse_parse_user_options
+	else
+		update_run_mode
+	fi
+
+	bosparse_parse_positionals
+	bosparse_emit_output
+	bosparse_finalize
 }
 
 __BP_READY=true # identifying BosParse used

@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 
+# Module 00-header: script preamble
+#   - Shebang and interpreter declaration
+#   - Project metadata (author, version, platform requirements)
+#   - Usage examples for all run modes (source, eval, capture)
+#   - Both CML styles: watershed (-- separator) and islands (LID-based)
+#   - Dependency notes (bash 4.4+, jq for JSON)
+#   - Brief changelog of key features
+#   - Strict mode: set -euo pipefail
+#
 # BosParse - a parameter parser in & for bash script
 # author: blovecobo
 # version: 0.2.0
@@ -21,22 +30,33 @@
 #
 # dependencies:
 #   - bash, version 4.4+
-#   - jq, if output json(capture, serialize pfilter) used
+#   - jq, if output json(capture-mode) or serialized-pfilter passed
 
 # changelog:
-#   - islands/watershed ~~~style
+#   - islands/watershed ~~~~style
 #   - add pset ~dvo (disable values output) for source mode
 #   - add new PFILTER format: "keys-values" string, no-need special serialize function
-#
+#   - online help added
+
 set -euo pipefail
 
-# Utility functions ----------------------------------------------------------------
+# shellcheck shell=bash
+# Module 01-util: Utility functions
+#   Debugging & tracing (trace, on_exit_bp, msg_bp)
+#   Symbol escaping/restoring system for safe parameter handling
+#   String operations (count_substr, max_array_member_length)
+#   Array helpers (key_of_array_member, is_array_member, show_array)
+#   LID matching (with_lid)
+#   Error exit with contextual messages (exit_with_msg)
+#   Variable name exception substitution (substitute_exceptions)
+#   jq availability validation
+# --------------------------------------------------------------------------------
 
 # trace: show call stack during debugging
-function trc() {
+function trace {
 	local start=${1:-0} ll
 
-	[[ ${verbose} -gt 3 ]] && return
+	[[ ${verbose:-1} -gt 3 ]] || return
 	local ln_levels fld_len
 
 	local fn=("${FUNCNAME[@]}")
@@ -52,13 +72,15 @@ function trc() {
 }
 
 # on_exit_bp: trap handler that dumps call stack on unexpected exit
-function on_exit_bp() {
-	[[ ${BP_PARSING_STAGE:-} == "Mission complete." ]] || trc 2
+function on_exit_bp {
+	[[ ${BP_PARSING_STAGE:-} == "Mission complete." ]] || trace 2
 }
-function echo2() { printf '%s\n' "$*" >&2; }
+
+# stderr print shortcut, for debugging and error messages
+function echo2 { printf '%s\n' "$*" >&2; }
 
 # operations:
-#   mark: symbol -> symbol_with_mark
+#   mark: symbol -> symbol-with-mark
 #           : -> \:
 #   substitue: symbol-with-escape-mark -> symbol-name-pattern(default)
 #           \: -> <BP_ESC_PFX><SYMBOLNAME>__
@@ -68,7 +90,7 @@ function echo2() { printf '%s\n' "$*" >&2; }
 #           <BP_ESC_PFX><SYMBOLNAME>__ -> :
 #   remove: symbol-with-escape-mark -> symbol
 #           \: -> :
-function escape_symbol() {
+function escape_symbol {
 	local -n target_str=$1
 	local symbol=$2
 	local op=${3:-substitute}
@@ -87,7 +109,9 @@ function escape_symbol() {
 		:
 	fi
 }
-function count_substr() {
+
+# count occurrences of substring in string
+function count_substr {
 	local sub="$1" str="$2"
 	[[ -n ${sub} ]] || {
 		echo 0
@@ -100,7 +124,7 @@ function count_substr() {
 # calculate max length among array members without external tools('wc'.. )
 # usage:
 #   max_length "${sample[@]}"
-function max_array_member_length() {
+function max_array_member_length {
 	local max_len=0 item len
 	for item in "$@"; do
 		len=${#item}
@@ -108,11 +132,14 @@ function max_array_member_length() {
 	done
 	echo "${max_len}"
 }
-function validate_jq() {
+
+# assert jq is available, exit with code 10 if not
+function validate_jq {
 	jq --version >/dev/null 2>&1 || exit_with_msg 10
 }
+
 # find array key of a member
-function key_of_array_member() {
+function key_of_array_member {
 	local member=$1
 	local -n arr_ref=$2
 	local key
@@ -127,7 +154,7 @@ function key_of_array_member() {
 }
 
 # chck if a string is an array member
-function is_array_member() {
+function is_array_member {
 	local str=$1
 	local -n arr_ref=${2:-} # array might not available
 
@@ -138,7 +165,9 @@ function is_array_member() {
 	return 1
 }
 
-function msg_bp() {
+# conditional colored message to stderr, filtered by verbosity level
+# show msg in one-line if msg-level little than zero
+function msg_bp {
 	local msg_level=${1:-0} title=${2:-} content=${3:-}
 	local in_one_line
 
@@ -165,7 +194,7 @@ function msg_bp() {
 }
 
 # exit with a specific exit code and a revelant message
-function exit_with_msg() {
+function exit_with_msg {
 	local exit_code=$1
 	local additional_msg=${2:-}
 	local last_command=${3:-}
@@ -175,7 +204,7 @@ function exit_with_msg() {
 	if [[ ${verbose:-0} -ge 3 ]]; then
 		# use developer message
 		[[ -v EXIT_MSG["$((exit_code + 100))"] ]] && ((exit_code += 100))
-		# trc
+		trace
 	fi
 
 	if [[ "${verbose:-0}" -gt 0 ]]; then
@@ -194,7 +223,7 @@ function exit_with_msg() {
 
 # check if a parameter is a LID or starts with a LID, if the second parameter is given, only check
 # against that LID, otherwise check against all LIDs(including ligatures)
-function with_lid() {
+function with_lid {
 	local param=$1 lid=${2:-}
 	local lid_len="${#lid}"
 
@@ -222,7 +251,7 @@ function with_lid() {
 }
 
 # show array in a formatted way with specified separator, default separator is '-'
-function show_array() {
+function show_array {
 	local -n target_arr=$1
 	local separator=${2:--}
 	local gap=${3:-1}
@@ -242,7 +271,8 @@ function show_array() {
 	done
 }
 
-function substitute_exceptions() {
+# replace exception characters (e.g. hyphens) in variable names per EXCEPTIONS map
+function substitute_exceptions {
 	[[ -n ${1:-} ]] || return 0
 	local -n var_name=$1
 	local except_char
@@ -252,9 +282,27 @@ function substitute_exceptions() {
 	done
 }
 
-# Constants and definitions --------------------------------------------------------
+# shellcheck shell=bash
+# Module 02-defs: Constants and definitions
+#   consts()     — immutable constants (array names, separators, version, etc.)
+#   definitions() — all configuration schemas, defaults, exit messages, and reserved symbols
+#   validate_variable_name() — validates & normalizes shell variable names
+#
+# This module defines the entire configuration surface of BosParse:
+#   CONFIGS   — runtime configuration key-value store
+#   CONSTS    — immutable constants (separators, array names)
+#   SUPERS    — super-verbose definitions (~~~~slid, ~~~~prlid, ~~~~style, verbose flags)
+#   PRIORS    — prior (~~~) definitions, parsed before PSets
+#   PSETS     — parser-set (~) definitions, parsed after Priors
+#   MCG_TYPES — mutual-correlate group type prefixes (d/D/e/m/M/r/u)
+#   RESYMS    — reserved symbols for LIDs and separators
+#   EXCEPTIONS — hyphen-to-underscore mapping for bash variable names
+#   SYMNAMES   — human-readable names for escapable special characters
+#   EXIT_MSG   — exit code to message mapping (with developer variants at +100)
+# --------------------------------------------------------------------------------
 
-function consts() {
+# populate immutable constants: array names, separators, version, etc.
+function consts {
 	local -n CONSTANTS_ref2=$1
 	local -n PFILTER_ENTRY_TYPES_ref2=$2
 
@@ -281,7 +329,9 @@ function consts() {
 		"enum"
 	)
 }
-function definitions() {
+
+# populate all config maps: CONFIGS, CONSTS, SUPERS, PRIORS, PSETS, EXIT_MSG, etc.
+function definitions {
 	local -n CONFIGS_ref=$1
 	local -n CONSTANTS_ref=$2
 	local -n PSETS_ref=$3
@@ -292,30 +342,29 @@ function definitions() {
 	local -n EXIT_MSG_ref=$8
 	local -n PFILTER_ENTRY_TYPES_ref=$9
 	local -n MCG_TYPES_ref=${10}
-	local -n SVERBOSE_ref=${11}
-	local -n SYMNAMES_ref="${12}"
+	local -n SYMNAMES_ref=${11}
 
 	consts \
 		CONSTANTS_ref \
 		PFILTER_ENTRY_TYPES_ref
 
 	# BOSPARSE_PARAMETER_NAME
-	# running and output(4)
+	# running and output(3)
 	local run="run_mode"
 	local json="output_as_json"
-
-	local eoe="exit_on_error"
 	local dvo="disable_variable_output"
+	# local eoe="exit_on_error"
 
 	# parsing style(2)
 	local prem="prefix_matching_enabled"
 	local style="style_of_commandline"
 
-	# directives(4)
-	local Banner="directive_bannaer"
+	# directives(5)
+	local Banner="directive_banner"
 	local Defaults="directive_default_configs"
 	local Resymbols="directive_resyms"
 	local Version="directive_version"
+	local Help="directive_help"
 
 	# FILTER(5)
 	local pf="param_filter"
@@ -362,6 +411,7 @@ function definitions() {
 		["Banner"]="${Banner}"
 		["Resymbols"]="${Resymbols}"
 		["Version"]="${Version}"
+		["Help"]="${Help}"
 
 		["pf"]="${pf}"
 		["pf_id"]="${pf_id}"
@@ -393,9 +443,8 @@ function definitions() {
 		["trace"]="${trace}"
 	)
 
-	# SVERBOSE_ref/SUPERS_refPRIORS_ref/PSETS_ref used to define SVerbose/Supers/Priors/PSets
-	# SVerbose: super verbose params, they will be parsed at the very beginning of the parser
-	# SUPERS: lid of Super Verbose params & Prior PSets
+	# SUPERS_ref/PRIORS_ref/PSETS_ref used to define Supers/Priors/PSets
+	# SUPERS: lid of Super Verbose params & Prior PSets; CML style
 	# PRIORS: PAS devinition; output control during PSets parsing
 	# PSETS: Paser sets; PFILTER setting
 	#
@@ -409,24 +458,21 @@ function definitions() {
 	#           for emums: enum values               | strings separated by '|'
 	#   field4: mcg names                            | string(mutual correlate group)
 	#           for parameters interfered each other
-	#             - uniqueness, group name start with 'u'
-	#             - exclusion, group name start with 'e'
 	#             - dependency, group name start with 'd|D'
-	#             - siblings, group name start with 's'
+	#             - exclusion, group name start with 'e'
 	#             - master, group name start with 'm|M'
+	#             - required, group name start with 'r'
+	#             - uniqueness, group name start with 'u'
 
-	# output control for Prior parsing
-	SVERBOSE_ref=(
+	SUPERS_ref=(
+		["slid"]="${slid}:resym:4"
+		["prlid"]="${prlid}:resym:3"
+		["style"]="${style}:enum:watershed|islands"
 		["quiet"]="${quiet}:bool::eg_sv"
 		["standard"]="${standard}:bool::eg_sv"
 		["extra"]="${extra}:bool::eg_sv"
 		["debug"]="${debug}:bool::eg_sv"
 		["trace"]="${trace}:bool::eg_sv"
-	)
-	SUPERS_ref=(
-		["slid"]="${slid}:resym:4"
-		["prlid"]="${prlid}:resym:3"
-		["style"]="${style}:enum:watershed|islands"
 	)
 	PRIORS_ref=(
 
@@ -453,6 +499,7 @@ function definitions() {
 		["dvo"]="${dvo}:bool"
 
 		["Defaults"]="${Defaults}:bool::eg-directive"
+		["Help"]="${Help}:bool::eg-directive"
 		["Banner"]="${Banner}:bool::eg-directive"
 		["Resymbols"]="${Resymbols}:bool::eg-directive"
 		["Version"]="${Version}:bool::eg-directive"
@@ -482,7 +529,7 @@ function definitions() {
 		# ["Exclusion"]="enum:E"
 		["master"]="enum:m"
 		["Master"]="enum:M"
-		["required"]="enum:r" # all required parameters, no matter they are in the same MCG or not
+		["required"]="enum:r" # all r- group members are all required
 		["uniqueness"]="enum:u"
 	)
 
@@ -527,7 +574,7 @@ function definitions() {
 		[' ']="SPACE"
 		['~']="TILDE"
 		['|']="VERTICAL_BAR"
-		['(']="PARENTHESIS_LEFG"
+		['(']="PARENTHESIS_LEFT"
 		[')']="PARENTHESIS_RIGHT"
 		['[']="BRACKET_LEFT"
 		[']']="BRACKET_RIGHT"
@@ -545,14 +592,15 @@ function definitions() {
 		# running mode
 		["${run}"]=auto   # ~run, run-mode, maybe "source", "eval" or "capture"
 		["${json}"]=false # ~json, output  to stdout as json
-		["${eoe}"]=false  # exit on errors
-		["${dvo}"]=false  # disable variables output, for source mode only to avoid param names conflict
+		# ["${eoe}"]=false  # exit on errors
+		["${dvo}"]=false # disable variables output, for source mode only to avoid param names conflict
 
 		# parsing style
 		["${style}"]="${CONSTANTS_ref[CML_STYLE]%|*}" # cml style, watershed|islands
 
 		# directives
-		["${Defaults}"]=false  # ~Default, output CONFIGS to stdout
+		["${Defaults}"]=false  # ~Defaults, output CONFIGS to stdout
+		["${Help}"]=false      # ~Help, show help
 		["${Banner}"]=false    # ~Banner, show banner
 		["${Resymbols}"]=false # ~Resymbols, show reserved symbols
 		["${Version}"]=false   # ~Version, show version
@@ -601,7 +649,7 @@ function definitions() {
 		["0"]="Parsing succeeded."
 		["1"]="Parsing failed."
 		["2"]="No parameter supplied."
-		["3"]="${pros_tag}"
+		["3"]="\${pros_tag}"
 
 		# system
 		["10"]="'jq' required but not available."
@@ -627,7 +675,7 @@ function definitions() {
 
 		# an empty parameter
 		["26"]="Empty parameter found."
-		["126"]="Found an empty parameter, perhanps input error."
+		["126"]="Found an empty parameter, perhaps input error."
 
 		# Priors/PSets
 		["27"]="Invalid \${pros_tag} '\${pros_tag2}', \${pros_tag3}"
@@ -666,9 +714,6 @@ function definitions() {
 		["42"]="Parameters '\${pros_tag2}' cannot be supplied at same time." # exclusion
 		["142"]="Only one parameters in Exclusion MCG '\${pros_tag}' can be supplied, but found: '\${pros_tag2}'"
 
-		["44"]="Parameter(s) '\${pros_tag3}' should be supplied together but '\${pros_tag2}' missed. " # sibling
-		["144"]="Parameter(s) '\${pros_tag3}' in Sibling MCG '\${pros_tag}' should bind together, but '\${pros_tag2}' un-supplied and without a default."
-
 		["45"]="Only one of the parameters '\${pros_tag}' should be supplied."
 		["145"]="M-members '\${pros_tag}' of Master MCG '\${pros_tag2}' cannot supplied at sametime."
 
@@ -682,7 +727,7 @@ function definitions() {
 		["148"]="No M-member of Master MCG '\${pros_tag}' supplied, needs one of '\${pros_tag2}'"
 
 		["49"]="Invalid \${pros_tag} '\${pros_tag2}' in PFILTER, the value should be one of '\${pros_tag3}'"    # enum check(used)
-		["14r98"]="Invalid \${pros_tag} '\${pros_tag2}' in PFILTER, the value should be one of '\${pros_tag3}'" # bool/string/resym check(used)
+		["149"]="Invalid \${pros_tag} '\${pros_tag2}' in PFILTER, the value should be one of '\${pros_tag3}'" # bool/string/resym check(used)
 
 		# filter parameter with PFILTER
 		["50"]="Invalid \${pros_tag} \${pros_tag2}, the value should be one of '\${pros_tag3}'" # enum check(used)
@@ -694,13 +739,13 @@ function definitions() {
 		["52"]="Invalid \${pros_tag} setting \${pros_tag2}: \${pros_tag3}" # assert resym
 
 		["53"]="Unknown parameter '\${pros_tag2}'" # for user parameter
-		["153"]="PSet '~rup' requires all parameters matching 'PFLILTER' but '\${pros_tag}' didn't."
+		["153"]="PSet '~rup' requires all parameters matching 'PFILTER' but '\${pros_tag}' didn't."
 
 		["54"]="Unknown \${pros_tag} '\${pros_tag2}'" # for Priors/PSets
-		["154"]="Invaolid \${pros_tag} '\${pros_tag2}', cannot match any \${pros_tag}."
+		["154"]="Invalid \${pros_tag} '\${pros_tag2}', cannot match any \${pros_tag}."
 
 		["55"]="Missing parameter '\${pros_tag}'" # un-supplied and no default
-		["155"]="Un-suplied parameter '\${pros_tag}' reuqires a default value by '~afd'"
+		["155"]="Un-supplied parameter '\${pros_tag}' requires a default value by '~afd'"
 
 		["56"]="Unrecognized \${pros_tag} '\${pros_tag2}', may be one of '\${pros_tag3}'?" # assert multi-prefix-matching
 		["156"]="Invalid \${pros_tag} '\${pros_tag2}', multiple matched: '\${pros_tag3}'."
@@ -709,37 +754,65 @@ function definitions() {
 		["170"]="Parameter '\${pros_tag2}' in Required MCG '\${pros_tag} without default value and not supplied."
 	)
 }
-function validate_variable_name() {
+
+# validate and normalize a shell variable name; apply EXCEPTIONS substitution
+function validate_variable_name {
 	local -n var_name_ref="$1"
 	local return_on_error=${2:-false} # return if invalid instead of exit with a message
 
 	[[ -n "${var_name_ref}" ]] || exit_with_msg 26
 	pros_tag="${var_name_ref}"
-	if [[ ${var_name_ref} =~ ^[a-zA-Z_](-?[a-zA-Z0-9_])*$ ]]; then
-		# replace exceptions
-		substitute_exceptions var_name_ref
-		return 0
-	else
+
+	# leading or trailing hyphens are not allowed (would break LID/trailing-tag parsing)
+	if [[ ${var_name_ref} == -* ]] || [[ ${var_name_ref} == *- ]]; then
 		if [[ ${return_on_error} == true ]]; then
 			return 1
-		else
-			# exit with different msg
-			[[ ${var_name_ref:0:1} == [0-9] ]] && {
-				pros_tag2="${var_name_ref:0:1}"
-				exit_with_msg 23
-			}
-			[[ ${var_name_ref} =~ ^[a-zA-Z0-9_]+$ ]] || {
-				pros_tag2="${var_name_ref//[a-zA-Z0-9-_]/}"
-				exit_with_msg 22
-			}
-			exit_with_msg 21
 		fi
+		pros_tag2="-"
+		exit_with_msg 22
 	fi
+
+	# substitute exceptions (hyphen → underscore), then validate as bare variable name
+	local original="${var_name_ref}"
+	substitute_exceptions var_name_ref
+
+	if [[ ${var_name_ref} =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+		return 0
+	fi
+
+	if [[ ${return_on_error} == true ]]; then
+		var_name_ref="${original}"
+		return 1
+	fi
+
+	if [[ ${var_name_ref:0:1} == [0-9] ]]; then
+		pros_tag2="${var_name_ref:0:1}"
+		exit_with_msg 23
+	fi
+
+	if [[ ! ${var_name_ref} =~ ^[a-zA-Z0-9_]+$ ]]; then
+		pros_tag2="${var_name_ref//[a-zA-Z0-9_]/}"
+		exit_with_msg 22
+	fi
+	exit_with_msg 21
 }
 
-# Helper functions ----------------------------------------------------------------
+declare -ra BP_REGEX_METACHARS=('\' '.' '[' ']' '(' ')' '{' '}' '^' '$' '*' '+' '?' '|')
 
-function reset_verbose() {
+# shellcheck shell=bash
+# shellcheck disable=SC2154
+# Module 03-helpers: Helper functions for parsing workflow
+#   reset_verbose() / update_verbose() — manage output verbosity levels (0-4)
+#   is_in_resyms() — check if a string consists entirely of reserved symbols
+#   check_param_type() — classify a CML token (bool/string/liga/arg) by context
+#   parse_bool_tag() — extract trailing true/false tag from parameter name
+#   apply_setup() — merge BP_STRINGS/BP_BOOLS into BP_OPTIONS and write to CONFIGS
+#   reset_intermediate_arrays() — clear working arrays for re-parsing
+#   show_configs() — display current CONFIGS (for ~config and ~~~Defaults directives)
+# --------------------------------------------------------------------------------
+
+# reset all verbose flags to default (standard, level 1)
+function reset_verbose {
 	local v
 	for v in "quiet" "extra" "debug" "trace"; do
 		CONFIGS["${PSETS[${v}]%%:*}"]=false
@@ -747,13 +820,14 @@ function reset_verbose() {
 	CONFIGS["${PSETS["standard"]%%:*}"]=true
 	verbose=1
 }
+
 # turn output settings to verbose
 # trace > debug > extra > standard > quiet
-function update_verbose() {
+function update_verbose {
 	local spr
 
 	for spr in "${supers[@]}"; do
-		if [[ -v CONFIGS["${SVERBOSE[${spr}]%%:*}"] ]]; then
+		if [[ -v CONFIGS["${SUPERS[${spr}]%%:*}"] ]]; then
 			CONFIGS["${PSETS["${spr}"]%%:*}"]=true
 		fi
 	done
@@ -804,7 +878,9 @@ function update_verbose() {
 	}
 	return 0
 }
-function is_in_resyms() {
+
+# check if parameter consists entirely of a single repeated reserved symbol
+function is_in_resyms {
 	local param=$1
 	local resym
 	for resym in "${RESYMS[@]}"; do
@@ -814,7 +890,18 @@ function is_in_resyms() {
 	done
 	return 1
 }
-function check_param_type() {
+
+# classify a CML token: returns type code (0=arg, 1=liga, 2=bool, 4=string, etc.)
+# return codes:
+#   0: arg (no lid, not recognized as parameter, leave it to caller to handle)
+#   1: liga (with lid, recognized as parameter, no consume)
+#   2: bool (with lid, recognized as parameter, no consume)
+#   3: bool (with lid, recognized as parameter, consume next token as arg)
+#   4: string (with lid, recognized as parameter, consume next token as arg)
+#   5: string (with lid, recognized as parameter, consume next token as arg)
+#   6: a-param (with alter-lid, recognized as parameter, no consume)
+#   7: a-param (with alter-lid, recognized as parameter, consume next token as arg)
+function check_param_type {
 	local lid=$1 current=$2 next=$3
 	local -n param_ref=$4
 
@@ -881,7 +968,9 @@ function check_param_type() {
 		return 0
 	fi
 }
-function parse_bool_tag() {
+
+# extract trailing true/false tag character from parameter name
+function parse_bool_tag {
 	local param=$1
 	local tag=${param: -1}
 
@@ -891,7 +980,9 @@ function parse_bool_tag() {
 	*) echo "${TAG_DEFAULT}" ;;
 	esac
 }
-function apply_setup() {
+
+# merge parsed Priors/PSets into BP_OPTIONS then write to CONFIGS
+function apply_setup {
 	local title=$1
 	local -n setup_ref=$2
 
@@ -925,7 +1016,7 @@ function apply_setup() {
 }
 
 # Reset all intermediate results arrays, for re-parsing if needed
-function reset_intermediate_arrays() {
+function reset_intermediate_arrays {
 	local reset_zone_arra=${1:-true}
 	local arr_name
 	for arr_name in BP_OPTIONS BP_BOOLS BP_STRINGS BP_POSITIONALS strings bools ligas; do
@@ -939,7 +1030,7 @@ function reset_intermediate_arrays() {
 }
 
 # display current CONFIGS settings, for debugging & directives
-function show_configs() {
+function show_configs {
 	local output_as_json key param len_key
 
 	[[ ${CONFIGS[${PSETS["json"]%%:*}]} == true ]] && output_as_json=true || output_as_json=false
@@ -947,13 +1038,8 @@ function show_configs() {
 
 	# output to stdout if '~config' set, or to stderr for debugging
 	# ~/~~~config set to true, output current CONFIGS settings to stdout
-	declare -A mappings=() show_arr=()
-	for key in "${!PRIORS[@]}"; do
-		mappings["${key}"]="${PRIORS[${key}]%%:*}"
-	done
-	for key in "${!PSETS[@]}"; do
-		mappings["${key}"]="${PSETS[${key}]%%:*}"
-	done
+	local -n mappings=__BP_SC_MAP
+	declare -A show_arr=()
 	for param in "${!CONFIGS[@]}"; do
 		key=$(key_of_array_member "${param}" mappings) || continue
 		show_arr["${key}"]="${CONFIGS[${param}]}"
@@ -999,9 +1085,22 @@ function show_configs() {
 	fi
 }
 
-# PFILTER functions ---------------------------------------------------------------
+# shellcheck shell=bash
+# shellcheck disable=SC2153,SC2206
+# Module 04-pfilter: PFILTER validation and serialization
+#   serialize_pfilter()     — assoc array to JSON string (via jq)
+#   deserialize_to_pfilter() — JSON string to assoc array (via jq)
+#   extract_filter_schema() — split "type:data:mcg" entry into components
+#   extract_enum_list()     — split enum values from |-delimited string
+#   _validate_pfilter_entry_type() — check type is one of bool/string/enum
+#   _validate_pfilter_default() — ensure default value matches declared type
+#   _process_mcg_name()     — classify MCG member (d/D/e/m/M) and record
+#   pfilter_integrity_check() — full cross-member MCG validation
+#   validate_pfilter()      — entry point: accept name-ref / JSON / keys-values
+# --------------------------------------------------------------------------------
 
-function serialize_pfilter() {
+# serialize an associative array to JSON string via jq
+function serialize_pfilter {
 	local -n arr=$1
 
 	# validate jq
@@ -1034,9 +1133,10 @@ function serialize_pfilter() {
 
 	echo "${json}"
 }
+
 # usage
 #   deserialize_to_pfilter "$pf_str" PFILTER
-function deserialize_to_pfilter() {
+function deserialize_to_pfilter {
 	local json="$1"
 	local -n arr_name="$2"
 	local keyj valuej
@@ -1048,15 +1148,10 @@ function deserialize_to_pfilter() {
 	done < <(jq -r 'to_entries[] | "\(.key) \(.value)"' <<<"${json}")
 }
 
-function extract_filter_schema() {
+# split PFILTER entry "type:data:mcg" into its component fields
+function extract_filter_schema {
 	local lid=$1 p_schema=$2
-	local -n p_type=$3 p_data=$4
-
-	if [[ $# == 5 ]]; then
-		local -n p_mcg=${5:-}
-	else
-		local p_mcg=""
-	fi
+	local -n p_type=$3 p_data=$4 p_mcg=$5
 
 	# escape FLD-SEPs
 	escape_symbol p_schema "${FLD_SEP}"
@@ -1075,9 +1170,8 @@ function extract_filter_schema() {
 	return 0
 }
 
-# extract enum values
 # extract enum values string to array and pass back
-function extract_enum_list() {
+function extract_enum_list {
 	local enum_str=$1
 	local -n enum_arr=$2
 
@@ -1098,8 +1192,9 @@ function extract_enum_list() {
 		escape_symbol enum_arr[i] "\\" "regress"
 	done
 }
+
 # validate a single PFILTER entry type against PFILTER_ENTRY_TYPES
-function _validate_pfilter_entry_type() {
+function _validate_pfilter_entry_type {
 	local entry_type=$1
 	if ! is_array_member "${entry_type}" PFILTER_ENTRY_TYPES; then
 		pros_tag="${entry_type}"
@@ -1110,7 +1205,7 @@ function _validate_pfilter_entry_type() {
 }
 
 # validate default value matches entry type (string/bool/enum)
-function _validate_pfilter_default() {
+function _validate_pfilter_default {
 	local entry_type=$1 entry_data=$2 pf_key=$3 entry_schema=$4
 	pros_tag="${entry_schema}"
 	pros_tag2="${entry_type}"
@@ -1124,7 +1219,7 @@ function _validate_pfilter_default() {
 		*) ;;
 		esac
 	elif [[ ${entry_type} == 'enum' ]]; then
-		# no enum list
+		# empty enum list
 		pros_tag=$(printf '%s' "[\"${pf_key}\"]=\"${entry_schema}\"")
 		exit_with_msg 35
 	fi
@@ -1132,7 +1227,7 @@ function _validate_pfilter_default() {
 }
 
 # validate MCG name, record it, and classify member by type
-function _process_mcg_name() {
+function _process_mcg_name {
 	local pf_key=$1 mcg_name=$2
 	local -n _mcg_types=$3 _mcg_names=$4
 	local -n _dc_members=$5 _dc_count=$6 _dl_members=$7 _dl_count=$8
@@ -1185,7 +1280,7 @@ function _process_mcg_name() {
 }
 
 # validate exclusion group: at least two members within same MCG
-function _validate_mcg_exclusion() {
+function _validate_mcg_exclusion {
 	local mcg_name=$1
 	local -n _el_count=$2 _el_members=$3
 
@@ -1193,13 +1288,11 @@ function _validate_mcg_exclusion() {
 		pros_tag="${mcg_name}"
 		pros_tag2="${_el_members[${mcg_name}]#\|}"
 		exit_with_msg 38
-	elif [[ ${_el_count["${mcg_name}"]:-0} -eq 0 ]]; then
-		:
 	fi
 }
 
 # validate d-member depends on D-member for a single MCG
-function _validate_mcg_dependency() {
+function _validate_mcg_dependency {
 	local mcg_name=$1
 	local -n _dl_count=$2 _dc_count=$3 _dl_members=$4
 
@@ -1213,7 +1306,7 @@ function _validate_mcg_dependency() {
 }
 
 # validate m/M master-group relationship for a single MCG
-function _validate_mcg_master() {
+function _validate_mcg_master {
 	local mcg_name=$1
 	local -n _ml_count=$2 _mc_count=$3 _ml_members=$4 _mc_members=$5
 
@@ -1241,7 +1334,8 @@ function _validate_mcg_master() {
 	fi
 }
 
-function pfilter_integrity_check() {
+# validate all MCG cross-references: dependency, master, exclusion integrity
+function pfilter_integrity_check {
 	declare -a mcg_types=() mcg_name_entry=()
 	local mcg_type mcg_name
 	declare -A mcg_names=()
@@ -1296,9 +1390,9 @@ function pfilter_integrity_check() {
 # three ways to pass PFILTER in:
 #   1. PFILTER name_ref    - for an associative array, used in source run-mode
 #   2. serialized PFILTER  - a json string, used for all run-modes
-#   3. "keys-values" pairs - ~pf="${!pfilter[*]} ${pfilter[*]}"
+#   3. "keys values" pairs - ~pf="${!pfilter[*]} ${pfilter[*]}"
 # a valid PFILTER must include a member whose key is "PARAM-FILTER" as identifier
-function validate_pfilter() {
+function validate_pfilter {
 	local pk new_pk
 
 	# msg_bp 4 "    param-filter: ${PARAM_FILTER}"
@@ -1341,7 +1435,8 @@ function validate_pfilter() {
 			fi
 		else
 			# a string, may be keys+values stream
-			local pf_arr=(${PARAM_FILTER})
+			local -a pf_arr
+			read -ra pf_arr <<< "${PARAM_FILTER}"
 			local len=${#pf_arr[@]}
 			if [[ $((len % 2)) -ne 0 ]]; then
 				# length not an even number
@@ -1387,15 +1482,31 @@ function validate_pfilter() {
 	msg_bp 3 "    PFILTER validated"
 }
 
-# Parsing tasks -------------------------------------------------------------------
+# shellcheck shell=bash
+# shellcheck disable=SC2206
+# Module 05-parse: Core parsing logic
+#   extract_options()      — iterate CML tokens, classify via check_param_type()
+#   check_cml_style()      — detect watershed vs islands from ~~~~style prior
+#   extract_watershed()    — split CML at ZN_SEP (--) into op_zone / pp_zone
+#   extract_islands()      — split CML by LID presence (options vs positionals)
+#   parse_ligas()          — expand ligatures (~abc) into multiple bools
+#   parse_bools()          — parse boolean params with trailing tags (+/-)
+#   parse_strings()        — parse string params with OA_SEP (=)
+#   parse_options()        — orchestrate liga/bool/string parsing for a LID
+#   parse_positionals()    — store remaining params as positional array
+#   prefix_matching()      — exact then prefix then postfix matching
+# --------------------------------------------------------------------------------
 
-function show_all_params() {
+# debugging helper: print all BP_OPTIONS, BP_STRINGS, BP_BOOLS to stderr
+function show_all_params {
 	echo "all options: " >&2
 	show_array BP_OPTIONS '-OP-' 1
 	show_array BP_STRINGS '-STR-' 1
 	show_array BP_BOOLS '-BOOL-' 1
 }
-function extract_options() {
+
+# iterate CML tokens, classify via check_param_type, sort into strings/bools/ligas
+function extract_options {
 	local lid=$1
 	local -n strings_ref=$2 bools_ref=$3 ligas_ref=$4 # for passing back PSets
 	local -n CML=$5
@@ -1420,8 +1531,8 @@ function extract_options() {
 			continue
 		fi
 
+		# skip if param is the ARG of last param
 		if [[ "${arg_consumed}" == true ]]; then
-			# param is the ARG of last param, skip
 			arg_consumed=false
 			continue
 		fi
@@ -1459,7 +1570,7 @@ function extract_options() {
 }
 
 # check command line style
-function update_cml_style() {
+function check_cml_style {
 	local CML_arr=("$@")
 	local param pset_list param_name matched stl super_list
 
@@ -1472,7 +1583,7 @@ function update_cml_style() {
 
 	msg_bp 2 "Test CML style"
 	for param in "${CML_arr[@]}"; do
-		with_lid "${SLID}" || continue
+		with_lid "${param}" "${SLID}" || continue
 		param_name="${param%%=*}"
 		param_name=${param_name##"${SLID}"}
 		if matched=$(prefix_matching "${param_name}" super_list); then
@@ -1505,8 +1616,9 @@ function update_cml_style() {
 	done
 
 }
+
 # extract islands style cml
-function extract_islands() {
+function extract_islands {
 	local -n op_zone_ref=$1 pp_zone_ref=$2
 
 	shift 2
@@ -1523,19 +1635,23 @@ function extract_islands() {
 		fi
 	done
 }
+
 # extract watershed style cml
-function extract_watershed() {
+function extract_watershed {
 	local -n op_zone_ref=$1 pp_zone_ref=$2
 
 	# msg_bp 2 "Extract Watershed"
 
 	shift 2
-	local EZ_CML="$*" param zsep_count
+	local param zsep_count zn_sep_pos
 
-	# count ZN_SEP
+	# count ZN_SEP and record its position
 	zsep_count=0
+	zn_sep_pos=-1
 	for param in "$@"; do
-		[[ ${param} != "${ZN_SEP}" ]] || ((zsep_count += 1))
+		if [[ ${param} == "${ZN_SEP}" ]]; then
+			((zsep_count += 1))
+		fi
 	done
 
 	op_zone_ref=()
@@ -1546,32 +1662,39 @@ function extract_watershed() {
 		pros_tag="${CONFIGS[${PRIORS["zs"]%%:*}]}"
 		pros_tag2="${zsep_count}"
 		exit_with_msg 20
-	elif [[ "${EZ_CML}" == *[[:space:]]${ZN_SEP} ]]; then
-		# OP_ZONE only with trailing ZN_SEP
-		op_zone_ref=("$@")
-		# remove last param which is ZN_SEP
-		unset "op_zone_ref[$(($# - 1))]"
-		return 0
-	elif [[ ${EZ_CML} == ${ZN_SEP}[[:space:]]* ]]; then
-		# PP_ZONE only with leading zone-sep
-		pp_zone_ref=("$@")
-		unset "pp_zone_ref[0]"            # remove first param which is ZN_SEP
-		pp_zone_ref=("${pp_zone_ref[@]}") # re-index array after unset
-		return 0
-	elif [[ ${EZ_CML} == *[[:space:]]${ZN_SEP}[[:space:]]* ]]; then
-		# two zones separated by a a ZONE_SEP
-		local seen_zsep=false
-		for param in "$@"; do
-			if [[ ${seen_zsep} == false ]]; then
-				if [[ ${param} == "${ZN_SEP}" ]]; then
-					seen_zsep=true
-				else
-					op_zone_ref+=("${param}")
-				fi
-			else
-				pp_zone_ref+=("${param}")
+	elif [[ ${zsep_count} -eq 1 ]]; then
+		# locate the ZN_SEP position (1-based indirection)
+		local i
+		for ((i = 1; i <= $#; i++)); do
+			if [[ ${!i} == "${ZN_SEP}" ]]; then
+				zn_sep_pos=$((i - 1))
+				break
 			fi
 		done
+		if [[ ${zn_sep_pos} -eq 0 ]]; then
+			# PP_ZONE only with leading zone-sep
+			pp_zone_ref=("$@")
+			unset "pp_zone_ref[0]"
+			pp_zone_ref=("${pp_zone_ref[@]}") # re-index
+		elif [[ zn_sep_pos -eq $(( $# - 1 )) ]]; then
+			# OP_ZONE only with trailing ZN_SEP
+			op_zone_ref=("$@")
+			unset "op_zone_ref[$(($# - 1))]"
+		else
+			# two zones separated by ZONE_SEP
+			local seen_zsep=false
+			for param in "$@"; do
+				if [[ ${seen_zsep} == false ]]; then
+					if [[ ${param} == "${ZN_SEP}" ]]; then
+						seen_zsep=true
+					else
+						op_zone_ref+=("${param}")
+					fi
+				else
+					pp_zone_ref+=("${param}")
+				fi
+			done
+		fi
 	else
 		# no ZONE_SEP: route params by LID
 		for param in "$@"; do
@@ -1587,7 +1710,7 @@ function extract_watershed() {
 # split liga into bools, parse values, load into result array
 # used for ligas for Pirors/PSets/U-Options
 # only shell variable validating applied on param names.
-function parse_ligas() {
+function parse_ligas {
 	local lid=$1
 	local -n ligas_ref2=$2
 
@@ -1631,7 +1754,7 @@ function parse_ligas() {
 
 # parse boolean parameter with trailing-tag; load into result array
 # check if a valid shell variable
-function parse_bools() {
+function parse_bools {
 	local lid=$1
 	local -n bs_ref=$2
 
@@ -1654,7 +1777,7 @@ function parse_bools() {
 
 # parse string parameter and load result into array
 # validate if the param name is a valid shell variable(with exception subsititution)
-function parse_strings() {
+function parse_strings {
 	local lid=$1
 	local -n str_ref=$2
 
@@ -1677,7 +1800,7 @@ function parse_strings() {
 }
 
 # parse Options with all types of params, and load results into arrays
-function parse_options() {
+function parse_options {
 	local lid=$1
 	local -n strings_ref=$2 bools_ref=$3 ligas_ref=$4
 
@@ -1688,7 +1811,7 @@ function parse_options() {
 }
 
 # parse positionals, which are all params in PP_ZONE, and load results into array
-function parse_positionals() {
+function parse_positionals {
 	BP_POSITIONALS=("$@")
 	local i
 	msg_bp 3 "  positionals parsed: "
@@ -1706,23 +1829,25 @@ function parse_positionals() {
 #   multiple matched: matching names
 # note:
 #   this script assumes that no duplicated members in matching-list
-function prefix_matching() {
-	# local lid=$1
+function prefix_matching {
 	local candidate=$1
 	local -n matching_list=$2
 	local prefix=${3:-prefix}
 
-	local pk candidate_escaped
+	local pk candidate_regex
+	local re_char
 
 	declare -a matched=()
 
-	# in case candidate needs escape(\)
-	candidate_escaped="$(printf '%q' "${candidate}")"
-	# FLD_SEP must be escaped, candidate may contain FLD_SEP, which will cause regex matching failure
-	candidate_escaped="${candidate_escaped//"${FLD_SEP}"/\\"${FLD_SEP}"}"
+	# build regex-safe pattern from candidate
+	candidate_regex="${candidate}"
+	# escape regex metacharacters (backslash first to avoid double-escaping)
+	for re_char in "${BP_REGEX_METACHARS[@]}"; do
+		candidate_regex="${candidate_regex//"${re_char}"/\\"${re_char}"}"
+	done
 
-	# try exactly match
-	if is_array_member "${candidate_escaped}" matching_list; then
+	# try exactly match (plain string comparison, no regex)
+	if is_array_member "${candidate}" matching_list; then
 		echo "${candidate}"
 		return 0
 	fi
@@ -1731,10 +1856,10 @@ function prefix_matching() {
 	for pk in "${matching_list[@]}"; do
 		if [[ ${prefix} == "prefix" ]]; then
 			# prefix matching
-			[[ ${pk} =~ ^${candidate_escaped} ]] && matched+=("${pk}")
+			[[ ${pk} =~ ^${candidate_regex} ]] && matched+=("${pk}")
 		elif [[ "postfix" =~ ^${prefix} ]]; then
 			# postfix-matching
-			[[ ${pk} =~ ${candidate_escaped}$ ]] && matched+=("${pk}")
+			[[ ${pk} =~ ${candidate_regex}$ ]] && matched+=("${pk}")
 		else
 			pros_tag="Wrong options '${prefix}' when calling 'prefix-matching()', 'prefix(default)|postfix' available."
 			exit_with_msg 3
@@ -1755,9 +1880,23 @@ function prefix_matching() {
 	fi
 }
 
-# Option validation ---------------------------------------------------------------
+# shellcheck shell=bash
+# shellcheck disable=SC2153,SC2154,SC2015
+# Module 06-validate: Parameter validation against PFILTER and MCG rules
+#   validate_option_name()       — match param name against filter (exact/prefix/multi)
+#   validate_option_args()       — validate value per type (bool/string/enum/resym)
+#   get_all_mcg_names()          — collect all MCG names from PFILTER entries
+#   validate_mcg_types()         — ensure MCG names start with valid type prefixes
+#   validate_required_groups()   — enforce required MCG members are supplied
+#   _build_mcg_membership_map()  — invert PFILTER: MCG name to member list
+#   _validate_dependence_groups() — d-member supplied requires D-member supplied
+#   _validate_master_groups()    — M/m MCG rules
+#   validate_option_mcgs()       — orchestrate all MCG validation by type
+#   validate_options_by_filter() — validate BP_OPTIONS against a definition set
+# --------------------------------------------------------------------------------
 
-function validate_option_name() {
+# match a param name against filter keys (exact, prefix, or multi-match)
+function validate_option_name {
 	local lid=$1
 	local -n param_ref=$2 matching_filter=$3
 	local mandatory=${4:-true}
@@ -1793,7 +1932,9 @@ function validate_option_name() {
 	fi
 	return 0
 }
-function validate_option_args() {
+
+# validate a parameter's value against its PFILTER type (bool/string/enum/resym)
+function validate_option_args {
 	local lid=$1
 	local param=$2 e_param=$3 pf_type=$4 pf_data=$5 pf_mcg=$6
 
@@ -1903,7 +2044,9 @@ function validate_option_args() {
 	esac
 	return 0
 }
-function get_all_mcg_names() {
+
+# collect all unique MCG names referenced across PFILTER entries
+function get_all_mcg_names {
 	local lid=$1
 	local -n pfilter=$2 mcg_groups_ref=$3
 	local mem dummy mcg mcg_name
@@ -1922,13 +2065,16 @@ function get_all_mcg_names() {
 		fi
 	done
 }
-function validate_mcg_types() {
+
+# verify each MCG name starts with a valid type prefix (d/D/e/m/M/r/u)
+function validate_mcg_types {
 	local -n mcg_names_ref=$1
 
 	local mem
 	declare -a mcg_types=()
 
 	# all available type in PFILTER
+	# assum MCG_TYPE schema: 'type:name-or-prefix'
 	for mem in "${MCG_TYPES[@]}"; do
 		mcg_types+=("${mem#*"${FLD_SEP}"}")
 	done
@@ -1936,6 +2082,7 @@ function validate_mcg_types() {
 	declare -A mcg_type_map=()
 	for mem in "${mcg_types[@]}"; do mcg_type_map["${mem}"]=true; done
 
+	# group names should match initial letters
 	for mem in "${mcg_names_ref[@]}"; do
 		[[ -v mcg_type_map[${mem:0:1}] ]] || {
 			pros_tag="${mem}"
@@ -1946,16 +2093,16 @@ function validate_mcg_types() {
 }
 
 # validate_required_groups: ensure all members of Required MCGs are supplied or have defaults
-function validate_required_groups() {
+function validate_required_groups {
 	local -n groups=$1 filter_ref2=$2
 
-	local mcg member def_type def_data
+	local mcg member def_type def_data def_mcg
 	local member_mcg
 	declare -a mcg_members=()
 
 	msg_bp 3 "    checking Required MCGs"
 	for mcg in "${groups[@]}"; do
-		[[ ${mcg,,} == required* ]] || continue
+		[[ "require" =~ ^${mcg,,} ]] || continue
 		# msg_bp -3 "    - checking MCG - " "${mcg}"
 
 		member_mcg=""
@@ -1964,9 +2111,13 @@ function validate_required_groups() {
 		# find members in the same mcg
 		for member in "${!filter_ref2[@]}"; do
 			member_mcg=${filter_ref2[${member}]##*:}
-			if [[ "required" =~ ^${member_mcg,,} ]]; then
-				mcg_members+=("${member}")
-			fi
+			local IFS="${ELM_SEP}" mcg_entry
+			for mcg_entry in ${member_mcg}; do
+				if [[ "${mcg}" =~ ^${mcg_entry,,} ]]; then
+					mcg_members+=("${member}")
+					break
+				fi
+			done
 		done
 
 		# check if all members available(supplied or can be fulfilled)
@@ -1975,7 +2126,7 @@ function validate_required_groups() {
 				msg_bp -4 "      member " "'${member}@${mcg}' supplied"
 				continue
 			else
-				extract_filter_schema "${lid}" "${filter_ref2[${member}]}" def_type def_data
+				extract_filter_schema "${lid}" "${filter_ref2[${member}]}" def_type def_data def_mcg
 				if [[ -n ${def_data} ]]; then
 					msg_bp -4 "      member " "'${member}@${mcg}' fulfill with default"
 					vpe_options["${member}"]="${def_data}"
@@ -1995,8 +2146,9 @@ function validate_required_groups() {
 		msg_bp 3 "      - MCG ${mcg}: PASSED"
 	done
 }
+
 # single-pass: build mcg -> members mapping from all PFILTER entries
-function _build_mcg_membership_map() {
+function _build_mcg_membership_map {
 	local lid=$1
 	local -n _pf=$2 _ms=$3
 	local member def_type def_data def_mcg mcg_name
@@ -2018,7 +2170,7 @@ function _build_mcg_membership_map() {
 }
 
 # validate dependence groups: any d-member supplied requires D-member supplied
-function _validate_dependence_groups() {
+function _validate_dependence_groups {
 	local -n _dc_supplied=$1 _dc_unsupplied=$2 _dl_supplied=$3 _dl_unsupplied=$4
 	local lid=$5
 
@@ -2068,7 +2220,7 @@ function _validate_dependence_groups() {
 #   1 if any m-member supplied, fails
 #   2 if just one / none M-member supplied, pass
 #   3 assign supplied M-member's name to m-member
-function _validate_master_groups() {
+function _validate_master_groups {
 	local -n _mc_members=$1 _mc_count=$2
 	local -n _ml_supplied=$3 _ml_unsupplied=$4
 	local -n _mc_supplied=$5 _mc_unsupplied=$6
@@ -2113,7 +2265,7 @@ function _validate_master_groups() {
 }
 
 # orchestrate all MCG validation: classify, then validate per-type rules
-function validate_option_mcgs() {
+function validate_option_mcgs {
 	local lid=$1
 	local -n filter_ref=$2
 	local -n vpe_options=$3 vpe_bools=$4 vpe_strings=$5
@@ -2147,7 +2299,8 @@ function validate_option_mcgs() {
 
 	# classify members for each MCG
 	for mcg in "${mcg_list[@]}"; do
-		[[ ${mcg:0:1} == [sorR] ]] && continue
+		# skip r/R (required — handled by validate_required_groups) and non-MCG names
+		[[ ${mcg:0:1} == [rR] ]] && continue
 
 		IFS="${ELM_SEP}" read -ra mcg_members <<<"${mcg_members_map[${mcg}]#|}"
 		eg_supplied=()
@@ -2155,7 +2308,7 @@ function validate_option_mcgs() {
 		ug_supplied=()
 
 		for member in "${mcg_members[@]}"; do
-			extract_filter_schema "${lid}" "${filter_ref[${member}]}" def_type def_data
+			extract_filter_schema "${lid}" "${filter_ref[${member}]}" def_type def_data def_mcg
 			case ${mcg:0:1} in
 			d)
 				if [[ -v vpe_options["${member}"] ]]; then
@@ -2254,7 +2407,7 @@ function validate_option_mcgs() {
 }
 
 # validate BP_OPTIONS(Priors/PSets/User-Options) with their definitions(PRIORS/PSETS/PFILTER)
-function validate_options_by_filter() {
+function validate_options_by_filter {
 	local lid=$1 mandatory=${2:-true}
 
 	declare -A v_options=() v_strings=() v_bools=()
@@ -2325,10 +2478,21 @@ function validate_options_by_filter() {
 	done
 }
 
+# shellcheck shell=bash
+# shellcheck disable=SC2153,SC2154
+# Module 07-output: Default assignment and result output
+#   assign_user_param_defaults() — assign PFILTER defaults to un-supplied params
+#   validate_user_options()      — validate user params against PFILTER
+#   create_variables()           — export bool/string params as shell variables
+#   output_param_arrays()        — create named result arrays
+#   output_eval()                — emit variable assignment statements
+#   output_json()                — emit JSON object (capture mode)
+#   update_run_mode()            — auto-detect source vs eval vs capture
+#   direct_pset_commands()       — execute directive PSets
+# --------------------------------------------------------------------------------
 
-# Default & output ----------------------------------------------------------------
-
-function assign_user_param_defaults() {
+# assign PFILTER default value to an un-supplied parameter
+function assign_user_param_defaults {
 	local param=$1 pf_type=$2 pf_data=$3 pf_mcg=$4
 	local default_enum
 
@@ -2376,7 +2540,7 @@ function assign_user_param_defaults() {
 #	PFILTER_ID: identify the PFILTER
 #   ~rup: all parameters must be defined in PFILTER(false by defautl)
 #   ~afd: apply PFILTER defaults on parameters(true by default)
-function validate_user_options() {
+function validate_user_options {
 	msg_bp 2 "Validate user option parameters"
 
 	local param pf_type pf_data pf_mcg
@@ -2438,7 +2602,7 @@ function validate_user_options() {
 }
 
 # create variables for option parameters as parsing result
-function create_variables() {
+function create_variables {
 	local var
 	if [[ ${CONFIGS["${PSETS[dvo]%%:*}"]} == true ]]; then
 		msg_bp 2 "  - Options output disabled."
@@ -2470,7 +2634,7 @@ function create_variables() {
 # These arrays are for run-mode source, not for run-mode eval/capture since variables output
 # in other formats in both mode; for example, in eval mode, output as variable assignment
 # statements, and in capture, output as JSON string.
-function output_param_arrays() {
+function output_param_arrays {
 	local option_an bools_an strings_an positional_an
 	local i key_max_len
 
@@ -2546,7 +2710,7 @@ function output_param_arrays() {
 }
 
 # output parsing result as variable assignment statements, for run-mode eval
-function output_eval() {
+function output_eval {
 	local index pvn_prefix
 
 	for index in "${!BP_OPTIONS[@]}"; do
@@ -2561,7 +2725,7 @@ function output_eval() {
 }
 
 # output parsing result as JSON, for run-mode capture
-function output_json() {
+function output_json {
 	# output $BP_OPTIONS in JSON using a single jq -n call
 
 	local param val idx=0
@@ -2572,7 +2736,10 @@ function output_json() {
 
 	# helper: valid number check (no leading zeros except '0')
 	function is_number() {
-		[[ $1 =~ ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$ ]]
+		if [[ $1 =~ ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$ ]]; then
+			return 0
+		fi
+		return 1
 	}
 
 	for param in "${!BP_OPTIONS[@]}"; do
@@ -2606,7 +2773,7 @@ function output_json() {
 }
 
 # Run-mode detection --------------------------------------------------------------
-function update_run_mode() {
+function update_run_mode {
 	# unless '~run' or '~mode' specified, autodetect
 	if [[ ${RUN_MODE} == 'auto' ]]; then
 		# autodetect
@@ -2626,12 +2793,102 @@ function update_run_mode() {
 	fi
 }
 
-# direct_pset_commands: execute directive PSets (Banner, Version, Resymbols, Defaults)
-function direct_pset_commands() {
+# display comprehensive online help for BosParse
+function show_help {
+	echo "BosParse ${CONSTS["VERSION"]} — parameter parser in & for bash"
+	echo
+	echo "USAGE"
+	echo "    source bosparse && bosparse [options] -- [positionals]"
+	echo "    eval \$(./bosparse [options] -- [positionals])"
+	echo "    json=\$(./bosparse ~json [options] -- [positionals])"
+	echo
+	echo "CML STYLES"
+	echo "    watershed    options before '--', positionals after '--' (default)"
+	echo "    islands      options start with LID(${ULID}), positionals without LID"
+	echo "    ~~~~style=islands|watershed   set at runtime"
+	echo
+	echo "PARAMETER TYPES"
+	echo "    bool         ${ULID}name, ${ULID}name${TAG_TRUE}, ${ULID}name${TAG_FALSE}"
+	echo "    string       ${ULID}name${OA_SEP}value, ${ULID}name value"
+	echo "    enum         like string, matched against enum list in PFILTER"
+	echo "    liga         ${ULID}${ULID}nparams (expands to params of length n; n=1 may omit)"
+	echo
+	echo "RUN MODES (auto-detected)"
+	echo "    source       sourced in script, exports variables"
+	echo "    eval         prints \"key=value\" statements"
+	echo "    capture      outputs JSON (requires jq)"
+	echo
+	echo "PSETs (~ prefix):"
+	echo "    ~run=<mode>         set run mode (auto/source/eval/capture)"
+	echo "    ~json               force JSON output"
+	echo "    ~dvo                disable variable output (source mode)"
+	echo "    ~pf=<pfilter>       pass PFILTER (array/json/keys-values)"
+	echo "    ~rup                restrict unknown parameters"
+	echo "    ~afd                apply PFILTER defaults"
+	echo "    ~prem               prefix-matching (default: on)"
+	echo "    ~oan=<name>         options array name"
+	echo "    ~ban=<name>         bools array name"
+	echo "    ~san=<name>         strings array name"
+	echo "    ~pan=<name>         positionals array name"
+	echo "    ~config             show config after parsing"
+	echo "    ~Defaults           show default configs"
+	echo "    ~Banner             show banner"
+	echo "    ~Version            show version"
+	echo "    ~Resymbols          show reserved symbols"
+	echo "    ~Help               show this help"
+	echo
+	echo "PRIORS (~~~ prefix, customize at runtime):"
+	echo "    ~~~plid=<resym>     PSET lid (default: ${PLID})"
+	echo "    ~~~ulid=<resym>     user-param lid (default: ${ULID})"
+	echo "    ~~~zs=<resym2>      zone separator (default: ${ZN_SEP})"
+	echo "    ~~~os=<resym>       OA separator (default: ${OA_SEP})"
+	echo "    ~~~tt=<resym>       true tag (default: ${TAG_TRUE})"
+	echo "    ~~~tf=<resym>       false tag (default: ${TAG_FALSE})"
+	echo "    ~~~td=<bool>        default bool tag (default: ${TAG_DEFAULT})"
+	echo
+	echo "SUPERS (~~~~ prefix):"
+	echo "    ~~~~quiet           verbose level 0"
+	echo "    ~~~~standard        verbose level 1 (default)"
+	echo "    ~~~~extra           verbose level 2"
+	echo "    ~~~~debug           verbose level 3"
+	echo "    ~~~~trace           verbose level 4"
+	echo "    ~~~~style=<style>   set CML style (watershed/islands)"
+	echo
+	echo "OUTPUT"
+	echo "    source mode:   exports variables + named arrays"
+	echo "    eval mode:     prints key=value statements"
+	echo "    capture mode:  prints JSON via jq"
+	echo
+	echo "PFILTER FORMAT"
+	echo "    \"type:data:mcg\"  with '${FLD_SEP}' field sep, '${ELM_SEP}' element sep"
+	echo "    type: bool|string|enum"
+	echo "    data: default value or enum list (element-separated)"
+	echo "    mcg:  mutual-correlate group (d/D/e/m/M/r/u prefix)"
+	echo
+	echo "MCG TYPES"
+	echo "    d/D   dependency (d-members require D-member supplied)"
+	echo "    e     exclusion (at most one member may be supplied)"
+	echo "    m/M   master (M-member supplies its name to m-member)"
+	echo "    r     required (all members must be supplied or have defaults)"
+	echo "    u     uniqueness (all supplied member values must differ)"
+	echo
+	echo "EXIT CODES"
+	echo "    0     success"
+	echo "    2     no input or error"
+	echo "    10    jq not available"
+	echo "    20+   parameter/filter errors (see doc/BosParse-Reference-Manual.md)"
+	echo
+	echo "For details: doc/BosParse-Reference-Manual.md  doc/bp-PFILTER.md"
+}
+
+# direct_pset_commands: execute directive PSets (Help, Banner, Version, Resymbols, Defaults)
+function direct_pset_commands {
 	# direct commands for some special PSets, which will not be output user parameters but
 	# executed directly in BosParse, e.g. show version or print a message
 
-	if [[ "${CONFIGS[${PSETS["Banner"]%%:*}]}" == true ]]; then
+	if [[ "${CONFIGS[${PSETS["Help"]%%:*}]}" == true ]]; then
+		show_help
+	elif [[ "${CONFIGS[${PSETS["Banner"]%%:*}]}" == true ]]; then
 		# show banner
 		echo -e "${CONSTS["BANNER"]} with love"
 	elif [[ "${CONFIGS[${PSETS["Version"]%%:*}]}" == true ]]; then
@@ -2649,33 +2906,18 @@ function direct_pset_commands() {
 	exit 0
 }
 
-# Main function -------------------------------------------------------------------
+# shellcheck shell=bash
+# Module 08-main: Entry point and high-level orchestration
+#   bosparse() — main function, called when script is executed (not sourced)
+#   Workflow: init configs -> detect style -> extract zones ->
+#   parse Priors -> parse PSets -> parse User params -> parse Positionals -> output
+#   Module-level: BP_ESC_PFX (random escape marker), __BP_READY (sourced marker)
+# --------------------------------------------------------------------------------
 
-function bosparse() {
-
-	# trap on_exit_bp EXIT
-
-	local local_script_path
-	# local local_script_dir
-	local local_script_name
-
+# initialize runtime configs by calling definitions() and setting CONFIGS defaults
+function bosparse_initialize_runtime {
 	local_script_path="$(realpath "${BASH_SOURCE[0]}")"
-	# local_script_dir="${local_script_path%\/*}"
 	local_script_name="${local_script_path##*\/}"
-
-	declare -a op_zone=() pp_zone=()
-	declare -a strings=() bools=() ligas=()
-
-	# local variables
-	local verbose
-	# local run_mode
-	local __QUIET __STANDARD __EXTRA __DEBUG __TRACE
-	local pros_tag="" pros_tag2="" pros_tag3="" pros_tag4="" pros_tag5=""
-	# local pros_tag pros_tag2 pros_tag3 pros_tag4 pros_tag5
-
-	declare -A CONFIGS CONSTS SUPERS PRIORS PSETS SVERBOSE
-	declare -A EXCEPTIONS EXIT_MSG MCG_TYPES SYMNAMES
-	declare -a RESYMS PFILTER_ENTRY_TYPES
 
 	definitions \
 		CONFIGS \
@@ -2688,203 +2930,94 @@ function bosparse() {
 		EXIT_MSG \
 		PFILTER_ENTRY_TYPES \
 		MCG_TYPES \
-		SVERBOSE \
 		SYMNAMES
 
-	declare -n SLID="CONFIGS[${SUPERS["slid"]%%:*}]"
-	declare -n PRLID="CONFIGS[${SUPERS["prlid"]%%:*}]"
-	declare -n CML_STYLE="CONFIGS[${SUPERS["style"]%%:*}]"
+	CONFIGS["run_mode"]="auto"
+	CONFIGS["style_of_commandline"]="watershed"
+	CONFIGS["output_as_json"]=false
+	CONFIGS["param_filter"]="${CONSTS["NO_PFILTER"]}"
+}
 
-	declare -n PLID="CONFIGS[${PRIORS["plid"]%%:*}]"
-	declare -n ULID="CONFIGS[${PRIORS["ulid"]%%:*}]"
-	declare -n ZN_SEP="CONFIGS[${PRIORS["zs"]%%:*}]"
-	declare -n OA_SEP="CONFIGS[${PRIORS["os"]%%:*}]"
-	declare -n TAG_TRUE="CONFIGS[${PRIORS["tt"]%%:*}]"
-	declare -n TAG_FALSE="CONFIGS[${PRIORS["tf"]%%:*}]"
-	declare -n TAG_DEFAULT="CONFIGS[${PRIORS[td]%%:*}]"
-
-	declare -n RUN_MODE="CONFIGS[${PSETS["run"]%%:*}]"
-	declare -n PARAM_FILTER="CONFIGS[${PSETS["pf"]%%:*}]"
-
-	declare -n NO_PFILTER='CONSTS["NO_PFILTER"]'
-	declare -n PFILTER_ID='CONSTS["PFILTER_ID"]'
-	declare -n FLD_SEP="CONSTS[FLD_SEP]"
-	declare -n ELM_SEP="CONSTS[ELM_SEP]"
-
-	# arrays for parsing result
-	#   - BP_OPTIONS is the main result array for all types of Options
-	#   - BP_STRINGS/BP_BOOLS are for storing string/bool type Options separately
-	#   - BP POSITIONALS entries are all position parameters
-	# BP_POSITIONALS defined as global array since it is always needed for run-mode Source,
-	# while others defined as local arrays to reduce global variable usage and avoid potential
-	# conflicts with user variables; for eval/capture, these arrays will not be used directly,
-	# so it does not matter if they are global or local.
-
-	declare -A "${CONFIGS[${PSETS["oan"]%%:*}]}"
-	declare -A "${CONFIGS[${PSETS["san"]%%:*}]}"
-	declare -A "${CONFIGS[${PSETS["ban"]%%:*}]}"
-	declare -ga "${CONFIGS[${PSETS["pan"]%%:*}]}"
-
-	declare -n BP_OPTIONS="${CONFIGS[${PSETS["oan"]%%:*}]}"
-	declare -n BP_STRINGS="${CONFIGS[${PSETS["san"]%%:*}]}"
-	declare -n BP_BOOLS="${CONFIGS[${PSETS["ban"]%%:*}]}"
-	declare -n BP_POSITIONALS="${CONFIGS[${PSETS["pan"]%%:*}]}"
-
-	# echo --------------------- >&2
-	# echo $* >&2
-
-	# process empty "$@"
-	[[ $# -eq 0 || $* == '--' || $* == "${ZN_SEP}" ]] && {
-		verbose=1
-		exit_with_msg 2
-	}
-
-	# supper verbose for Priors parse monitoring
-	local supers=() spr matched_spr
-	# remove '~pf' from cml in case SLID included in PFILTER
-	local CMLM=("$@") i
-	for i in "${!CMLM[@]}"; do
-		if [[ ${CMLM[i]} =~ ^\~pf= ]]; then
-			unset "CMLM[i]"
-			break
-		fi
-	done
-	for spr in "${!SVERBOSE[@]}"; do
-		if [[ ${CMLM[*]} =~ ${SLID}${spr} ]]; then
-			matched_spr="${BASH_REMATCH[0]}"
-			supers+=("${BASH_REMATCH[0]##*\~}")
-		fi
-	done
-
-	update_verbose
-	unset spr supers
-
-	msg_bp 3 "Command line: " "$*"
-	# echo "Command line: $*" >&2
-	msg_bp -2 "verbose: " "${verbose}"
-
-	reset_intermediate_arrays
-
-	# check cml style
-	update_cml_style "$@"
-	# msg_bp 2 "CML style: ${CML_STYLE}"
+# split CML into op_zone (options) and pp_zone (positionals) by current CML_STYLE
+function bosparse_extract_zones {
 	if [[ ${CML_STYLE} == "watershed" ]]; then
-		# disassemble command line parameters
 		msg_bp 2 "Extract Watershed-style CML"
 		extract_watershed op_zone pp_zone "$@"
 	else
 		msg_bp 2 "Extract Islands-style CML"
 		extract_islands op_zone pp_zone "$@"
 	fi
-
 	msg_bp 4 "op zone:" "${op_zone[*]}"
 	msg_bp 4 "pp zone:" "${pp_zone[*]}"
+}
 
-	# in case no parameter supplied
-	[[ ${#op_zone[@]} -eq 0 && ${#pp_zone[@]} == 0 ]] && exit_with_msg 2
+# show CONFIGS if ~config PSet is set; optionally clear flag after display
+function bosparse_show_config_if_needed {
+	local setup_map_name=$1
+	local clear_after_show=${2:-false}
+	local -n setup_ref="${setup_map_name}"
 
-	if [[ ${#op_zone[@]} -ne 0 ]]; then
-		# option parameter supplied
-		msg_bp 3 "Extract Priors"
-		extract_options "${PRLID}" strings bools ligas op_zone
+	if [[ ${CONFIGS[${setup_ref["config"]%%:*}]} == true ]]; then
+		show_configs
+		[[ ${clear_after_show} == true ]] && CONFIGS["${setup_ref["config"]%%:*}"]=false
+	fi
+	return 0
+}
 
-		# process Priors ---------------------------------------------
-		# if no priors supplied, skip parsing priors
-		if [[ ${#strings[@]} -ne 0 || ${#bools[@]} -ne 0 || ${#ligas[@]} -ne 0 ]]; then
-			msg_bp 2 "Parse Priors"
-			parse_options "${PRLID}" strings bools ligas
+# orchestrate a single parsing stage (Priors/PSets): extract → parse → validate → apply
+function bosparse_parse_stage {
+	local stage_label=$1
+	local lid=$2
+	local setup_map_name=$3
+	local rebuild_zones=${4:-false}
+	local clear_after_show=${5:-false}
+	local reset_after=${6:-true}
+	shift 6
 
-			msg_bp 3 "Validate Priors"
-			validate_options_by_filter "${PRLID}" true
+	msg_bp 3 "Extract ${stage_label}"
+	extract_options "${lid}" strings bools ligas op_zone
 
-			# show_array CONFIGS "CF"
+	if [[ ${#strings[@]} -ne 0 || ${#bools[@]} -ne 0 || ${#ligas[@]} -ne 0 ]]; then
+		msg_bp 2 "Parse ${stage_label}"
+		parse_options "${lid}" strings bools ligas
 
-			msg_bp 3 "Apply Priors"
-			apply_setup "Priors" PRIORS
-			# unset "${super_verbose}"
-			update_verbose
+		msg_bp 3 "Validate ${stage_label}"
+		validate_options_by_filter "${lid}" true
 
+		msg_bp 3 "Apply ${stage_label}"
+		apply_setup "${stage_label}" "${setup_map_name}"
+		update_verbose
+
+		if [[ ${reset_after} == true ]]; then
 			reset_intermediate_arrays
-			if [[ ${CONFIGS[${PRIORS["config"]%%:*}]} == true ]]; then
-				# if config is true, show configs after parsing Priors
-				show_configs
-				# set config to false after showing configs, to avoid showing configs again
-				# after parsing PSets
-				CONFIGS["${PRIORS["config"]%%:*}"]=false
-			# else
-			# 	[[ ${verbose} -ge 3 ]] && show_configs
-			fi
-
-			# msg_bp 2 "CML stype: ${CML_STYLE}"
-			if [[ ${CML_STYLE} == "watershed" ]]; then
-				# re-extract zones for PSets and user Options, in case some prior settings changed
-				msg_bp 2 "Extract Watershed-style CML Again"
-				extract_watershed op_zone pp_zone "$@"
-			else
-				msg_bp 2 "Extract Islands-style CML Again"
-				extract_islands op_zone pp_zone "$@"
-			fi
-
-			msg_bp 4 "op zone:" "${op_zone[*]}"
-			msg_bp 4 "pp zone:" "${pp_zone[*]}"
 		else
-			msg_bp 3 "  no Priors supplied, skip parsing Priors"
-		fi
-
-		# Psets
-		msg_bp 3 "Extract PSets"
-		extract_options "${PLID}" strings bools ligas op_zone
-
-		# parsing PSets ----------------------------------------------
-		# in case no PSets supplied
-		if [[ ${#strings[@]} -ne 0 || ${#bools[@]} -ne 0 || ${#ligas[@]} -ne 0 ]]; then
-			msg_bp 2 "Parse PSets"
-			parse_options "${PLID}" strings bools ligas
-
-			msg_bp 3 "Validate PSets"
-			validate_options_by_filter "${PLID}" true
-
-			msg_bp 3 "Apply PSets"
-			apply_setup "PSets" PSETS
-			update_verbose
-
-			# directives for some special PSets, which will not be output as user parameters but
-			# executed directly in BosParse, e.g. show version or print Banner
-			direct_pset_commands
-
 			reset_intermediate_arrays false
-			if [[ ${CONFIGS[${PSETS["config"]%%:*}]} == true ]]; then
-				# if config is true, show configs after parsing PSets
-				show_configs
-			# else
-			# 	[[ ${verbose} -ge 3 ]] && show_configs
-			fi
-		else
-			msg_bp 3 "  no PSets supplied, skip parsing PSets"
 		fi
-		# PSet parsed, update run-mode in case not specified
-		update_run_mode
 
-		# parsing user parameters-------------------------------------
-		msg_bp 2 "Extract user-options"
-		extract_options "${ULID}" strings bools ligas op_zone
-
-		msg_bp 2 "Parse user-options"
-		parse_options "${ULID}" strings bools ligas
-
-		if [[ ${#BP_OPTIONS[@]} -ne 0 ]] ||
-			[[ ${CONFIGS["${PSETS["afd"]%%:*}"]} == true ]]; then
-			validate_user_options
-		fi
-	else
-		update_run_mode
+		bosparse_show_config_if_needed "${setup_map_name}" "${clear_after_show}"
+		[[ ${rebuild_zones} == true ]] && bosparse_extract_zones "$@"
+		return 0
 	fi
 
-	# parsing optional parameters ---------------------------------
-	msg_bp 2 "Parse user-positionals"
-	parse_positionals "${pp_zone[@]}"
+	msg_bp 3 "  no ${stage_label} supplied, skip parsing ${stage_label}"
+}
 
-	# output parsing result ---------------------------------------
+# parse user-supplied option params: extract, parse, then validate against PFILTER
+function bosparse_parse_user_options {
+	msg_bp 2 "Extract user-options"
+	extract_options "${ULID}" strings bools ligas op_zone
+
+	msg_bp 2 "Parse user-options"
+	parse_options "${ULID}" strings bools ligas
+
+	if [[ ${#BP_OPTIONS[@]} -ne 0 ]] ||
+		[[ ${CONFIGS["${PSETS["afd"]%%:*}"]} == true ]]; then
+		validate_user_options
+	fi
+}
+
+# emit parsed results in the selected run-mode (source/eval/capture)
+function bosparse_emit_output {
 	msg_bp 2 "Output parsing result"
 
 	case ${RUN_MODE} in
@@ -2903,8 +3036,131 @@ function bosparse() {
 		;;
 	*) ;;
 	esac
+}
+
+# reject empty input, lone '--', or lone ZN_SEP before any parsing
+function bosparse_validate_input {
+	if [[ $# -eq 0 || $* == '--' || $* == "${ZN_SEP}" ]]; then
+		verbose=1
+		exit_with_msg 2
+	fi
+}
+
+# collect super-verbose (~~~~) flags from CML before main parsing starts
+function bosparse_collect_super_flags {
+	local CMLM=("$@") spr param="${SLID}"
+
+	for i in "${!CMLM[@]}"; do
+		if [[ ${CMLM[i]} =~ ^\~pf= ]]; then
+			unset "CMLM[i]"
+			break
+		fi
+	done
+
+	for spr in "${!SUPERS[@]}"; do
+		[[ ${SUPERS[${spr}]##*:} == "eg_sv" ]] || continue
+		for i in "${!CMLM[@]}"; do
+			if [[ ${CMLM[i]} =~ ${param}${spr} ]]; then
+				supers+=("${spr}")
+				break
+			fi
+		done
+	done
+
+	update_verbose
+}
+
+# store remaining non-option params from pp_zone as positionals
+function bosparse_parse_positionals {
+	msg_bp 2 "Parse user-positionals"
+	parse_positionals "${pp_zone[@]}"
+}
+
+# mark parsing complete (disables exit-trace in sourced mode)
+function bosparse_finalize {
 	BP_PARSING_STAGE="Mission complete."
 	msg_bp 3 "${BP_PARSING_STAGE}"
+}
+
+# main entry: orchestrate full parsing pipeline (Priors to PSets to User to Positionals to Output)
+function bosparse {
+	# trap on_exit_bp EXIT
+	local verbose
+	local pros_tag="" pros_tag2="" pros_tag3="" pros_tag4="" pros_tag5=""
+
+	declare -a op_zone=() pp_zone=()
+	declare -a strings=() bools=() ligas=()
+	declare -A CONFIGS CONSTS SUPERS PRIORS PSETS
+	declare -A EXCEPTIONS EXIT_MSG MCG_TYPES SYMNAMES
+	declare -a RESYMS PFILTER_ENTRY_TYPES
+
+	bosparse_initialize_runtime
+	declare -n SLID="CONFIGS[${SUPERS["slid"]%%:*}]"
+	declare -n PRLID="CONFIGS[${SUPERS["prlid"]%%:*}]"
+	declare -n CML_STYLE="CONFIGS[style_of_commandline]"
+	declare -l param="$SLID"
+
+	declare -n PLID="CONFIGS[${PRIORS["plid"]%%:*}]"
+	declare -n ULID="CONFIGS[${PRIORS["ulid"]%%:*}]"
+	declare -n ZN_SEP="CONFIGS[${PRIORS["zs"]%%:*}]"
+	declare -n OA_SEP="CONFIGS[${PRIORS["os"]%%:*}]"
+	declare -n TAG_TRUE="CONFIGS[${PRIORS["tt"]%%:*}]"
+	declare -n TAG_FALSE="CONFIGS[${PRIORS["tf"]%%:*}]"
+	declare -n TAG_DEFAULT="CONFIGS[${PRIORS[td]%%:*}]"
+
+	declare -n RUN_MODE="CONFIGS[run_mode]"
+	declare -n PARAM_FILTER="CONFIGS[param_filter]"
+
+	declare -n NO_PFILTER='CONSTS["NO_PFILTER"]'
+	declare -n PFILTER_ID='CONSTS["PFILTER_ID"]'
+	declare -n FLD_SEP="CONSTS[FLD_SEP]"
+	declare -n ELM_SEP="CONSTS[ELM_SEP]"
+
+	declare -A "${CONFIGS[${PSETS["oan"]%%:*}]}"
+	declare -A "${CONFIGS[${PSETS["san"]%%:*}]}"
+	declare -A "${CONFIGS[${PSETS["ban"]%%:*}]}"
+	declare -ga "${CONFIGS[${PSETS["pan"]%%:*}]}"
+
+	declare -n BP_OPTIONS="${CONFIGS[${PSETS["oan"]%%:*}]}"
+	declare -n BP_STRINGS="${CONFIGS[${PSETS["san"]%%:*}]}"
+	declare -n BP_BOOLS="${CONFIGS[${PSETS["ban"]%%:*}]}"
+	declare -n BP_POSITIONALS="${CONFIGS[${PSETS["pan"]%%:*}]}"
+
+	# build static mapping cache for show_configs
+	declare -A __BP_SC_MAP
+	for key in "${!PRIORS[@]}"; do
+		__BP_SC_MAP["${key}"]="${PRIORS[${key}]%%:*}"
+	done
+	for key in "${!PSETS[@]}"; do
+		__BP_SC_MAP["${key}"]="${PSETS[${key}]%%:*}"
+	done
+
+	declare -a supers=()
+	bosparse_validate_input "$@"
+	bosparse_collect_super_flags "$@"
+
+	msg_bp 3 "Command line: " "$*"
+	msg_bp -2 "verbose: " "${verbose}"
+
+	reset_intermediate_arrays
+	check_cml_style "$@"
+	bosparse_extract_zones "$@"
+
+	[[ ${#op_zone[@]} -eq 0 && ${#pp_zone[@]} -eq 0 ]] && exit_with_msg 2
+
+	if [[ ${#op_zone[@]} -ne 0 ]]; then
+		bosparse_parse_stage "Priors" "${PRLID}" PRIORS true true true "$@"
+		bosparse_parse_stage "PSets" "${PLID}" PSETS false false false "$@"
+		direct_pset_commands
+		update_run_mode
+		bosparse_parse_user_options
+	else
+		update_run_mode
+	fi
+
+	bosparse_parse_positionals
+	bosparse_emit_output
+	bosparse_finalize
 }
 
 __BP_READY=true # identifying BosParse used

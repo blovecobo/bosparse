@@ -34,10 +34,11 @@ Load all the configuration arrays:
 
 ### Super verbose parsing
 
-1. Extract and parse Super Verbose flag
-1. Update `CONFIGS` with super verbose flag.
+1. Extract and parse Super Verbose flags and `style`
+1. Update `CONFIGS` with Super Verbose flags and `style`.
 
-This will be used to control the output verbosity during Priors parsing
+Super Verbose flags used to control the parameter extraction and output verbosity during Priors parsing.
+`style` used to extract the command line structure in subsequent parsing stages.
 
 ### Prior Parsing
 
@@ -59,13 +60,13 @@ This will be used to control the output verbosity during Priors parsing
 
 ### Output Parsing Results
 
-Output parsing results according to the run-mode specified by the user.
+Output parsing results according to the `run-mode` specified by the user.
 
 #### Source Mode
 
-By default, BosParse outputs as follows:
+By default, BosParse outputs as follows in `source-mode`:
 
-1. Output Options as shell variables
+1. Output Options as shell variables(can be disabled by `~dvo`)
 1. Output Positional Arguments as an associative array named `BP_Positionals`
 
 If user specified, BosParse outputs parsing result in arrays with customize name:
@@ -82,7 +83,7 @@ By default, BosParse outputs shell assignments for `eval $(...)`:
 1. Output Options in shell assignments with the format `name=value`
 1. Output Positional Arguments in shell assignments with the format `BP_Positionals_<index>=<value>`
 
-If `~oan` specified, output Positional Arguments with the format `~oan=ps` -> `ps_<index>=<value>`
+If `~pan` specified, output Positional Arguments with the format `ps_<index>=<value>`
 
 #### Capture Mode
 
@@ -100,24 +101,28 @@ Output Options and Positional arguments in JSON format.
 
 ## Parameter Definition
 
-BosParse supports flexible parameter definition using `PFILTER` created by programer, which is an associative array containing all the necessary information for parsing user parameters. With the help of `PFILTER`, BosParse can parse user parameters in a flexible way, including type/value validation, default value assignment, prefix matching for parameter names and enum values, as well as mutual correlation groups for parameters.
+BosParse supports flexible parameter definition using `PFILTER` created by developer, which is an associative array containing all the necessary information for parsing user parameters. With the help of `PFILTER`, BosParse can parse user parameters in a flexible way, including type/value validation, default value assignment, prefix matching for parameter names and enum values, as well as mutual correlation groups for parameters.
 
 ### Syntax of `PFILTER` entry
 
 The syntax of `PFILTER` entry is as follows:
 
 ```bash
-[param-name]="type:data:mcg-name"
+["param-name"]="type:data:mcg-name"
 ```
 
 Where:
 
 - **param-name**: the name of the parameter
 - **type** field: the type of the parameter, which can be `string`, `boolean` or `enum`
-- **data** field: the data for the parameter, which can be default value, or a list of available values for `enum` separated by FLD-SEP(`|` pipe)
-- **mcg-name** field: the name(s) of the mutual correlation group(s), used to group parameters that are mutually correlated; multiple group names separated by FLD-SEP (`|` pipe)
+- **data** field: the data for the parameter, which can be default value, or a list of available values for `enum` separated by ELM-SEP (`|` pipe)
+- **mcg-name** field: the name(s) of the mutual correlation group(s), used to group parameters that are mutually correlated; multiple group names separated by ELM-SEP (`|` pipe)
 
-Data field and mcg-name field are optional.
+#### Note
+
+- Data field and mcg-name field are optional.
+- As `param-name` will be used as Bash variable name in the parsing result, `param-name` should satisfy Bash variable naming convention, but in command line, an Option like `--dry-run` sounds reasonable. For this reason, BosParse accepts hyphen `-` using in `param-name` as an exception if it isn't at the beginning or end. BosParse will replace every hyphen `-` with a underscore `_` in the final result.
+- `mcg-name` follows the same naming rules and the exception.
 
 ### Serializing `PFILTER`
 
@@ -132,22 +137,22 @@ When running BosParse in `eval/capture` mode, `PFILTER` should be serialized bef
 - `keys-values` string:
 
   ```bash
-  ~pf="$(!PFILTER[*]} ${PFILTER[*])"
+  ~pf="${!PFILTER[*]} ${PFILTER[*]}"
   ```
 
   Restrictions for this purpose:
-  - `PFILTER` entry values must not be empty, printable charactor(s) needed;
-  - `PFILTER` entry values must not contain space(s) or non-printable charactors
+  - `PFILTER` entry value must not be empty;
+  - `PFILTER` entry value should be literal text
 
 ### PFILTER-ID
 
 `PFILTER-ID` is a special entry in `PFILTER`, which is used to validate the `PFILTER`:
 
 ```bash
-["PARAM-FILTER"]="any-string-not-empty"
+["PARAM-FILTER"]="text-not-empty"
 ```
 
-The value of `PFILTER-ID` entry does not matter while the key `PARAM-FILTER` is reserved for `PFILTER-ID`; BosParse will check the existence of `PFILTER-ID` entry to determine if this associative array is a `PFILTER` or not.
+The value of `PFILTER-ID` entry does not matter while the key `PARAM-FILTER` is reserved as `PFILTER-ID`; BosParse will check the existence of `PFILTER-ID` entry to determine if this associative array is a `PFILTER` or not.
 
 ### PFILTER-related PSets
 
@@ -162,11 +167,13 @@ The value of `PFILTER-ID` entry does not matter while the key `PARAM-FILTER` is 
 - `~afd`: Apply `PFILTER` defaults for paramters not belong to any MCG; MCG member parameters follow group rules.
   - enabled by default
   - `~afd-` disables default assignment
-- `fmi`: Forbid m-member of Master MCG input, use M-member's name(when one M supplied) or m's default(when no M supplied)
+- `~dvo-`: Disable variable output, no `variable=value` output to avoid variable name confilict
+  - for `source-mode` only
+  - `false` by default(output variables)
 
-### Prefixes-matching
+### Prefix-matching
 
-BosParse supports prefixes-matching for parameter names and enum values.
+BosParse supports prefix-matching for parameter names(include LIAG members) and enum values.
 
 ```bash
 ["help"]="bool:false"
@@ -183,7 +190,7 @@ When no ambiguity is found, BosParse will use the prefix-matched parameter:
 When an Enum type parameter is provided using Boolean syntax, BosParse will use the First or Last value in the enum list:
 
 ```bash
-["color"]="enum:red,green,blue"
+["color"]="enum:red|green|blue"
 ```
 
 - When `-c` provided, use `blue` (`true`, EML)
@@ -200,31 +207,31 @@ MCGs enforce relationships between parameters. Parameters can belong to more tha
 
 ### Group Types
 
-- **Dependency (`d`/`D` prefix)**: d-members depend on D-members
+- **Dependency (`d`/`D` prefix)**: `d-members` depend on `D-members`
 - **Exclusion (`e` prefix)**: One or none parameter in the group can supply
-- **Masters(`m`/`M` prefix)**: m-member assigned with the name of the supplied M-member
-- **Required (`r` prefix)**: members must be supplied or fulfilled
+- **Masters(`m`/`M` prefix)**: `m-member` assigned with the name of the supplied `M-member`
+- **Required (`r` prefix)**: `members` must be supplied or fulfilled
 - **Uniqueness (`u` prefix)**: Parameters must have different values
 
 ### Detailed Rules
 
 - **Dependency Groups**
-  - d-member(s) require one or more D-member(s) supplied;
-  - No d-member is permitted
-  - D-members can be supplied without d-members;
-  - Error if d-members supplied without D-members.
+  - `d-member(s)` require one or more `D-member(s)` supplied;
+  - No `d-member` supplied is permitted
+  - `D-members` can be supplied without `d-members`;
+  - Error if `d-members` supplied without `D-members`.
 
 - **Exclusion Groups**
   - Group members are mutually exclusive; if more than one member supplied, parsing fails.
   - An Exclusion group must contain two or more members
 
 - **Master Groups**
-  - Master group includes M-members and a m-member.
-  - m-member assigned with the supplied M-member's name; not allowed to supply
-  - If no M-member supplied, no value assigned to m-member(not defined)
+  - Master group includes `M-members` and a `m-member`.
+  - `m-member` assigned with the supplied `M-member`'s name; not allowed to supply
+  - If no `M-member` supplied, no value assigned to `m-member`(not defined)
   - Error if:
-    1. m-member supplied, or
-    1. More than one M-member supplied
+    1. `m-member` supplied, or
+    1. More than one `M-member` supplied
 
 - **Required Groups**
 
@@ -299,7 +306,7 @@ BosParse supports the following parameter types:
   - Schema 3: `<LID> <Option-name> [Trailing-Tag]`
   - Schema 4: `<LID> <length-option-name> <option-names> [Trailing-Tag]`
 
-  Option parameters always start with a LID. Different LIDs can be used to distinguish between different types of parameters. BosParse support 'string', 'boolean', 'enum' and 'liga' Options, which can be distinguished by different LIDs and syntaxes:
+  Option parameters always start with a LID. Different LIDs used to distinguish between different types of parameters. BosParse support 'string', 'boolean', 'enum' and 'liga' Options, which can be distinguished by different LIDs and syntaxes:
   - **String Option**: support string; using schema '1' and '2', like `-name=value` or `-name value` -> `name=value`
   - **Boolean Option**: support boolean; using schema '3', like `-verbose+`, `-verbose-` or `-verbose` -> `verbose=` `true`,`false` and `true`(if `~td` is `true`) respectively
   - **Enum Option**: support enum; using schema '1' and '2', similar to String Option but with limited available values
@@ -319,16 +326,22 @@ Directives execute after `PSets` parsing, then the parser will exit at once; tha
 BosParse supports the following directives:
 
 - `~Banner`: Show banner, mainly used to test if BosParse is working
-- `~Default`: Show default settings, all data from `CONFIGS` will be shown
+- `~Defaults`: Show default settings, all data from `CONFIGS` will be shown
 - `~Help`: Show help(not implemented)
 - `~Resymbols`: Show reservable symbol set for PAS except FLD-SEP and ELM-SEP
 - `~Version`: Show BosParse version
 
 ## Configuration Options
 
+1. Supers - Super PSets (`~~~~` prefix)
+   - `~~~~style`: command line structure style, available styles: `watershed` and `islands`
+     - `~~~~style=islands` or `~~~~style=watershed` to set explicitly
+     - `~~~~style` without a value (bare) defaults to `islands` (EML)
+   - `~~~~slid`: Super LID string (default `~~~~`), used to identify Super PSets
+   - `~~~~prlid`: Prior LID string (default `~~~`), used to identify Priors
+
 1. Priors - Parsing-aid symbols setting
    - Leading-ids
-     - `~~~style`: command line structure style, available styles: `watershed` and `islands`
      - `~~~plid` (default `~`): prefix of PSets
      - `~~~ulid` (default `-`): prefix of user Options
    - Trailing-tags
@@ -357,11 +370,11 @@ BosParse supports the following directives:
      - `~pf`: Pass `PFILTER` to BosParse
      - `~rup`: Restrict unknown parameters
      - `~afd`: Apply `PFILTER` defaults
-     - `~fmi`: forbid m-member of Master MCG from supplying
+     - `~prem`: prefix-matching enabled (default `true`), disable with `~prem-`
 
    - Directives
      - `~Banner`: Show banner
-     - `~Default`: Show default settings
+     - `~Defaults`: Show default settings
      - `~Help`: Show help(not implemented)
      - `~Resymbols`: Show reservable symbols used by PAS
      - `~Version`: Show BosParse version
@@ -377,30 +390,30 @@ BosParse supports the following directives:
 ## Terminology
 
 - **`Directive`**: a set of special PSets which will lead to execute specific actions, like showing banner or version, then exit immediately
+- **`dvo`**: disable variable output, for `source-mode` only
 - **`ELM-SEP`**: separator between enum values or MCG names in `PFILTER` and config arrays
 - **`FLD-SEP`**: separator between entry fields in `PFILTER` and config arrays
 - **`LID`**: Leading identifier, used to distinguish Option types
-- **`LIGA`**: ligature style parameter, used to pass multiple boolean Options with one parameter
-- **`islands`**: one of command line structure styles with intermixing Options and Positionals, `OA-SET` is required; another style is `watershed`
+- **`LIGA`**: ligature style user parameter, used to pass multiple boolean Options with one parameter
+- **`islands`**: one of command line structure styles with intermixing Options and Positionals, `OA-SEP` is required; another style is `watershed`
 - **`MCG`**: Mutual Correlation Group, a group of parameters with mutual correlation rules; MCGs defined in `PFILTER` and validated after parsing
 - **`OA-SEP`**: separator between Option name and its value
-- **`op-zone`**: the part of CML before `ZN-SEP` contains Opsions in `watershed` style CML
+- **`op-zone`**: the part of CML before `ZN-SEP` contains Options in `watershed` style CML
 - **`Option`**: parsable parameters with a LID, including Priors, PSets and User Options; different LIDs used to distinguish different types of Options, User Params, PSets, Priors, LIGAs, etc.
 - **`PAS`**: Parsing-Aid-Symbols, e.g. LIDs, SEPs, PAS consist of RESYMS
 - **`PLID`**: LID for PSets, `~` by default, customieze with PSet `~~~plid`
-- **`PLIGA`**: LID for PSet LIGAs, always double `PLID`, `~~` by default
 - **`Positional`**: Positional parameters without a LID, simply strings
-- **`pp-zone`**: the part of CML afer `ZN-SEP` contains Optionals in `watershed` style CML
+- **`pp-zone`**: the part of CML after `ZN-SEP` contains Positionals in `watershed` style CML
 - **`Prior`**: prior parsing PSets, used to customize PASs
 - **`PRLID`**: LID for Priors, `~~~` by default, cannot be customized
 - **`PSet`**: parameters to config BosParse
 - **`PFILTER`**: an associative array with definitions of User Options created by user for advance features; `PFILTER` passed to BosParse via the PSet `~pf` with `PFILTER`'s name reference or a JSON string(serialized `PFILTER`) or a `keys-values` string
 - **`RESYMS`**: a character set includes BosParse reserved characters used in PASs.
 - **`run-mode`**: method to use BosParse. BosParse will detect which mode it's running if no `run-mode` explicitly specified by user(via PSet `-run` )
+- **`style`**: Super PSet(`~~~~` as lid), identify the CML structure, available: `watershed` and `islands`
 - **`TD`**: default value if trailing tag omitted, set by `~~~td`
 - **`TF`**: trailing tag for `false`, set by `~~~tf`
 - **`TT`**: trailing tag for `true`, set by `~~~tt`
 - **`ULID`**: LID for User Options, `-` by default, customize by `~~~ulid`
-- **`ULIGA`**: LID for User LIGAs, always double `ULID`
 - **`watershed`**: command line structure style with a clear separator between Options and Positionals, support space(s) as OA-SEP, while `ZN-SEP` is required to separate Options and Positionals
 - **`ZN-SEP`**: separator between Options and Positionals in `watershed` style CML

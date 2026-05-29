@@ -1,10 +1,20 @@
-# Utility functions ----------------------------------------------------------------
+# shellcheck shell=bash
+# Module 01-util: Utility functions
+#   Debugging & tracing (trace, on_exit_bp, msg_bp)
+#   Symbol escaping/restoring system for safe parameter handling
+#   String operations (count_substr, max_array_member_length)
+#   Array helpers (key_of_array_member, is_array_member, show_array)
+#   LID matching (with_lid)
+#   Error exit with contextual messages (exit_with_msg)
+#   Variable name exception substitution (substitute_exceptions)
+#   jq availability validation
+# --------------------------------------------------------------------------------
 
 # trace: show call stack during debugging
-function trc() {
+function trace {
 	local start=${1:-0} ll
 
-	[[ ${verbose} -gt 3 ]] && return
+	[[ ${verbose:-1} -gt 3 ]] || return
 	local ln_levels fld_len
 
 	local fn=("${FUNCNAME[@]}")
@@ -20,13 +30,15 @@ function trc() {
 }
 
 # on_exit_bp: trap handler that dumps call stack on unexpected exit
-function on_exit_bp() {
-	[[ ${BP_PARSING_STAGE:-} == "Mission complete." ]] || trc 2
+function on_exit_bp {
+	[[ ${BP_PARSING_STAGE:-} == "Mission complete." ]] || trace 2
 }
-function echo2() { printf '%s\n' "$*" >&2; }
+
+# stderr print shortcut, for debugging and error messages
+function echo2 { printf '%s\n' "$*" >&2; }
 
 # operations:
-#   mark: symbol -> symbol_with_mark
+#   mark: symbol -> symbol-with-mark
 #           : -> \:
 #   substitue: symbol-with-escape-mark -> symbol-name-pattern(default)
 #           \: -> <BP_ESC_PFX><SYMBOLNAME>__
@@ -36,7 +48,7 @@ function echo2() { printf '%s\n' "$*" >&2; }
 #           <BP_ESC_PFX><SYMBOLNAME>__ -> :
 #   remove: symbol-with-escape-mark -> symbol
 #           \: -> :
-function escape_symbol() {
+function escape_symbol {
 	local -n target_str=$1
 	local symbol=$2
 	local op=${3:-substitute}
@@ -55,7 +67,9 @@ function escape_symbol() {
 		:
 	fi
 }
-function count_substr() {
+
+# count occurrences of substring in string
+function count_substr {
 	local sub="$1" str="$2"
 	[[ -n ${sub} ]] || {
 		echo 0
@@ -68,7 +82,7 @@ function count_substr() {
 # calculate max length among array members without external tools('wc'.. )
 # usage:
 #   max_length "${sample[@]}"
-function max_array_member_length() {
+function max_array_member_length {
 	local max_len=0 item len
 	for item in "$@"; do
 		len=${#item}
@@ -76,11 +90,14 @@ function max_array_member_length() {
 	done
 	echo "${max_len}"
 }
-function validate_jq() {
+
+# assert jq is available, exit with code 10 if not
+function validate_jq {
 	jq --version >/dev/null 2>&1 || exit_with_msg 10
 }
+
 # find array key of a member
-function key_of_array_member() {
+function key_of_array_member {
 	local member=$1
 	local -n arr_ref=$2
 	local key
@@ -95,7 +112,7 @@ function key_of_array_member() {
 }
 
 # chck if a string is an array member
-function is_array_member() {
+function is_array_member {
 	local str=$1
 	local -n arr_ref=${2:-} # array might not available
 
@@ -106,7 +123,9 @@ function is_array_member() {
 	return 1
 }
 
-function msg_bp() {
+# conditional colored message to stderr, filtered by verbosity level
+# show msg in one-line if msg-level little than zero
+function msg_bp {
 	local msg_level=${1:-0} title=${2:-} content=${3:-}
 	local in_one_line
 
@@ -133,7 +152,7 @@ function msg_bp() {
 }
 
 # exit with a specific exit code and a revelant message
-function exit_with_msg() {
+function exit_with_msg {
 	local exit_code=$1
 	local additional_msg=${2:-}
 	local last_command=${3:-}
@@ -143,7 +162,7 @@ function exit_with_msg() {
 	if [[ ${verbose:-0} -ge 3 ]]; then
 		# use developer message
 		[[ -v EXIT_MSG["$((exit_code + 100))"] ]] && ((exit_code += 100))
-		# trc
+		trace
 	fi
 
 	if [[ "${verbose:-0}" -gt 0 ]]; then
@@ -162,7 +181,7 @@ function exit_with_msg() {
 
 # check if a parameter is a LID or starts with a LID, if the second parameter is given, only check
 # against that LID, otherwise check against all LIDs(including ligatures)
-function with_lid() {
+function with_lid {
 	local param=$1 lid=${2:-}
 	local lid_len="${#lid}"
 
@@ -190,7 +209,7 @@ function with_lid() {
 }
 
 # show array in a formatted way with specified separator, default separator is '-'
-function show_array() {
+function show_array {
 	local -n target_arr=$1
 	local separator=${2:--}
 	local gap=${3:-1}
@@ -210,7 +229,8 @@ function show_array() {
 	done
 }
 
-function substitute_exceptions() {
+# replace exception characters (e.g. hyphens) in variable names per EXCEPTIONS map
+function substitute_exceptions {
 	[[ -n ${1:-} ]] || return 0
 	local -n var_name=$1
 	local except_char

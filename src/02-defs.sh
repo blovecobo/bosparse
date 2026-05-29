@@ -1,6 +1,24 @@
-# Constants and definitions --------------------------------------------------------
+# shellcheck shell=bash
+# Module 02-defs: Constants and definitions
+#   consts()     — immutable constants (array names, separators, version, etc.)
+#   definitions() — all configuration schemas, defaults, exit messages, and reserved symbols
+#   validate_variable_name() — validates & normalizes shell variable names
+#
+# This module defines the entire configuration surface of BosParse:
+#   CONFIGS   — runtime configuration key-value store
+#   CONSTS    — immutable constants (separators, array names)
+#   SUPERS    — super-verbose definitions (~~~~slid, ~~~~prlid, ~~~~style, verbose flags)
+#   PRIORS    — prior (~~~) definitions, parsed before PSets
+#   PSETS     — parser-set (~) definitions, parsed after Priors
+#   MCG_TYPES — mutual-correlate group type prefixes (d/D/e/m/M/r/u)
+#   RESYMS    — reserved symbols for LIDs and separators
+#   EXCEPTIONS — hyphen-to-underscore mapping for bash variable names
+#   SYMNAMES   — human-readable names for escapable special characters
+#   EXIT_MSG   — exit code to message mapping (with developer variants at +100)
+# --------------------------------------------------------------------------------
 
-function consts() {
+# populate immutable constants: array names, separators, version, etc.
+function consts {
 	local -n CONSTANTS_ref2=$1
 	local -n PFILTER_ENTRY_TYPES_ref2=$2
 
@@ -27,7 +45,9 @@ function consts() {
 		"enum"
 	)
 }
-function definitions() {
+
+# populate all config maps: CONFIGS, CONSTS, SUPERS, PRIORS, PSETS, EXIT_MSG, etc.
+function definitions {
 	local -n CONFIGS_ref=$1
 	local -n CONSTANTS_ref=$2
 	local -n PSETS_ref=$3
@@ -38,30 +58,29 @@ function definitions() {
 	local -n EXIT_MSG_ref=$8
 	local -n PFILTER_ENTRY_TYPES_ref=$9
 	local -n MCG_TYPES_ref=${10}
-	local -n SVERBOSE_ref=${11}
-	local -n SYMNAMES_ref="${12}"
+	local -n SYMNAMES_ref=${11}
 
 	consts \
 		CONSTANTS_ref \
 		PFILTER_ENTRY_TYPES_ref
 
 	# BOSPARSE_PARAMETER_NAME
-	# running and output(4)
+	# running and output(3)
 	local run="run_mode"
 	local json="output_as_json"
-
-	local eoe="exit_on_error"
 	local dvo="disable_variable_output"
+	# local eoe="exit_on_error"
 
 	# parsing style(2)
 	local prem="prefix_matching_enabled"
 	local style="style_of_commandline"
 
-	# directives(4)
-	local Banner="directive_bannaer"
+	# directives(5)
+	local Banner="directive_banner"
 	local Defaults="directive_default_configs"
 	local Resymbols="directive_resyms"
 	local Version="directive_version"
+	local Help="directive_help"
 
 	# FILTER(5)
 	local pf="param_filter"
@@ -108,6 +127,7 @@ function definitions() {
 		["Banner"]="${Banner}"
 		["Resymbols"]="${Resymbols}"
 		["Version"]="${Version}"
+		["Help"]="${Help}"
 
 		["pf"]="${pf}"
 		["pf_id"]="${pf_id}"
@@ -139,9 +159,8 @@ function definitions() {
 		["trace"]="${trace}"
 	)
 
-	# SVERBOSE_ref/SUPERS_refPRIORS_ref/PSETS_ref used to define SVerbose/Supers/Priors/PSets
-	# SVerbose: super verbose params, they will be parsed at the very beginning of the parser
-	# SUPERS: lid of Super Verbose params & Prior PSets
+	# SUPERS_ref/PRIORS_ref/PSETS_ref used to define Supers/Priors/PSets
+	# SUPERS: lid of Super Verbose params & Prior PSets; CML style
 	# PRIORS: PAS devinition; output control during PSets parsing
 	# PSETS: Paser sets; PFILTER setting
 	#
@@ -155,24 +174,21 @@ function definitions() {
 	#           for emums: enum values               | strings separated by '|'
 	#   field4: mcg names                            | string(mutual correlate group)
 	#           for parameters interfered each other
-	#             - uniqueness, group name start with 'u'
-	#             - exclusion, group name start with 'e'
 	#             - dependency, group name start with 'd|D'
-	#             - siblings, group name start with 's'
+	#             - exclusion, group name start with 'e'
 	#             - master, group name start with 'm|M'
+	#             - required, group name start with 'r'
+	#             - uniqueness, group name start with 'u'
 
-	# output control for Prior parsing
-	SVERBOSE_ref=(
+	SUPERS_ref=(
+		["slid"]="${slid}:resym:4"
+		["prlid"]="${prlid}:resym:3"
+		["style"]="${style}:enum:watershed|islands"
 		["quiet"]="${quiet}:bool::eg_sv"
 		["standard"]="${standard}:bool::eg_sv"
 		["extra"]="${extra}:bool::eg_sv"
 		["debug"]="${debug}:bool::eg_sv"
 		["trace"]="${trace}:bool::eg_sv"
-	)
-	SUPERS_ref=(
-		["slid"]="${slid}:resym:4"
-		["prlid"]="${prlid}:resym:3"
-		["style"]="${style}:enum:watershed|islands"
 	)
 	PRIORS_ref=(
 
@@ -199,6 +215,7 @@ function definitions() {
 		["dvo"]="${dvo}:bool"
 
 		["Defaults"]="${Defaults}:bool::eg-directive"
+		["Help"]="${Help}:bool::eg-directive"
 		["Banner"]="${Banner}:bool::eg-directive"
 		["Resymbols"]="${Resymbols}:bool::eg-directive"
 		["Version"]="${Version}:bool::eg-directive"
@@ -228,7 +245,7 @@ function definitions() {
 		# ["Exclusion"]="enum:E"
 		["master"]="enum:m"
 		["Master"]="enum:M"
-		["required"]="enum:r" # all required parameters, no matter they are in the same MCG or not
+		["required"]="enum:r" # all r- group members are all required
 		["uniqueness"]="enum:u"
 	)
 
@@ -273,7 +290,7 @@ function definitions() {
 		[' ']="SPACE"
 		['~']="TILDE"
 		['|']="VERTICAL_BAR"
-		['(']="PARENTHESIS_LEFG"
+		['(']="PARENTHESIS_LEFT"
 		[')']="PARENTHESIS_RIGHT"
 		['[']="BRACKET_LEFT"
 		[']']="BRACKET_RIGHT"
@@ -291,14 +308,15 @@ function definitions() {
 		# running mode
 		["${run}"]=auto   # ~run, run-mode, maybe "source", "eval" or "capture"
 		["${json}"]=false # ~json, output  to stdout as json
-		["${eoe}"]=false  # exit on errors
-		["${dvo}"]=false  # disable variables output, for source mode only to avoid param names conflict
+		# ["${eoe}"]=false  # exit on errors
+		["${dvo}"]=false # disable variables output, for source mode only to avoid param names conflict
 
 		# parsing style
 		["${style}"]="${CONSTANTS_ref[CML_STYLE]%|*}" # cml style, watershed|islands
 
 		# directives
-		["${Defaults}"]=false  # ~Default, output CONFIGS to stdout
+		["${Defaults}"]=false  # ~Defaults, output CONFIGS to stdout
+		["${Help}"]=false      # ~Help, show help
 		["${Banner}"]=false    # ~Banner, show banner
 		["${Resymbols}"]=false # ~Resymbols, show reserved symbols
 		["${Version}"]=false   # ~Version, show version
@@ -347,7 +365,7 @@ function definitions() {
 		["0"]="Parsing succeeded."
 		["1"]="Parsing failed."
 		["2"]="No parameter supplied."
-		["3"]="${pros_tag}"
+		["3"]="\${pros_tag}"
 
 		# system
 		["10"]="'jq' required but not available."
@@ -373,7 +391,7 @@ function definitions() {
 
 		# an empty parameter
 		["26"]="Empty parameter found."
-		["126"]="Found an empty parameter, perhanps input error."
+		["126"]="Found an empty parameter, perhaps input error."
 
 		# Priors/PSets
 		["27"]="Invalid \${pros_tag} '\${pros_tag2}', \${pros_tag3}"
@@ -412,9 +430,6 @@ function definitions() {
 		["42"]="Parameters '\${pros_tag2}' cannot be supplied at same time." # exclusion
 		["142"]="Only one parameters in Exclusion MCG '\${pros_tag}' can be supplied, but found: '\${pros_tag2}'"
 
-		["44"]="Parameter(s) '\${pros_tag3}' should be supplied together but '\${pros_tag2}' missed. " # sibling
-		["144"]="Parameter(s) '\${pros_tag3}' in Sibling MCG '\${pros_tag}' should bind together, but '\${pros_tag2}' un-supplied and without a default."
-
 		["45"]="Only one of the parameters '\${pros_tag}' should be supplied."
 		["145"]="M-members '\${pros_tag}' of Master MCG '\${pros_tag2}' cannot supplied at sametime."
 
@@ -428,7 +443,7 @@ function definitions() {
 		["148"]="No M-member of Master MCG '\${pros_tag}' supplied, needs one of '\${pros_tag2}'"
 
 		["49"]="Invalid \${pros_tag} '\${pros_tag2}' in PFILTER, the value should be one of '\${pros_tag3}'"    # enum check(used)
-		["14r98"]="Invalid \${pros_tag} '\${pros_tag2}' in PFILTER, the value should be one of '\${pros_tag3}'" # bool/string/resym check(used)
+		["149"]="Invalid \${pros_tag} '\${pros_tag2}' in PFILTER, the value should be one of '\${pros_tag3}'" # bool/string/resym check(used)
 
 		# filter parameter with PFILTER
 		["50"]="Invalid \${pros_tag} \${pros_tag2}, the value should be one of '\${pros_tag3}'" # enum check(used)
@@ -440,13 +455,13 @@ function definitions() {
 		["52"]="Invalid \${pros_tag} setting \${pros_tag2}: \${pros_tag3}" # assert resym
 
 		["53"]="Unknown parameter '\${pros_tag2}'" # for user parameter
-		["153"]="PSet '~rup' requires all parameters matching 'PFLILTER' but '\${pros_tag}' didn't."
+		["153"]="PSet '~rup' requires all parameters matching 'PFILTER' but '\${pros_tag}' didn't."
 
 		["54"]="Unknown \${pros_tag} '\${pros_tag2}'" # for Priors/PSets
-		["154"]="Invaolid \${pros_tag} '\${pros_tag2}', cannot match any \${pros_tag}."
+		["154"]="Invalid \${pros_tag} '\${pros_tag2}', cannot match any \${pros_tag}."
 
 		["55"]="Missing parameter '\${pros_tag}'" # un-supplied and no default
-		["155"]="Un-suplied parameter '\${pros_tag}' reuqires a default value by '~afd'"
+		["155"]="Un-supplied parameter '\${pros_tag}' requires a default value by '~afd'"
 
 		["56"]="Unrecognized \${pros_tag} '\${pros_tag2}', may be one of '\${pros_tag3}'?" # assert multi-prefix-matching
 		["156"]="Invalid \${pros_tag} '\${pros_tag2}', multiple matched: '\${pros_tag3}'."
@@ -455,30 +470,47 @@ function definitions() {
 		["170"]="Parameter '\${pros_tag2}' in Required MCG '\${pros_tag} without default value and not supplied."
 	)
 }
-function validate_variable_name() {
+
+# validate and normalize a shell variable name; apply EXCEPTIONS substitution
+function validate_variable_name {
 	local -n var_name_ref="$1"
 	local return_on_error=${2:-false} # return if invalid instead of exit with a message
 
 	[[ -n "${var_name_ref}" ]] || exit_with_msg 26
 	pros_tag="${var_name_ref}"
-	if [[ ${var_name_ref} =~ ^[a-zA-Z_](-?[a-zA-Z0-9_])*$ ]]; then
-		# replace exceptions
-		substitute_exceptions var_name_ref
-		return 0
-	else
+
+	# leading or trailing hyphens are not allowed (would break LID/trailing-tag parsing)
+	if [[ ${var_name_ref} == -* ]] || [[ ${var_name_ref} == *- ]]; then
 		if [[ ${return_on_error} == true ]]; then
 			return 1
-		else
-			# exit with different msg
-			[[ ${var_name_ref:0:1} == [0-9] ]] && {
-				pros_tag2="${var_name_ref:0:1}"
-				exit_with_msg 23
-			}
-			[[ ${var_name_ref} =~ ^[a-zA-Z0-9_]+$ ]] || {
-				pros_tag2="${var_name_ref//[a-zA-Z0-9-_]/}"
-				exit_with_msg 22
-			}
-			exit_with_msg 21
 		fi
+		pros_tag2="-"
+		exit_with_msg 22
 	fi
+
+	# substitute exceptions (hyphen → underscore), then validate as bare variable name
+	local original="${var_name_ref}"
+	substitute_exceptions var_name_ref
+
+	if [[ ${var_name_ref} =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+		return 0
+	fi
+
+	if [[ ${return_on_error} == true ]]; then
+		var_name_ref="${original}"
+		return 1
+	fi
+
+	if [[ ${var_name_ref:0:1} == [0-9] ]]; then
+		pros_tag2="${var_name_ref:0:1}"
+		exit_with_msg 23
+	fi
+
+	if [[ ! ${var_name_ref} =~ ^[a-zA-Z0-9_]+$ ]]; then
+		pros_tag2="${var_name_ref//[a-zA-Z0-9_]/}"
+		exit_with_msg 22
+	fi
+	exit_with_msg 21
 }
+
+declare -ra BP_REGEX_METACHARS=('\' '.' '[' ']' '(' ')' '{' '}' '^' '$' '*' '+' '?' '|')
