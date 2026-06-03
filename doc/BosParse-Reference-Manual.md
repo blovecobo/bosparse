@@ -83,7 +83,77 @@ By default, BosParse outputs shell assignments for `eval $(...)`:
 1. Output Options in shell assignments with the format `name=value`
 1. Output Positional Arguments in shell assignments with the format `BP_Positionals_<index>=<value>`
 
-If `~pan` specified, output Positional Arguments with the format `ps_<index>=<value>`
+If `~pan` is set to a different name, positional variables use that prefix, for example `<prefix>_<index>=<value>`.
+
+This mode executes generated assignment text in the calling shell, so only use it for trusted invocations. For untrusted or external input, prefer capture mode.
+
+#### Eval Mode Security
+
+`eval` mode runs text containing shell assignments in the calling shell process. Even though BosParse quotes values before emitting them, the emitted text is still executed by the shell and therefore represents a trust boundary.
+
+Risks and mitigations:
+
+- Injection: Untrusted inputs may craft option names or PFILTER-derived identifiers that result in unexpected assignments or code execution. Avoid passing untrusted text into `eval`-driven invocations.
+- Identifier safety: Ensure PFILTER definitions and parameter names are controlled by the script author (do not accept arbitrary parameter names from external sources).
+- Use capture mode: For external callers or untrusted input, use `~json` (capture mode) and parse the JSON with `jq` or the helper `capture_json_extract` instead of `eval`.
+- Whitelisting: When integrating with dynamic PFILTERs, implement a strict whitelist of accepted parameter names or perform validation before invoking `eval`.
+
+Example (safer): prefer capture mode for untrusted input
+
+```bash
+json=$(./bosparse ~json "$@")
+name=$(capture_json_extract "$json" '.name // ""')
+```
+
+The helper function `capture_json_extract` (defined in `01-util.sh`, available in source mode) simplifies extracting values:
+
+```bash
+source ./bosparse
+json=$(bosparse ~json "$@")
+name=$(capture_json_extract "$json" '.name // ""' "default_name")
+echo "name=${name}"
+```
+
+If `eval` is required for convenience, make sure the invocation and involved PFILTER definitions are not influenced by untrusted users and document the trust assumptions clearly.
+
+Whitelist pattern (recommended)
+
+The safest approach is to avoid `eval` entirely and explicitly accept only known parameter names from the JSON output. The snippet below shows a minimal, safe pattern that assigns only whitelisted keys into shell variables without using `eval`:
+
+```bash
+# capture JSON output
+json=$(./bosparse ~json "$@")
+
+# whitelist of allowed option names
+allowed=(name active timeout)
+
+for k in "${allowed[@]}"; do
+  if jq -e --arg k "$k" 'has($k)' >/dev/null <<<"$json"; then
+    v=$(jq -r --arg k "$k" '.[$k]' <<<"$json")
+    # assign safely without eval: printf -v writes directly to variable
+    printf -v "$k" '%s' "$v"
+  fi
+done
+
+echo "name=${name:-}" "active=${active:-}" "timeout=${timeout:-}"
+```
+
+If you must generate and execute assignment text, restrict the generated statements to the whitelist and quote values safely before executing. For example:
+
+```bash
+json=$(./bosparse ~json "$@")
+allowed=(name active timeout)
+{
+  for k in "${allowed[@]}"; do
+    if jq -e --arg k "$k" 'has($k)' >/dev/null <<<"$json"; then
+      v=$(jq -r --arg k "$k" '.[$k]' <<<"$json")
+      printf '%s=%q\n' "$k" "$v"
+    fi
+  done
+} | bash
+```
+
+Prefer the first pattern (direct assignment via `jq` + `printf -v`) because it avoids executing arbitrary generated text and thus reduces the attack surface.
 
 #### Capture Mode
 
@@ -94,14 +164,20 @@ Output Options and Positional arguments in JSON format.
 1. **CONSTANTS**: Constants used in BosParse
 1. **CONFIGS**: Configurations used in BosParse
 1. **PRIORS**: Prior definitions; BosParse updates `CONFIGS` after Priors parsing at runtime
-1. **PSETS**: PSet definitions; BosParse updtes `CONFIGS` after PSets parsing at runtime
+1. **PSETS**: PSet definitions; BosParse updates `CONFIGS` after PSets parsing at runtime
 1. **RESERVED_SYMBOLS**: Reserved symbols used by PAS
 1. **EXIT_MSG**: Exit codes and messages
 1. **PFILTER**: User parameter definitions
 
 ## Parameter Definition
 
-BosParse supports flexible parameter definition using `PFILTER` created by developer, which is an associative array containing all the necessary information for parsing user parameters. With the help of `PFILTER`, BosParse can parse user parameters in a flexible way, including type/value validation, default value assignment, prefix matching for parameter names and enum values, as well as mutual correlation groups for parameters.
+BosParse supports flexible parameter definition using `PFILTER` created by developer, which is an associative array containing all the necessary information for parsing user parameters.
+
+### Symbol Escaping System
+
+BosParse uses an internal symbol escaping mechanism to safely handle special characters (`:`, `|`, `\`, etc.) in parameter names and values. A random-per-session marker `BP_ESC_PFX` (`_bp_${BASHPID}_${RANDOM}_`) prevents collision with user data. Available in sourced scripts via `capture_json_extract`.
+
+The helpers `escape_symbol` and `capture_json_extract` (see `01-util.sh`) expose this for downstream use. With the help of `PFILTER`, BosParse can parse user parameters in a flexible way, including type/value validation, default value assignment, prefix matching for parameter names and enum values, as well as mutual correlation groups for parameters.
 
 ### Syntax of `PFILTER` entry
 
@@ -121,7 +197,8 @@ Where:
 #### Note
 
 - Data field and mcg-name field are optional.
-- As `param-name` will be used as Bash variable name in the parsing result, `param-name` should satisfy Bash variable naming convention, but in command line, an Option like `--dry-run` sounds reasonable. For this reason, BosParse accepts hyphen `-` using in `param-name` as an exception if it isn't at the beginning or end. BosParse will replace every hyphen `-` with a underscore `_` in the final result.
+- As `param-name` of Options will be used as Bash variable name in the parsing result, Option `param-name` should satisfy Bash variable naming convention, but in command line, an Option like `--dry-run` sounds reasonable. For this reason, BosParse accepts hyphen `-` using in `param-name` as an exception if it isn't at the beginning or end. BosParse will replace every hyphen `-` with a underscore `_` in the final result.
+- Exceptions substituting hyphen `-` with underscore `_` may cause name collision, for example, `--dry-run` and `--dry_run` will both be converted to `dry_run`. To avoid this, BosParse will check for potential collision in `PFILTER` definition and exit with error if any is detected.
 - `mcg-name` follows the same naming rules and the exception.
 
 ### Serializing `PFILTER`
@@ -167,9 +244,13 @@ The value of `PFILTER-ID` entry does not matter while the key `PARAM-FILTER` is 
 - `~afd`: Apply `PFILTER` defaults for paramters not belong to any MCG; MCG member parameters follow group rules.
   - enabled by default
   - `~afd-` disables default assignment
-- `~dvo-`: Disable variable output, no `variable=value` output to avoid variable name confilict
+- `~dvo`: Disable variable output, no `variable=value` output to avoid variable name conflict
   - for `source-mode` only
-  - `false` by default(output variables)
+  - `false` by default (variables are output)
+- '~pme': Prefix for parameter name matching, allows prefix matching for parameter names and enum values
+  - enabled by default
+  - for user parameters only; prefix-matching for Priors and PSets are always enabled
+  - when set, BosParse will strip the prefix before matching with PFILTER keys
 
 ### Prefix-matching
 
@@ -265,7 +346,7 @@ where:
 - `zn-sep` (`--` by default): separator between Option parameters and Positional parameters
 - `pp-zone`: contains all the Positional parameters
 
-For `watershed` style CML, a `ZN-SEP` is always recommended even if only one zone is provided. While if `ZN-SEP` not found, BosParse will try to 'guess': if the first paramter is an Option parameter(starts with any LID), BosParse will assume that only `op-zone` is provided; otherwise, Bosparse will assume that only `pp-zone` is provided.
+For `watershed` style CML, a `ZN-SEP` is always recommended even if only one zone is provided. While if `ZN-SEP` not found, BosParse will try to 'guess': if the first parameter is an Option parameter(starts with any LID), BosParse will assume that only `op-zone` is provided; otherwise, Bosparse will assume that only `pp-zone` is provided.
 
 `watershed` style is more suitable for complex CML with many parameters, especially when there are many Positional parameters which may cause ambiguity if `ZN-SEP` not provided.
 
@@ -275,7 +356,7 @@ For `islands` style CML, all parameters regarded as standalone parameters(Option
 
 ```bash
 #!/bin/bash
-bosparse ~~~sty=i "$@"
+bosparse ~~sty=i "$@"
 echo "name: ${BP_Positionals_0}"
 ```
 
@@ -310,77 +391,78 @@ BosParse supports the following parameter types:
   - **String Option**: support string; using schema '1' and '2', like `-name=value` or `-name value` -> `name=value`
   - **Boolean Option**: support boolean; using schema '3', like `-verbose+`, `-verbose-` or `-verbose` -> `verbose=` `true`,`false` and `true`(if `~td` is `true`) respectively
   - **Enum Option**: support enum; using schema '1' and '2', similar to String Option but with limited available values
-  - **LIGA Option**: compressed Booleans; using schema '4', like `--abc+` is equivalent to `-a+ -b+ -c+`, or `--2abcdef-` is equivalent to `-ab- -cd- -ef-`
+  - **LIGA Option**: compressed Booleans; using schema '4', like `--abc+` is equivalent to `-a+ -b+ -c+`, or `--2abcdef-` is equivalent to `-ab- -cd- -ef-`.
+  - Ligature syntax is supported for user options only; PSet ligatures using double PSet LIDs (`~~` by default) are unsupported and not recognized.
 
-  Differnt LIDs for different type of Options, see section 'Terminology' for more details.
+  Different LIDs for different types of Options, see section 'Terminology' for more details.
 
 - `Positional Parameter` (Positional)
   Positional parameters are simply strings, without any special syntax.
 
 ## Directives
 
-Directives are a group of special `PSets`, which will lead to execute specific actions.
+A group of special `PSets`, which will lead to execute specific actions.
 
-Directives execute after `PSets` parsing, then the parser will exit at once; that means all User Parameters will be ignored.
+Directives execute after `PSets` parsing, then the parser will exit at once; all User Parameters will be ignored.
 
 BosParse supports the following directives:
 
 - `~Banner`: Show banner, mainly used to test if BosParse is working
-- `~Defaults`: Show default settings, all data from `CONFIGS` will be shown
-- `~Help`: Show help(not implemented)
-- `~Resymbols`: Show reservable symbol set for PAS except FLD-SEP and ELM-SEP
+- `~Defaults`: Show default constant/prior/pset settings
+- `~Help`: Show online help
+- `~Resymbols`: Show reserved symbol set for PAS except FLD-SEP and ELM-SEP
 - `~Version`: Show BosParse version
 
 ## Configuration Options
 
-1. Supers - Super PSets (`~~~~` prefix)
-   - `~~~~style`: command line structure style, available styles: `watershed` and `islands`
-     - `~~~~style=islands` or `~~~~style=watershed` to set explicitly
-     - `~~~~style` without a value (bare) defaults to `islands` (EML)
-   - `~~~~slid`: Super LID string (default `~~~~`), used to identify Super PSets
-   - `~~~~prlid`: Prior LID string (default `~~~`), used to identify Priors
+1. Supers - Super PSets (`~~~` prefix)
+   - `~~~style`: command line structure style, available styles: `watershed`(default) and `islands`
+     - `~~~style=islands` or `~~~style=watershed` to set explicitly
+     - `~~~style` without a value (bare) defaults to `islands` (EML)
+   - `~~~slid`: Super LID string (default `~~~`), used to identify Super PSets (defined but not configurable at runtime)
+   - `~~~prlid`: Prior LID string (default `~~`), used to identify Priors (defined but not configurable at runtime)
+   - `~~~zs` (default `--`): separator between Option parameters and Positional parameters
 
 1. Priors - Parsing-aid symbols setting
    - Leading-ids
-     - `~~~plid` (default `~`): prefix of PSets
-     - `~~~ulid` (default `-`): prefix of user Options
+     - `~~plid` (default `~`): prefix of PSets
+     - `~~ulid` (default `-`): prefix of user Options
    - Trailing-tags
-     - `~~~tf` (default `-`): `false` tag for Boolean Options
-     - `~~~tt` (default `+`): `true` tag for Boolean Options
-     - `~~~td` (default `true`): default value if no tag is specified
+     - `~~tf` (default `-`): `false` tag for Boolean Options
+     - `~~tt` (default `+`): `true` tag for Boolean Options
+     - `~~td` (default `true`): default value if no tag is specified
    - Separators
-     - `~~~zs` (default `--`): separator between Option parameters and Positional parameters
-     - `~~~os` (default `=`): separator between Option parameters and values
-   - Runtime output controls(for PSet parsing stage; will be reset by PSet settings before User-Option parsing)
-     - `~~~quiet`: Suppress all output include errors
-     - `~~~standard`: Output standard information, error message mainly
-     - `~~~extra`: Output extra information
-     - `~~~debug`: Output debug format
-     - `~~~trace`: Output trace format
-     - `~~~config`: Output configurations after Priors parsing
+     - `~~os` (default `=`): separator between Option parameters and values
+   - Runtime output controls (for PSet parsing stage; will be reset by PSet settings before User-Option parsing)
+     - `~~quiet`: Output level 0 (suppress messages, errors still shown)
+     - `~~standard`: Output standard information, error messages mainly
+     - `~~extra`: Output extra information
+     - `~~debug`: Output debug format
+     - `~~trace`: Output trace format
+     - `~~config`: Output configurations after Priors parsing
 
 1. PSets - Parser settings
    - Runtime mode and output format
      - `~json`: JSON output
      - `~run`: Run-mode setting, available modes: `source`, `eval` and `capture`, `auto` by default
-     - `~dvo`: disable variables output; for source mode only (to avoid param names conflict)
+     - `~dvo`: disable variables output; for source mode only (to avoid param name conflict)
      - `~oan`, `~san`, `~ban`, `~pan`: Specify array names of parsing result
 
    - PFILTER related
      - `~pf`: Pass `PFILTER` to BosParse
      - `~rup`: Restrict unknown parameters
      - `~afd`: Apply `PFILTER` defaults
-     - `~prem`: prefix-matching enabled (default `true`), disable with `~prem-`
+     - `~pme`: prefix-matching for user params enabled (default `true`), disable with `~pme-`
 
    - Directives
      - `~Banner`: Show banner
      - `~Defaults`: Show default settings
-     - `~Help`: Show help(not implemented)
-     - `~Resymbols`: Show reservable symbols used by PAS
+     - `~Help`: Show online help
+     - `~Resymbols`: Show reserved symbols used by PAS
      - `~Version`: Show BosParse version
 
    - Runtime output controls (for user Options parsing stage)
-     - `~quiet`: Suppress all output include errors
+     - `~quiet`: Output level 0 (suppress messages, errors still shown)
      - `~standard`: Output standard information
      - `~extra`: Output extra information
      - `~debug`: Output debug format
@@ -401,19 +483,23 @@ BosParse supports the following directives:
 - **`op-zone`**: the part of CML before `ZN-SEP` contains Options in `watershed` style CML
 - **`Option`**: parsable parameters with a LID, including Priors, PSets and User Options; different LIDs used to distinguish different types of Options, User Params, PSets, Priors, LIGAs, etc.
 - **`PAS`**: Parsing-Aid-Symbols, e.g. LIDs, SEPs, PAS consist of RESYMS
-- **`PLID`**: LID for PSets, `~` by default, customieze with PSet `~~~plid`
+- **`PFILTER`**: a set of rules defined in a specific format to specify the expected parameters, their types, default values, mutual correlation rules, etc., used to aid parsing and validate user parameters; PFILTER is passed to BosParse with PSet `~pf`
+- **`PLID`**: LID for PSets, `~` by default, customize with Prior `~~plid`; double-PLID ligatures are not supported.
+- **`pme`**: prefix-matching switch for user params, default `true`, disable with `~pme-`
 - **`Positional`**: Positional parameters without a LID, simply strings
 - **`pp-zone`**: the part of CML after `ZN-SEP` contains Positionals in `watershed` style CML
 - **`Prior`**: prior parsing PSets, used to customize PASs
-- **`PRLID`**: LID for Priors, `~~~` by default, cannot be customized
-- **`PSet`**: parameters to config BosParse
-- **`PFILTER`**: an associative array with definitions of User Options created by user for advance features; `PFILTER` passed to BosParse via the PSet `~pf` with `PFILTER`'s name reference or a JSON string(serialized `PFILTER`) or a `keys-values` string
-- **`RESYMS`**: a character set includes BosParse reserved characters used in PASs.
-- **`run-mode`**: method to use BosParse. BosParse will detect which mode it's running if no `run-mode` explicitly specified by user(via PSet `-run` )
-- **`style`**: Super PSet(`~~~~` as lid), identify the CML structure, available: `watershed` and `islands`
-- **`TD`**: default value if trailing tag omitted, set by `~~~td`
-- **`TF`**: trailing tag for `false`, set by `~~~tf`
-- **`TT`**: trailing tag for `true`, set by `~~~tt`
-- **`ULID`**: LID for User Options, `-` by default, customize by `~~~ulid`
-- **`watershed`**: command line structure style with a clear separator between Options and Positionals, support space(s) as OA-SEP, while `ZN-SEP` is required to separate Options and Positionals
+- **`PRLID`**: LID for Priors, `~~` by default, currently cannot be customized at runtime
+- **`PSet`**: Parser setting, a special type of Option with a PLID, used to configure the parser's behavior; PSets are defined in BosParse and can be set by users; PSets can be categorized into runtime mode settings, output format settings, PFILTER related settings, directive PSets and runtime output control settings
+- **`PFILTER`**: an associative array with definitions of User Options created by user for advanced features; `PFILTER` passed to BosParse via the PSet `~pf` with `PFILTER`'s name reference or a JSON string (serialized `PFILTER`) or a `keys-values` string
+- **`RESYMS`**: a character set of BosParse reserved characters used in PASs.
+- **`run-mode`**: method to use BosParse. BosParse will detect which mode it's running if no `run-mode` explicitly specified by user (via PSet `~run`); available modes: `source`, `eval` and `capture`; different modes will lead to different output formats
+- **`style`**: Super PSet(`~~~` as lid), identify the CML structure, available: `watershed` and `islands`
+- **`TD`**: default value if trailing tag omitted, set by `~~td`
+- **`TF`**: trailing tag for `false`, set by `~~tf`
+- **`TT`**: trailing tag for `true`, set by `~~tt`
+- **`ULID`**: LID for User Options, `-` by default, customize by `~~ulid`
+- **`watershed`**: command line structure style with a clear separator between Options and Positionals; supports space(s) as OA-SEP, while `ZN-SEP` is required to separate Options and Positionals
 - **`ZN-SEP`**: separator between Options and Positionals in `watershed` style CML
+- **`BP_ESC_PFX`**: random-per-session marker (`_bp_${BASHPID}_${RANDOM}_`) used by the escaping system to avoid collision with user data
+- **`capture_json_extract`**: helper function to extract values from capture mode JSON output

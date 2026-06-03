@@ -22,12 +22,14 @@ function bosparse_initialize_runtime {
 		EXIT_MSG \
 		PFILTER_ENTRY_TYPES \
 		MCG_TYPES \
-		SYMNAMES
+		SYMNAMES \
+		BP_REGEX_METACHARS
 
-	CONFIGS["run_mode"]="auto"
-	CONFIGS["style_of_commandline"]="watershed"
-	CONFIGS["output_as_json"]=false
-	CONFIGS["param_filter"]="${CONSTS["NO_PFILTER"]}"
+	require_bash_version 4 4
+	# CONFIGS["run_mode"]="auto"
+	# CONFIGS["style_of_commandline"]="watershed"
+	# CONFIGS["output_as_json"]=false
+	# CONFIGS["param_filter"]="${CONSTS["NO_PFILTER"]}"
 }
 
 # split CML into op_zone (options) and pp_zone (positionals) by current CML_STYLE
@@ -87,7 +89,20 @@ function bosparse_parse_stage {
 		fi
 
 		bosparse_show_config_if_needed "${setup_map_name}" "${clear_after_show}"
-		[[ ${rebuild_zones} == true ]] && bosparse_extract_zones "$@"
+		if [[ ${rebuild_zones} == true ]]; then
+			bosparse_extract_zones "$@"
+			local -a _filtered_zone=()
+			local _tok
+			for _tok in "${op_zone[@]}"; do
+				with_lid "${_tok}" "${lid}" || _filtered_zone+=("${_tok}")
+			done
+			op_zone=("${_filtered_zone[@]}")
+			_filtered_zone=()
+			for _tok in "${pp_zone[@]}"; do
+				with_lid "${_tok}" "${lid}" || _filtered_zone+=("${_tok}")
+			done
+			pp_zone=("${_filtered_zone[@]}")
+		fi
 		return 0
 	fi
 
@@ -138,28 +153,29 @@ function bosparse_validate_input {
 	fi
 }
 
-# collect super-verbose (~~~~) flags from CML before main parsing starts
+# collect super (~~~) flags from CML before main parsing starts
 function bosparse_collect_super_flags {
-	local CMLM=("$@") spr param="${SLID}"
+	local CML=("$@") prm slid="${SLID}"
 
-	for i in "${!CMLM[@]}"; do
-		if [[ ${CMLM[i]} =~ ^\~pf= ]]; then
-			unset "CMLM[i]"
-			break
+	# in case value of '~pf' broke supers parsing
+	for i in "${!CML[@]}"; do
+		if [[ ${CML[i]} =~ ^\~pf= ]]; then
+			unset "CML[i]"
+			# break # commented out to allow multiple ~pf flags, if needed in future
 		fi
 	done
 
-	for spr in "${!SUPERS[@]}"; do
-		[[ ${SUPERS[${spr}]##*:} == "eg_sv" ]] || continue
-		for i in "${!CMLM[@]}"; do
-			if [[ ${CMLM[i]} =~ ${param}${spr} ]]; then
-				supers+=("${spr}")
-				break
+	for prm in "${!SUPERS[@]}"; do
+		[[ ${SUPERS[${prm}]##*"${FLD_SEP}"} == "eg_sv" ]] || continue
+		for i in "${!CML[@]}"; do
+			if [[ ${CML[i]} =~ ${slid}${prm} ]]; then
+				supers+=("${prm}")
 			fi
 		done
 	done
 
 	update_verbose
+	unset supers
 }
 
 # store remaining non-option params from pp_zone as positionals
@@ -178,30 +194,31 @@ function bosparse_finalize {
 function bosparse {
 	# trap on_exit_bp EXIT
 	local verbose
-	local pros_tag="" pros_tag2="" pros_tag3="" pros_tag4="" pros_tag5=""
+	local -a pros_tag
 
 	declare -a op_zone=() pp_zone=()
 	declare -a strings=() bools=() ligas=()
 	declare -A CONFIGS CONSTS SUPERS PRIORS PSETS
 	declare -A EXCEPTIONS EXIT_MSG MCG_TYPES SYMNAMES
-	declare -a RESYMS PFILTER_ENTRY_TYPES
+	declare -a RESYMS PFILTER_ENTRY_TYPES BP_REGEX_METACHARS
 
 	bosparse_initialize_runtime
+
 	declare -n SLID="CONFIGS[${SUPERS["slid"]%%:*}]"
 	declare -n PRLID="CONFIGS[${SUPERS["prlid"]%%:*}]"
-	declare -n CML_STYLE="CONFIGS[style_of_commandline]"
-	declare -l param="$SLID"
+	declare -n CML_STYLE="CONFIGS[${SUPERS["style"]%%:*}]"
+	# declare -l param="$SLID"
 
 	declare -n PLID="CONFIGS[${PRIORS["plid"]%%:*}]"
 	declare -n ULID="CONFIGS[${PRIORS["ulid"]%%:*}]"
-	declare -n ZN_SEP="CONFIGS[${PRIORS["zs"]%%:*}]"
+	declare -n ZN_SEP="CONFIGS[${SUPERS["zs"]%%:*}]"
 	declare -n OA_SEP="CONFIGS[${PRIORS["os"]%%:*}]"
 	declare -n TAG_TRUE="CONFIGS[${PRIORS["tt"]%%:*}]"
 	declare -n TAG_FALSE="CONFIGS[${PRIORS["tf"]%%:*}]"
 	declare -n TAG_DEFAULT="CONFIGS[${PRIORS[td]%%:*}]"
 
-	declare -n RUN_MODE="CONFIGS[run_mode]"
-	declare -n PARAM_FILTER="CONFIGS[param_filter]"
+	declare -n RUN_MODE="CONFIGS[${PSETS["run"]%%:*}]"
+	declare -n PARAM_FILTER="CONFIGS[${PSETS["pf"]%%:*}]"
 
 	declare -n NO_PFILTER='CONSTS["NO_PFILTER"]'
 	declare -n PFILTER_ID='CONSTS["PFILTER_ID"]'
@@ -220,6 +237,9 @@ function bosparse {
 
 	# build static mapping cache for show_configs
 	declare -A __BP_SC_MAP
+	for key in "${!SUPERS[@]}"; do
+		__BP_SC_MAP["${key}"]="${SUPERS[${key}]%%:*}"
+	done
 	for key in "${!PRIORS[@]}"; do
 		__BP_SC_MAP["${key}"]="${PRIORS[${key}]%%:*}"
 	done
@@ -235,7 +255,7 @@ function bosparse {
 	msg_bp -2 "verbose: " "${verbose}"
 
 	reset_intermediate_arrays
-	check_cml_style "$@"
+	check_cml_super_settings "$@"
 	bosparse_extract_zones "$@"
 
 	[[ ${#op_zone[@]} -eq 0 && ${#pp_zone[@]} -eq 0 ]] && exit_with_msg 2

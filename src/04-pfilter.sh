@@ -110,9 +110,9 @@ function extract_enum_list {
 function _validate_pfilter_entry_type {
 	local entry_type=$1
 	if ! is_array_member "${entry_type}" PFILTER_ENTRY_TYPES; then
-		pros_tag="${entry_type}"
+		pros_tag[0]="${entry_type}"
 		local IFS="${ELM_SEP}"
-		pros_tag2="${PFILTER_ENTRY_TYPES[*]}"
+		pros_tag[1]="${PFILTER_ENTRY_TYPES[*]}"
 		exit_with_msg 33
 	fi
 }
@@ -120,9 +120,9 @@ function _validate_pfilter_entry_type {
 # validate default value matches entry type (string/bool/enum)
 function _validate_pfilter_default {
 	local entry_type=$1 entry_data=$2 pf_key=$3 entry_schema=$4
-	pros_tag="${entry_schema}"
-	pros_tag2="${entry_type}"
-	pros_tag3="${entry_data}"
+	pros_tag[0]="${entry_schema}"
+	pros_tag[1]="${entry_type}"
+	pros_tag[2]="${entry_data}"
 
 	if [[ -n "${entry_data}" ]]; then
 		case ${entry_type} in
@@ -133,7 +133,7 @@ function _validate_pfilter_default {
 		esac
 	elif [[ ${entry_type} == 'enum' ]]; then
 		# empty enum list
-		pros_tag=$(printf '%s' "[\"${pf_key}\"]=\"${entry_schema}\"")
+		pros_tag[0]=$(printf '%s' "[\"${pf_key}\"]=\"${entry_schema}\"")
 		exit_with_msg 35
 	fi
 	return 0
@@ -153,14 +153,14 @@ function _process_mcg_name {
 
 	if ! validate_variable_name mcg_name true; then
 		escape_symbol mcg_name "${FLD_SEP}" "restore"
-		pros_tag="${mcg_name}"
-		pros_tag2="it should be a valid shell variable name(with exceptions)"
+		pros_tag[0]="${mcg_name}"
+		pros_tag[1]="it should be a valid shell variable name(with exceptions)"
 		exit_with_msg 37
 	fi
 	if ! is_array_member "${mcg_name:0:1}" _mcg_types; then
-		pros_tag="${mcg_name}"
+		pros_tag[0]="${mcg_name}"
 		local IFS="${ELM_SEP}"
-		pros_tag2="it should respected MCG-TYPES, starts with '${_mcg_types[*]}'"
+		pros_tag[1]="it should respected MCG-TYPES, starts with '${_mcg_types[*]}'"
 		exit_with_msg 37
 	fi
 
@@ -198,8 +198,8 @@ function _validate_mcg_exclusion {
 	local -n _el_count=$2 _el_members=$3
 
 	if [[ ${_el_count["${mcg_name}"]:-0} -eq 1 ]]; then
-		pros_tag="${mcg_name}"
-		pros_tag2="${_el_members[${mcg_name}]#\|}"
+		pros_tag[0]="${mcg_name}"
+		pros_tag[1]="${_el_members[${mcg_name}]#\|}"
 		exit_with_msg 38
 	fi
 }
@@ -212,8 +212,8 @@ function _validate_mcg_dependency {
 	if [[ ${_dl_count["${mcg_name}"]:-0} -gt 0 ]] &&
 		[[ ${_dc_count["${mcg_name^}"]:-0} -eq 0 ]]; then
 		# no D-member defined for d-members
-		pros_tag="${_dl_members[*]#\|}"
-		pros_tag2="${mcg_name}"
+		pros_tag[0]="${_dl_members[*]#\|}"
+		pros_tag[1]="${mcg_name}"
 		exit_with_msg 36
 	fi
 }
@@ -225,14 +225,14 @@ function _validate_mcg_master {
 
 	if [[ ${_ml_count["${mcg_name}"]:-0} -gt 1 ]]; then
 		# more than one m-member defined for a MCG
-		pros_tag="${mcg_name}"
-		pros_tag2="only one m-member permitted but got '${_ml_members[${mcg_name}]#\|}'"
+		pros_tag[0]="${mcg_name}"
+		pros_tag[1]="only one m-member permitted but got '${_ml_members[${mcg_name}]#\|}'"
 		exit_with_msg 39
 	elif [[ ${_ml_count["${mcg_name}"]:-0} -eq 1 ]]; then
 		if [[ ${_mc_count["${mcg_name^}"]:-0} -eq 0 ]]; then
 			# m-member defined but no M-member defined for a MCG
-			pros_tag="${mcg_name}"
-			pros_tag2="m-member '${_ml_members["${mcg_name}"]#\|}' requires a M-member."
+			pros_tag[0]="${mcg_name}"
+			pros_tag[1]="m-member '${_ml_members["${mcg_name}"]#\|}' requires a M-member."
 			exit_with_msg 39
 		fi
 	fi
@@ -240,8 +240,8 @@ function _validate_mcg_master {
 	if [[ ${_mc_count[${mcg_name}]:-} -gt 0 ]]; then
 		if [[ ${_ml_count["${mcg_name,}"]:-} -eq 0 ]]; then
 			# M-member defined but no m-member defined for a MCG
-			pros_tag="${mcg_name}"
-			pros_tag2="no m-member for M-member '${_mc_members[${mcg_name}]#\|}'"
+			pros_tag[0]="${mcg_name}"
+			pros_tag[1]="no m-member for M-member '${_mc_members[${mcg_name}]#\|}'"
 			exit_with_msg 39
 		fi
 	fi
@@ -249,6 +249,8 @@ function _validate_mcg_master {
 
 # validate all MCG cross-references: dependency, master, exclusion integrity
 function pfilter_integrity_check {
+	local -n p_filter=$1
+
 	declare -a mcg_types=() mcg_name_entry=()
 	local mcg_type mcg_name
 	declare -A mcg_names=()
@@ -306,12 +308,14 @@ function pfilter_integrity_check {
 #   3. "keys values" pairs - ~pf="${!pfilter[*]} ${pfilter[*]}"
 # a valid PFILTER must include a member whose key is "PARAM-FILTER" as identifier
 function validate_pfilter {
+	local -n PF_copy=$1
+
 	local pk new_pk
 
 	# msg_bp 4 "    param-filter: ${PARAM_FILTER}"
 
 	if [[ -z ${PARAM_FILTER} ]]; then
-		pros_tag="it's an 'empty' variable."
+		pros_tag[0]="it's an 'empty' variable."
 		exit_with_msg 31
 	fi
 	if validate_variable_name PARAM_FILTER true; then
@@ -325,72 +329,82 @@ function validate_pfilter {
 			if [[ -v tmp["${PFILTER_ID}"] ]]; then
 				# all test passed
 				msg_bp 3 "  - PFILTER-ID found."
-				declare -n "p_filter=${PARAM_FILTER}"
+				for pk in "${!tmp[@]}"; do
+					PF_copy["${pk}"]="${tmp[${pk}]}"
+				done
 				msg_bp 4 "    - PFILTER nameref '${PARAM_FILTER}' supplied."
 			else
 				# no id-key
-				pros_tag="an identifier key '${PFILTER_ID}' required."
+				pros_tag[0]="an identifier key '${PFILTER_ID}' required."
 				exit_with_msg 31
 			fi
 		else
 			# not an associative array
-			pros_tag="not an associative array."
+			pros_tag[0]="not an associative array."
 			exit_with_msg 31
 		fi
 	else
 		# not an associative array, try json and "keys-values" pairs
-		local -A p_filter
 		if jq -e . >/dev/null 2>&1 <<<"${PARAM_FILTER}"; then
 			# a valid json string
-			if ! deserialize_to_pfilter "${PARAM_FILTER}" p_filter; then
-				pros_tag="it is not a valid seriliazed associative array."
+			if ! deserialize_to_pfilter "${PARAM_FILTER}" PF_copy; then
+				pros_tag[0]="it is not a valid seriliazed associative array."
 				exit_with_msg 31
 			fi
 		else
 			# a string, may be keys+values stream
 			local -a pf_arr
-			read -ra pf_arr <<< "${PARAM_FILTER}"
+			read -ra pf_arr <<<"${PARAM_FILTER}"
 			local len=${#pf_arr[@]}
 			if [[ $((len % 2)) -ne 0 ]]; then
 				# length not an even number
-				pros_tag="it is not a valid 'keys-values' string."
+				pros_tag[0]="it is not a valid 'keys-values' string."
 				exit_with_msg 31
 			fi
 			len=$((len / 2))
 			local i
 			for ((i = 0; i < len; i += 1)); do
-				p_filter["${pf_arr[i]}"]="${pf_arr[$((i + len))]}"
+				PF_copy["${pf_arr[i]}"]="${pf_arr[$((i + len))]}"
 			done
 		fi
 		# if id-key exist, it is
-		if [[ -v p_filter["${PFILTER_ID}"] ]]; then
+		if [[ -v PF_copy["${PFILTER_ID}"] ]]; then
 			msg_bp 4 "    - Serialized PFILTER supplied."
 		else
-			pros_tag="no identifier key '${PFILTER_ID}' or not an associative array."
+			pros_tag[0]="no identifier key '${PFILTER_ID}' or not an associative array."
 			exit_with_msg 31
 		fi
 	fi
 
 	# remove PFILTER_ID
-	unset "p_filter[${PFILTER_ID}]"
+	unset "PF_copy[${PFILTER_ID}]"
 
 	# load PFILTER with:
 	#   validate key name
 	#   exception substitution on key
-	for pk in "${!p_filter[@]}"; do
+	for pk in "${!PF_copy[@]}"; do
 		new_pk="${pk}"
 		if validate_variable_name new_pk true; then
-			PFILTER["${new_pk}"]="${p_filter[${pk}]}"
-			# remove old entry when p_filter=PFILTER
-			[[ ${pk} == "${new_pk}" ]] || unset "PFILTER[${pk}]"
-		else # param-name invalid
-			pros_tag="${pk}"
+			if [[ ${pk} != "${new_pk}" ]]; then
+				# check: same name after substitution, conflict
+				if [[ -v PF_copy["${new_pk}"] ]]; then
+					pros_tag[0]="${new_pk}"
+					pros_tag[1]="${pk}"
+					exit_with_msg 58
+				fi
+				# remove old entry if key name changed after substitution
+				PF_copy["${new_pk}"]="${PF_copy[${pk}]}"
+				unset "PF_copy[${pk}]"
+			fi
+		else
+			# param-name invalid
+			pros_tag[0]="${pk}"
 			exit_with_msg 32
 		fi
 	done
 
 	# integrity checking:
-	pfilter_integrity_check
+	pfilter_integrity_check PF_copy
 
 	msg_bp 3 "    PFILTER validated"
 }

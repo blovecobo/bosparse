@@ -33,7 +33,7 @@
 #   - jq, if output json(capture-mode) or serialized-pfilter passed
 
 # changelog:
-#   - islands/watershed ~~~~style
+#   - islands/watershed ~~~style
 #   - add pset ~dvo (disable values output) for source mode
 #   - add new PFILTER format: "keys-values" string, no-need special serialize function
 #   - online help added

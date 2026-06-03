@@ -21,10 +21,10 @@ BosParse use an associative array called `PFILTER` to define parameters. Every `
 ```bash
 declare -A PFILTER=(
   ["PARAM-FILTER"]="PFILTER is a bad idea"
-  [help]="bool:false:"
-  [mode]="enum:fast|safe|debug:"
-  [output]="string:/tmp/result.txt:"
-  [verbose]="bool:false:"
+  ["help"]="bool:false:"
+  ["mode"]="enum:fast|safe|debug:"
+  ["output"]="string:/tmp/result.txt:"
+  ["verbose"]="bool:false:"
 )
 ```
 
@@ -76,9 +76,9 @@ Each entry has the form:
 ### bool
 
 ```bash
-[verbose]="bool:false:"
-[force]="bool:true:"
-[debug]="bool:"
+["verbose"]="bool:false:"
+["force"]="bool:true:"
+["debug"]="bool:"
 ```
 
 - Accepts `true` or `false`
@@ -88,9 +88,9 @@ Each entry has the form:
 ### string
 
 ```bash
-[username]="string:guest:"
-[output]="string:/tmp/result.txt:"
-[comment]="string:"
+["username"]="string:guest:"
+["output"]="string:/tmp/result.txt:"
+["comment"]="string:"
 ```
 
 - Accepts any string value
@@ -99,8 +99,8 @@ Each entry has the form:
 ### enum
 
 ```bash
-[mode]="enum:fast|safe|debug:"
-[color]="enum:red|green|blue:"
+["mode"]="enum:fast|safe|debug:"
+["color"]="enum:red|green|blue:"
 ```
 
 - Accepts values listed in `data`
@@ -109,14 +109,15 @@ Each entry has the form:
 
 ### Notes
 
-- Default value assignment applied on `un-grouped` parameters only
+- Default value assignment applied to `un-grouped` parameters only; MCG members follow group rules
 - For MCG members, see section MCG
 
 ## `PFILTER` Control PSets
 
-- `~pf`: pass `PFILTER` via name reference, serialized json string or `keys-values` parirs from `PFILTER`
+- `~pf`: pass `PFILTER` via name reference, serialized json string or `keys-values` pairs from `PFILTER`
 - `~rup` (default: true): restrict unknown parameters, causing parsing to fail if an option parameter is not defined in `PFILTER`
-- `~afd`(default: true): apply `PFILTER` defaults for un-grouped parameters
+- `~afd` (default: true): apply `PFILTER` defaults for un-grouped parameters
+- `~pme` (default: true): enable prefix matching for user parameter names; disable with `~pme-`
 
 ## Prefix Matching
 
@@ -125,9 +126,9 @@ Each entry has the form:
 ```bash
 declare -A PFILTER=(
   ["PARAM-FILTER"]=""
-  [help]="bool:false:"
-  [username]="string:guest:"
-  [color]="enum:red|green|blue:"
+  ["help"]="bool:false:"
+  ["username"]="string:guest:"
+  ["color"]="enum:red|green|blue:"
 )
 ```
 
@@ -180,8 +181,8 @@ All members in the Required group must be supplied or can be assigned a default.
 Parameters must receive different values.
 
 ```bash
-[item_a]="string::ug_items"
-[item_b]="string::ug_items"
+["item_a"]="string::ug_items"
+["item_b"]="string::ug_items"
 ```
 
 ## Escaping `PFILTER` Characters
@@ -199,7 +200,7 @@ Example:
 ```bash
 declare -A PFILTER=(
   ["PARAM-FILTER"]="escape"
-  [punctuation]="enum:,|.|;|\\:|\\||\\\\|?:"
+  ["punctuation"]="enum:,|.|;|\\:|\\||\\\\|?:"
 )
 ```
 
@@ -209,8 +210,10 @@ declare -A PFILTER=(
 - Unknown Option errors might mean `~rup` enabled but the Option is not defined in `PFILTER`
 - Ambiguous prefix errors mean the prefix matches more than one parameter
 - Enum validation errors mean the value is not in the allowed list
+- Duplicate parameter names but have different types will result an error
+- Hyphens in parameter names will be replaced by underscores after parsing(e.g. `my-param` -> `my_param`)
 
 ## See also
 
 - `bp-README.md` for basic BosParse usage
-- `doc/BosParse-Reference-MANUAL.md` for more details like parsing-aid symbols
+- `doc/BosParse-Reference-Manual.md` for more details like parsing-aid symbols

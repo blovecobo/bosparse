@@ -96,6 +96,29 @@ function validate_jq {
 	jq --version >/dev/null 2>&1 || exit_with_msg 10
 }
 
+# require a minimum Bash version and exit plainly if not available
+function require_bash_version {
+	local major=${1:-4} minor=${2:-4}
+	if (( BASH_VERSINFO[0] < major || (BASH_VERSINFO[0] == major && BASH_VERSINFO[1] < minor) )); then
+		printf 'BosParse requires bash %d.%d or newer. Current: %d.%d\n' "${major}" "${minor}" "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}" >&2
+		exit 1
+	fi
+}
+
+# extract a single value from capture-mode JSON output using a jq filter
+# Usage: capture_json_extract "$json" '.options.foo' 'default-value'
+function capture_json_extract {
+	local json="$1" jq_filter="${2:-.}" default="${3:-}"
+
+	validate_jq
+	if [[ -z "${json}" ]]; then
+		printf '%s' "${default}"
+		return 1
+	fi
+
+	jq -r --arg default "${default}" "try ${jq_filter} catch \$default" <<<"${json}"
+}
+
 # find array key of a member
 function key_of_array_member {
 	local member=$1
@@ -151,13 +174,26 @@ function msg_bp {
 	return 0
 }
 
-# exit with a specific exit code and a revelant message
+# render and print a formatted exit message for the current error context
+function render_exit_msg {
+	local exit_code=$1
+	local additional_msg=${2:-}
+	local msg
+
+	msg="$(eval echo "\"${EXIT_MSG[${exit_code}]}\"")"
+	printf '\e[33merror %d:\e[0m %s\n' "${exit_code}" "${msg}" >&2
+
+	if [[ -n "${additional_msg}" ]]; then
+		additional_msg="$(eval echo "\"${additional_msg}\"")"
+		printf '\e[2m        %s\e[0m\n' "${additional_msg}" >&2
+	fi
+}
+
+# exit with a specific exit code and a relevant message
 function exit_with_msg {
 	local exit_code=$1
 	local additional_msg=${2:-}
 	local last_command=${3:-}
-
-	local msg
 
 	if [[ ${verbose:-0} -ge 3 ]]; then
 		# use developer message
@@ -166,14 +202,7 @@ function exit_with_msg {
 	fi
 
 	if [[ "${verbose:-0}" -gt 0 ]]; then
-		msg="$(eval echo "\"${EXIT_MSG[${exit_code}]}\"")"
-		printf '\e[33merror %d:\e[0m %s\n' "${exit_code}" "${msg}" >&2
-
-		if [[ -n "${additional_msg}" ]]; then
-			additional_msg="$(eval echo "\"${additional_msg}\"")"
-			printf '\e[2m        %s\e[0m\n' "${additional_msg}" >&2
-		fi
-
+		render_exit_msg "${exit_code}" "${additional_msg}"
 		[[ -n "${last_command}" ]] && bash -c -- "${last_command}" >&2
 	fi
 	exit "${exit_code}"
@@ -193,9 +222,9 @@ function with_lid {
 			${param:lid_len:1} != "${lid:0:1}" ]] &&
 			return 0
 	else
-		# try all lids(include ligas)
+		# try all lids(include ligas) - note: user ligatures only, no PSets ligatures
 		local Lid lids lid_len
-		lids=("${SLID}" "${PRLID}" "${PLID}" "${ULID}" "${PLID}${PLID}" "${ULID}${ULID}")
+		lids=("${SLID}" "${PRLID}" "${PLID}" "${ULID}" "${ULID}${ULID}")
 		for Lid in "${lids[@]}"; do
 			lid_len="${#Lid}"
 			[[ ${param} == "${Lid}" ]] && return 0

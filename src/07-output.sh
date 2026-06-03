@@ -29,7 +29,7 @@ function assign_user_param_defaults {
 				BP_STRINGS["${param}"]="${pf_data}"
 			fi
 		else # not supplied && no default value, parsing failed
-			pros_tag="${param}"
+			pros_tag[0]="${param}"
 			exit_with_msg 55
 		fi
 		;;
@@ -83,8 +83,12 @@ function validate_user_options {
 	# in case the name 'PFILTER' used by user
 	if [[ ${PARAM_FILTER} != "PFILTER" ]]; then
 		declare -A PFILTER
+		validate_pfilter PFILTER
+	else
+		declare -A PFILTER_alias
+		validate_pfilter PFILTER_alias
+		declare -n PFILTER="PFILTER_alias"
 	fi
-	validate_pfilter
 
 	msg_bp 3 "  validate params with PFILTER"
 	validate_options_by_filter "${ULID}" "${mandatory}"
@@ -110,7 +114,7 @@ function validate_user_options {
 			}
 			# no default value, failed
 			if [[ -z "${pf_data}" ]]; then
-				pros_tag="${param}"
+				pros_tag[0]="${param}"
 				exit_with_msg 55
 			fi
 			# assigning defaults
@@ -154,68 +158,39 @@ function create_variables {
 # These arrays are for run-mode source, not for run-mode eval/capture since variables output
 # in other formats in both mode; for example, in eval mode, output as variable assignment
 # statements, and in capture, output as JSON string.
-function output_param_arrays {
-	local option_an bools_an strings_an positional_an
-	local i key_max_len
+function output_param_array {
+	local label=$1
+	local array_name=$2
+	local pset_key=$3
+	local default_name=$4
+	local key_max_len i
 
-	msg_bp 2 "  Output parameter arrays"
+	local -n arr_ref="${array_name}"
+	local result_name="${CONFIGS[${PSETS[${pset_key}]%%:*}]}"
 
-	# option parameters
-	option_an=${CONFIGS["${PSETS["oan"]%%:*}"]}
-	msg_bp 2 "  - Option parameters in '${option_an}()'"
-	key_max_len=$(max_array_member_length "${!BP_OPTIONS[@]}")
+	msg_bp 2 "  - ${label} in '${result_name}()'"
+	key_max_len=$(max_array_member_length "${!arr_ref[@]}")
 	((key_max_len += 6))
-	# max_array_key_len BP_OPTIONS key_max_len 6
-	if [[ ${option_an} != "${CONSTS["OAN"]}" ]]; then
-		declare -gA "${option_an}=()"
-		declare -n arr_ref="${option_an}"
-		for i in "${!BP_OPTIONS[@]}"; do
-			arr_ref["${i}"]="${BP_OPTIONS[${i}]}"
+
+	if [[ ${result_name} != "${default_name}" ]]; then
+		declare -gA "${result_name}=()"
+		declare -n out_ref="${result_name}"
+		for i in "${!arr_ref[@]}"; do
+			out_ref["${i}"]="${arr_ref[${i}]}"
 		done
 	fi
-	for i in "${!BP_OPTIONS[@]}"; do
-		msg_bp -2 "  $(printf "%${key_max_len}s = " "[\"${i}\"]")" "\"$(printf "%s\n" "${BP_OPTIONS[${i}]}")\""
-	done
 
-	# bool parameters
-	bools_an=${CONFIGS["${PSETS["ban"]%%:*}"]}
-	msg_bp 2 "  - Boolean parameters in '${bools_an}()'"
-	key_max_len=$(max_array_member_length "${!BP_BOOLS[@]}")
-	((key_max_len += 6))
-	# max_array_key_len BP_Bools key_max_len 6
-	if [[ ${bools_an} != "${CONSTS["BAN"]}" ]]; then
-		declare -gA "${bools_an}=()"
-		declare -n arr_ref="${bools_an}"
-		for i in "${!BP_BOOLS[@]}"; do
-			arr_ref["${i}"]="${BP_BOOLS[${i}]}"
-		done
-	fi
-	for i in "${!BP_BOOLS[@]}"; do
-		msg_bp -2 "  $(printf "%${key_max_len}s = " "[\"${i}\"]")" "$(printf "%s\n" "${BP_BOOLS[${i}]}")"
+	for i in "${!arr_ref[@]}"; do
+		msg_bp -2 "  $(printf "%${key_max_len}s = " "[\"${i}\"]")" "$(printf "%s\n" "${arr_ref[${i}]}")"
 	done
+}
 
-	# string parameters
-	strings_an=${CONFIGS["${PSETS["san"]%%:*}"]}
-	msg_bp 2 "  - String parameters in '${strings_an}()'"
-	key_max_len=$(max_array_member_length "${!BP_STRINGS[@]}")
-	((key_max_len += 6))
-	# max_array_key_len BP_Strings key_max_len 6
-	if [[ ${strings_an} != "${CONSTS["SAN"]}" ]]; then
-		declare -gA "${strings_an}=()"
-		declare -n arr_ref="${strings_an}"
-		for i in "${!BP_STRINGS[@]}"; do
-			arr_ref["${i}"]="${BP_STRINGS[${i}]}"
-		done
-	fi
-	for i in "${!BP_STRINGS[@]}"; do
-		msg_bp -2 "  $(printf "%${key_max_len}s = " "[\"${i}\"]")" "$(printf "%s\n" "\"${BP_STRINGS[${i}]}")\""
-	done
+function output_positionals_array {
+	local positional_an=$1
+	local key_max_len i
 
-	# position parameters
-	positional_an=${CONFIGS["${PSETS["pan"]%%:*}"]}
 	msg_bp 2 "  - Positional parameters in '${positional_an}()'"
 	if [[ ${positional_an} != "${CONSTS["PAN"]}" ]]; then
-		# create a new array for positionals
 		declare -gA "${positional_an}=()"
 		declare -n arr_ref="${positional_an}"
 		if [[ ${#BP_POSITIONALS[@]} -ne 0 ]]; then
@@ -224,12 +199,27 @@ function output_param_arrays {
 			done
 		fi
 	fi
+	key_max_len=$(max_array_member_length "${!BP_POSITIONALS[@]}")
+	((key_max_len += 2))
 	for i in "${!BP_POSITIONALS[@]}"; do
-		msg_bp -2 "  $(printf "%${key_max_len}s | " "${i}")" "\"$(printf "%s\n" "${BP_POSITIONALS[${i}]}")\""
+		msg_bp -2 "  $(printf "%${key_max_len}s | " "${i}")" "$(printf "%s\n" "${BP_POSITIONALS[${i}]}")"
 	done
 }
 
+function output_param_arrays {
+	msg_bp 2 "  Output parameter arrays"
+
+	output_param_array "Option parameters" BP_OPTIONS "oan" "${CONSTS["OAN"]}"
+	output_param_array "Boolean parameters" BP_BOOLS "ban" "${CONSTS["BAN"]}"
+	output_param_array "String parameters" BP_STRINGS "san" "${CONSTS["SAN"]}"
+
+	output_positionals_array "${CONFIGS[${PSETS["pan"]%%:*}]}"
+}
+
 # output parsing result as variable assignment statements, for run-mode eval
+# WARNING: eval-mode emits shell assignments. Values are quoted with printf %q,
+# but variable names and PFILTER-derived config keys must still be trusted.
+# Prefer capture-mode JSON parsing for untrusted input or external callers.
 function output_eval {
 	local index pvn_prefix
 
@@ -318,14 +308,14 @@ function show_help {
 	echo "BosParse ${CONSTS["VERSION"]} — parameter parser in & for bash"
 	echo
 	echo "USAGE"
-	echo "    source bosparse && bosparse [options] -- [positionals]"
-	echo "    eval \$(./bosparse [options] -- [positionals])"
-	echo "    json=\$(./bosparse ~json [options] -- [positionals])"
+	echo "    source bosparse && bosparse [options] ${ZN_SEP} [positionals]"
+	echo "    eval \$(./bosparse [options] ${ZN_SEP} [positionals])"
+	echo "    json=\$(./bosparse ~json [options] ${ZN_SEP} [positionals])"
 	echo
 	echo "CML STYLES"
-	echo "    watershed    options before '--', positionals after '--' (default)"
+	echo "    watershed    options before '${ZN_SEP}', positionals after '${ZN_SEP}' (default)"
 	echo "    islands      options start with LID(${ULID}), positionals without LID"
-	echo "    ~~~~style=islands|watershed   set at runtime"
+	echo "    ${SLID}style=islands|watershed   set at runtime"
 	echo
 	echo "PARAMETER TYPES"
 	echo "    bool         ${ULID}name, ${ULID}name${TAG_TRUE}, ${ULID}name${TAG_FALSE}"
@@ -338,41 +328,41 @@ function show_help {
 	echo "    eval         prints \"key=value\" statements"
 	echo "    capture      outputs JSON (requires jq)"
 	echo
-	echo "PSETs (~ prefix):"
-	echo "    ~run=<mode>         set run mode (auto/source/eval/capture)"
-	echo "    ~json               force JSON output"
-	echo "    ~dvo                disable variable output (source mode)"
-	echo "    ~pf=<pfilter>       pass PFILTER (array/json/keys-values)"
-	echo "    ~rup                restrict unknown parameters"
-	echo "    ~afd                apply PFILTER defaults"
-	echo "    ~prem               prefix-matching (default: on)"
-	echo "    ~oan=<name>         options array name"
-	echo "    ~ban=<name>         bools array name"
-	echo "    ~san=<name>         strings array name"
-	echo "    ~pan=<name>         positionals array name"
-	echo "    ~config             show config after parsing"
-	echo "    ~Defaults           show default configs"
-	echo "    ~Banner             show banner"
-	echo "    ~Version            show version"
-	echo "    ~Resymbols          show reserved symbols"
-	echo "    ~Help               show this help"
+	echo "PSETs (${PLID} prefix):"
+	echo "    ${PLID}run=<mode>         set run mode (auto/source/eval/capture)"
+	echo "    ${PLID}json               force JSON output"
+	echo "    ${PLID}dvo                disable variable output (source mode)"
+	echo "    ${PLID}pf=<pfilter>       pass PFILTER (array/json/keys-values)"
+	echo "    ${PLID}rup                restrict unknown parameters"
+	echo "    ${PLID}afd                apply PFILTER defaults"
+	echo "    ${PLID}pme                prefix-matching for user params (default: on)"
+	echo "    ${PLID}oan=<name>         options array name"
+	echo "    ${PLID}ban=<name>         bools array name"
+	echo "    ${PLID}san=<name>         strings array name"
+	echo "    ${PLID}pan=<name>         positionals array name"
+	echo "    ${PLID}config             show config after parsing"
+	echo "    ${PLID}Defaults           show default configs"
+	echo "    ${PLID}Banner             show banner"
+	echo "    ${PLID}Version            show version"
+	echo "    ${PLID}Resymbols          show reserved symbols"
+	echo "    ${PLID}Help               show this help"
 	echo
-	echo "PRIORS (~~~ prefix, customize at runtime):"
-	echo "    ~~~plid=<resym>     PSET lid (default: ${PLID})"
-	echo "    ~~~ulid=<resym>     user-param lid (default: ${ULID})"
-	echo "    ~~~zs=<resym2>      zone separator (default: ${ZN_SEP})"
-	echo "    ~~~os=<resym>       OA separator (default: ${OA_SEP})"
-	echo "    ~~~tt=<resym>       true tag (default: ${TAG_TRUE})"
-	echo "    ~~~tf=<resym>       false tag (default: ${TAG_FALSE})"
-	echo "    ~~~td=<bool>        default bool tag (default: ${TAG_DEFAULT})"
+	echo "SUPERS (${SLID} prefix, set before any parsing):"
+	echo "    ${SLID}quiet           verbose level 0"
+	echo "    ${SLID}standard        verbose level 1 (default)"
+	echo "    ${SLID}extra           verbose level 2"
+	echo "    ${SLID}debug           verbose level 3"
+	echo "    ${SLID}trace           verbose level 4"
+	echo "    ${SLID}style=<style>   set CML style (watershed/islands)"
+	echo "    ${SLID}zs=<resym2>     zone separator (default: ${ZN_SEP})"
 	echo
-	echo "SUPERS (~~~~ prefix):"
-	echo "    ~~~~quiet           verbose level 0"
-	echo "    ~~~~standard        verbose level 1 (default)"
-	echo "    ~~~~extra           verbose level 2"
-	echo "    ~~~~debug           verbose level 3"
-	echo "    ~~~~trace           verbose level 4"
-	echo "    ~~~~style=<style>   set CML style (watershed/islands)"
+	echo "PRIORS (${PRLID} prefix, customize at runtime):"
+	echo "    ${PRLID}plid=<resym>     PSET lid (default: ${PLID})"
+	echo "    ${PRLID}ulid=<resym>     user-param lid (default: ${ULID})"
+	echo "    ${PRLID}os=<resym>       OA separator (default: ${OA_SEP})"
+	echo "    ${PRLID}tt=<resym>       true tag (default: ${TAG_TRUE})"
+	echo "    ${PRLID}tf=<resym>       false tag (default: ${TAG_FALSE})"
+	echo "    ${PRLID}td=<bool>        default bool tag (default: ${TAG_DEFAULT})"
 	echo
 	echo "OUTPUT"
 	echo "    source mode:   exports variables + named arrays"
@@ -395,7 +385,6 @@ function show_help {
 	echo "EXIT CODES"
 	echo "    0     success"
 	echo "    2     no input or error"
-	echo "    10    jq not available"
 	echo "    20+   parameter/filter errors (see doc/BosParse-Reference-Manual.md)"
 	echo
 	echo "For details: doc/BosParse-Reference-Manual.md  doc/bp-PFILTER.md"

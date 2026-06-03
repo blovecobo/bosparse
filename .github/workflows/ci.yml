@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  lint-and-test:
+    name: Lint, Build and Unit Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends shellcheck jq
+
+      - name: Run shellcheck on shell scripts
+        run: |
+          set -euo pipefail
+          # find shell scripts tracked by git and run shellcheck
+          git ls-files '*.sh' | xargs -r shellcheck -x
+
+      - name: Build bosparse (validate syntax)
+        run: |
+          set -euo pipefail
+          ./build.sh
+          # validate generated script
+          bash -n ./bosparse
+
+      - name: Run unit tests
+        run: |
+          set -euo pipefail
+          # run unit test scripts (non-integration)
+          ./test/case_check.sh
+          ./test/case_parse.sh
+
+      - name: Upload test logs (artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bosparse-test-logs
+          path: ./test

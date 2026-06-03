@@ -83,9 +83,7 @@ function is_in_resyms {
 	local param=$1
 	local resym
 	for resym in "${RESYMS[@]}"; do
-		local i
-		for ((i = 0; i < ${#param}; i++)); do [[ ${param:i:1} != "${resym}" ]] && break; done
-		((i == ${#param})) && return 0
+		[[ ${param} == ${resym}* && ${param//${resym}/} == "" ]] && return 0
 	done
 	return 1
 }
@@ -194,17 +192,6 @@ function apply_setup {
 		BP_OPTIONS["${ps}"]="${BP_BOOLS[${ps}]}"
 	done
 
-	# relation check
-	# island style needs no zn-sep
-	if [[ ${CML_STYLE} == "islands" ]]; then
-		for ps in "${!BP_OPTIONS[@]}"; do
-			if [[ ${ps} == "zs" ]]; then
-				pros_tag="~~~zs=${BP_OPTIONS[${ps}]}"
-				exit_with_msg 28
-			fi
-		done
-	fi
-
 	msg_bp 4 "  ${title} after applying settings:" >&2
 	# apply settings to CONFIGS
 	field_len=$(max_array_member_length "${!BP_OPTIONS[@]}")
@@ -273,7 +260,7 @@ function show_configs {
 			echo2 ""
 			echo2 "Priors defaults:"
 			for key in "${!PRIORS[@]}"; do
-				printf "%${len_key}s | %s\n" "~~~${key}" "${CONFIGS[${PRIORS[${key}]%%:*}]}" >&2
+				printf "%${len_key}s | %s\n" "~~${key}" "${CONFIGS[${PRIORS[${key}]%%:*}]}" >&2
 			done | sort -n
 			echo2 ""
 			echo2 "PSets defaults:"

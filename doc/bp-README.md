@@ -30,6 +30,9 @@ eval "$(./bosparse "$@")"
 echo "name=$name"
 ```
 
+> Note: `eval` mode executes generated shell assignments. Only use it when the invocation and parameter names are trusted.
+> For details and mitigations, see the Reference Manual: [Eval Mode Security](doc/BosParse-Reference-Manual.md#eval-mode-security).
+
 Run it:
 
 ```bash
@@ -37,6 +40,14 @@ Run it:
 ```
 
 - Capture mode (JSON output)
+
+```bash
+json=$(./bosparse ~json "$@")
+name=$(capture_json_extract "$json" '.name // ""')
+echo "name=${name}"
+```
+
+This uses the new helper `capture_json_extract` to read values safely from capture-mode JSON output.
 
 ```bash
 #!/usr/bin/env bash
@@ -69,7 +80,7 @@ The main difference between the two styles is how they handle the separation of 
 
 - `watershed` style(default) uses `ZN-SEP` to separate Options and Positionals, while `islands` style allows intermixing Options and Positionals.
 - In `watershed` style, Options must come before `ZN-SEP`, and Positionals must come after.
-- In `islands` style, Options and Positionals can be mixed in any order, but Options must use `OA-SEP` ( `=` by default) to separate name and value, while space(s) allowd in `watershed` style CML.
+- `islands` style, Options and Positionals may be mixed in any order, but Options must use `OA-SEP` ( `=` by default) to separate name and value. In `watershed` style, space-separated option values are also allowed.
 
 ## Supported Parameters
 
@@ -89,7 +100,7 @@ Example:
 
 ### Positional parameters
 
-In `watershed` stype CML, everything after `ZN-SEP (-- by default)` becomes Positional values in the `BP_Positionals` array:
+In `watershed` style CML, everything after `ZN-SEP (-- by default)` becomes Positional values in the `BP_Positionals` array:
 
 ```bash
 ./script.sh -name=bob -- one two three
@@ -120,13 +131,14 @@ They do not set variables directly but affect the parsing process and output for
 
 ### Common settings
 
-- `~~~~style`: command line structure style, `watershed`(default) or `islands`
+- `~~~style`: command line structure style, `watershed`(default) or `islands`
 - `~json`: produce JSON output
 - `~run`: run-mode setting, `auto` (default), `source`, `eval`, `capture`
 - `~dvo`: disable variables output; for source mode only
 - `~quiet`, `~standard`, `~extra`, `~debug`, `~trace`: output control, `~standard` by default
 - `~oan`, `~san`, `~ban`, `~pan`: specify array names of parsing result
-- `~Banner`, `~Version`, `~Resymbols`, `~Defaults`: display BosParse properties
+- `~pme`: enable prefix matching for user params (default `true`); disable with `~pme-`
+- `~Banner`, `~Version`, `~Resymbols`, `~Defaults`, `~Help`: display BosParse properties
 
 Example:
 
@@ -137,14 +149,34 @@ Example:
 ## Important Features
 
 - BosParse supports PSet names prefix-matching in all PSets scope, e.g. `~r=j` -> `~run=json`
-- Options sequence is insensitive for PSets and User-params in OP-ZONE(`watershed`) or in whole CML(`islands`)
-- If the same parameter supplied multiple times, the latter wins
+- Options sequence is insensitive for PSets and User-params in OP-ZONE (`watershed`) or in whole CML (`islands`)
+- Prefix-matching (`~pme`, default `true`) supports unambiguous abbreviation for parameter names and enum values for PSets, disable with `~pme-` when strict exact matching is needed; Prefix-matching for User options needs `PFILTER` support, see doc/BosParse-Reference-Manual.md#Prefix-Matching
+- When the same parameter supplied multiple times, the latter wins; when the same parameter name used with different types, parsing fails
+- If a boolean parameter supplied as a boolean and a member of LIGA-style flag at sametime, boolean setting takes precedence
+- Parameters like `-flag=true` or `-flag=false` are parsed as boolean, not string
 
 ## Run Modes
 
 - `source`: sets variables directly in the current shell
 - `eval`: outputs shell assignments for `eval $(...)`
 - `capture`: outputs JSON
+
+### Safe vs eval mode
+
+- `source` is the safest mode when BosParse is sourced into your own script and you need direct shell variables.
+- `eval` emits shell assignments and executes them, so only use it when the BosParse invocation, option names, and any PFILTER-derived identifiers are trusted.
+- `capture` mode is the safest option for external or untrusted input. Use `~json` and parse the JSON output with `jq` or `capture_json_extract`.
+
+Quick whitelist snippet (capture mode):
+
+```bash
+# capture JSON and assign only known keys
+json=$(./bosparse ~json "$@")
+for k in name active timeout; do
+  v=$(jq -r --arg k "${k}" '.[$k] // empty' <<<"${json}")
+  [[ -n ${v} ]] && printf -v "${k}" '%s' "${v}"
+done
+```
 
 ## Examples
 

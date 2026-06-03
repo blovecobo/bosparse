@@ -23,7 +23,19 @@ function validate_option_name {
 
 	# msg_bp 4 "      validate param: ${param_ref} | mandatory: ${mandatory}"
 
-	matched_names=$(prefix_matching "${param_ref}" matching_filter) || rtn=$?
+	# ~pme only affects user params; PSets/Priors/Supers always use prefix matching
+	# if [[ ${lid} == "${ULID}" && ${CONFIGS[prefix_matching_enabled]} != true ]]; then
+	if [[ ${lid} == "${ULID}" && ${CONFIGS["${PSETS[pme]%%:*}"]} != true ]]; then
+		# user param with prefix matching disabled: only exact match allowed
+		if is_array_member "${param_ref}" matching_filter; then
+			return 0
+		else
+			msg_bp 3 "invalid param name: ${param_ref} (expected exact match in filter)"
+			return 1
+		fi
+	else
+		matched_names=$(prefix_matching "${param_ref}" matching_filter) || rtn=$?
+	fi
 
 	if [[ ${rtn} -eq 0 ]]; then
 		# matched(exact or prefix-), return the exact name
@@ -31,8 +43,8 @@ function validate_option_name {
 		return 0
 	elif [[ ${mandatory} == true ]]; then
 		# not matched but mandatory required
-		pros_tag="${ptitle}"
-		pros_tag2="${lid}${param_ref}"
+		pros_tag[0]="${ptitle}"
+		pros_tag[1]="${lid}${param_ref}"
 		case ${rtn} in
 		1) # not matched
 			if [[ ${lid} == "${ULID}" ]]; then
@@ -42,7 +54,7 @@ function validate_option_name {
 			fi
 			;;
 		2) # multiple matched
-			pros_tag3="${matched_names// /|}"
+			pros_tag[2]="${matched_names// /|}"
 			exit_with_msg 56
 			;;
 		*) ;;
@@ -61,7 +73,7 @@ function validate_option_args {
 	local val=${v_options[${e_param}]}
 	declare pm_arr=()
 
-	pros_tag="${ptitle}"
+	pros_tag[0]="${ptitle}"
 
 	[[ ${verbose} -ge 4 ]] && printf "    \e[2m%-8s - %-14s | %-6s | %10s | %-10s | %s\n\e[0m" \
 		"${param}" "${e_param}" "${pf_type}" "${pf_data}" "${val}" "${pf_mcg:--}" >&2
@@ -103,16 +115,16 @@ function validate_option_args {
 			;;
 		1)
 			# not matched
-			pros_tag2="${lid}${param}='${val}'"
-			pros_tag3="${pf_data}"
+			pros_tag[1]="${lid}${param}='${val}'"
+			pros_tag[2]="${pf_data}"
 			exit_with_msg 50
 			;;
 		2)
 			# multiple matched
-			pros_tag="enum value of"
-			pros_tag2="${lid}${param}=${val}"
-			# pros_tag3="${pfm_names[*]//"${ELM_SEP}"/\/}"
-			pros_tag3="${pfm_names[*]}"
+			pros_tag[0]="enum value of"
+			pros_tag[1]="${lid}${param}=${val}"
+			# pros_tag[2]="${pfm_names[*]//"${ELM_SEP}"/\/}"
+			pros_tag[2]="${pfm_names[*]}"
 			exit_with_msg 56
 			;;
 		*) ;;
@@ -121,23 +133,23 @@ function validate_option_args {
 	bool)
 		# validate type
 		if [[ ${val} != true && ${val} != false ]]; then
-			pros_tag2="${param}='${val}'"
-			pros_tag3="'true' or 'false'"
+			pros_tag[1]="${param}='${val}'"
+			pros_tag[2]="'true' or 'false'"
 			exit_with_msg 51
 		fi
 		;;
 	string)
 		if [[ ${val} == true || ${val} == false ]]; then
-			pros_tag2="${param}='${val}'"
-			pros_tag3="a string but got a bool"
+			pros_tag[1]="${param}='${val}'"
+			pros_tag[2]="a string but got a bool"
 			exit_with_msg 51
 		fi
 		;;
 	resym)
 		# if consist of resyms
 		is_in_resyms "${val//[0-9]/}" || { # remove length before testing resyms
-			pros_tag2="${param}='${val}'"
-			pros_tag3="a RESYM or RESYMs but got '${val}'"
+			pros_tag[1]="${param}='${val}'"
+			pros_tag[2]="a RESYM or RESYMs but got '${val}'"
 			exit_with_msg 51
 		}
 		# validate length of resym if specified in pf_data, e.g. "resym:3-_" means a parameter
@@ -145,15 +157,15 @@ function validate_option_args {
 		local resym_len=${pf_data//[^[:digit:]]/}
 		[[ -n ${resym_len} ]] || resym_len=1
 		if [[ ${#val} -ne ${resym_len} ]]; then
-			pros_tag2="${param}='${val}'"
-			pros_tag3="mismatch length, value length should be '${resym_len}' instead of '${#val}'"
+			pros_tag[1]="${param}='${val}'"
+			pros_tag[2]="mismatch length, value length should be '${resym_len}' instead of '${#val}'"
 			exit_with_msg 52
 		fi
 		# check excluded resyms
 		local exclude_resym="${pf_data//[0-9]/}"
 		if [[ ${val} =~ [${exclude_resym}] ]]; then
-			pros_tag2="${param}='${val}'"
-			pros_tag3="contains resym(s) not permitted: '${exclude_resym}'"
+			pros_tag[1]="${param}='${val}'"
+			pros_tag[2]="contains resym(s) not permitted: '${exclude_resym}'"
 			exit_with_msg 52
 		fi
 		;;
@@ -203,8 +215,8 @@ function validate_mcg_types {
 	# group names should match initial letters
 	for mem in "${mcg_names_ref[@]}"; do
 		[[ -v mcg_type_map[${mem:0:1}] ]] || {
-			pros_tag="${mem}"
-			pros_tag2="${mcg_types[*]}"
+			pros_tag[0]="${mem}"
+			pros_tag[1]="${mcg_types[*]}"
 			exit_with_msg 37
 		}
 	done
@@ -254,9 +266,9 @@ function validate_required_groups {
 						vpe_strings["${member}"]="${def_data}"
 					fi
 				else
-					pros_tag="${mcg}"
-					pros_tag2="${member}"
-					# pros_tag3="${mcg_members[*]}"
+					pros_tag[0]="${mcg}"
+					pros_tag[1]="${member}"
+					# pros_tag[2]="${mcg_members[*]}"
 					exit_with_msg 70
 				fi
 			fi
@@ -320,12 +332,12 @@ function _validate_dependence_groups {
 			else
 				msg_bp 3 "      - MCG ${cap_mcg,}: FAILED"
 				case ${lid} in
-				"${PRLID}") pros_tag="Prior '${_dc_unsupplied[${cap_mcg}]}'" ;;
-				"${PLID}") pros_tag="PSet '${_dc_unsupplied[${cap_mcg}]}'" ;;
-				*) pros_tag="Parameter '${_dc_unsupplied[${cap_mcg}]}'" ;;
+				"${PRLID}") pros_tag[0]="Prior '${_dc_unsupplied[${cap_mcg}]}'" ;;
+				"${PLID}") pros_tag[0]="PSet '${_dc_unsupplied[${cap_mcg}]}'" ;;
+				*) pros_tag[0]="Parameter '${_dc_unsupplied[${cap_mcg}]}'" ;;
 				esac
-				pros_tag="${d_members[*]}"
-				pros_tag2="${cap_mcg,}"
+				pros_tag[1]="${d_members[*]}"
+				pros_tag[2]="${cap_mcg,}"
 				exit_with_msg 46
 			fi
 		else
@@ -350,9 +362,9 @@ function _validate_master_groups {
 		if [[ ${#_ml_supplied["${mcg,}"]} -ne 0 ]]; then
 			msg_bp -4 "      \e[2mmember " "\e[2m'${_ml_supplied[${mcg,}]#\|}'@${mcg,} supplied\e[0m"
 			msg_bp 3 "      - MCG ${mcg}: FAILED"
-			pros_tag="${_ml_supplied[${mcg,}]}"
-			pros_tag2="${_mc_members[${mcg}]#|}"
-			pros_tag3="${mcg,}"
+			pros_tag[0]="${_ml_supplied[${mcg,}]}"
+			pros_tag[1]="${_mc_members[${mcg}]#|}"
+			pros_tag[2]="${mcg,}"
 			exit_with_msg 47
 		fi
 
@@ -369,8 +381,8 @@ function _validate_master_groups {
 
 			if [[ ${_mc_count["${mcg}"]} -ne 1 ]]; then
 				msg_bp 3 "      - MCG ${mcg}: Failed"
-				pros_tag="${_mc_supplied[${mcg}]#\|}"
-				pros_tag2="${_mc_members[${mcg^}]#|}"
+				pros_tag[0]="${_mc_supplied[${mcg}]#\|}"
+				pros_tag[1]="${_mc_members[${mcg^}]#|}"
 				exit_with_msg 45
 			fi
 			[[ -v _vpe_bools["${_ml_unsupplied[${mcg,}]}"] ]] &&
@@ -495,16 +507,16 @@ function validate_option_mcgs {
 			msg_bp -4 "      - supplied members: " "${eg_supplied[*]}"
 			if [[ ${#eg_supplied[@]} -gt 1 ]]; then
 				msg_bp 3 "      - MCG ${mcg}: FAILED"
-				pros_tag="${mcg}"
-				pros_tag2="${eg_supplied[*]}"
+				pros_tag[0]="${mcg}"
+				pros_tag[1]="${eg_supplied[*]}"
 				exit_with_msg 42
 			fi
 			;;
 		u)
 			if [[ ${#ug_values[@]} -ne "${#ug_supplied[@]}" ]]; then
 				msg_bp 3 "      - MCG ${mcg}: FAILED"
-				pros_tag="${mcg}"
-				pros_tag2="${mcg_members[*]}"
+				pros_tag[0]="${mcg}"
+				pros_tag[1]="${mcg_members[*]}"
 				exit_with_msg 41
 			fi
 			;;
@@ -527,6 +539,8 @@ function validate_option_mcgs {
 # validate BP_OPTIONS(Priors/PSets/User-Options) with their definitions(PRIORS/PSETS/PFILTER)
 function validate_options_by_filter {
 	local lid=$1 mandatory=${2:-true}
+	shift 2
+	local -a params=("$@")
 
 	declare -A v_options=() v_strings=() v_bools=()
 	declare -a pm_arr=()
@@ -550,12 +564,20 @@ function validate_options_by_filter {
 	*) ;;
 	esac
 
-	msg_bp 3 "  - validate names and args:"
+	if [[ ${#params[@]} -eq 0 ]]; then
+		params=("${!BP_OPTIONS[@]}")
+	fi
 	[[ ${verbose} -ge 4 ]] && printf "    \e[4;33m%-8s - %-14s | %-6s | %10s | %-10s | %s\n\e[0m" \
 		"supplied" "matched" "type" "setting" "data" "mcg" >&2
 
-	for param in "${!BP_OPTIONS[@]}"; do
+	for param in "${params[@]}"; do
 		# msg_bp 4 "    $param:"
+		# check type conflict: same param used as both bool and string
+		if [[ -v BP_BOOLS["${param}"] && -v BP_STRINGS["${param}"] ]]; then
+			pros_tag[0]="${ptitle}"
+			pros_tag[1]="${lid}${param}"
+			exit_with_msg 57
+		fi
 		# validate name
 		exact_param="${param}"
 		pm_arr=("${!def[@]}")

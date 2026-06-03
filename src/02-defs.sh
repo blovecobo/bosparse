@@ -7,7 +7,7 @@
 # This module defines the entire configuration surface of BosParse:
 #   CONFIGS   — runtime configuration key-value store
 #   CONSTS    — immutable constants (separators, array names)
-#   SUPERS    — super-verbose definitions (~~~~slid, ~~~~prlid, ~~~~style, verbose flags)
+#   SUPERS    — super-verbose definitions (~~~slid, ~~~prlid, ~~~style, verbose flags)
 #   PRIORS    — prior (~~~) definitions, parsed before PSets
 #   PSETS     — parser-set (~) definitions, parsed after Priors
 #   MCG_TYPES — mutual-correlate group type prefixes (d/D/e/m/M/r/u)
@@ -59,6 +59,7 @@ function definitions {
 	local -n PFILTER_ENTRY_TYPES_ref=$9
 	local -n MCG_TYPES_ref=${10}
 	local -n SYMNAMES_ref=${11}
+	local -n BP_REGEX_METACHARS_ref=${12}
 
 	consts \
 		CONSTANTS_ref \
@@ -72,7 +73,7 @@ function definitions {
 	# local eoe="exit_on_error"
 
 	# parsing style(2)
-	local prem="prefix_matching_enabled"
+	local pme="prefix_matching_enabled"
 	local style="style_of_commandline"
 
 	# directives(5)
@@ -120,7 +121,7 @@ function definitions {
 		["run"]="${run}"
 		["json"]="${json}"
 
-		["prem"]="${prem}"
+		["pme"]="${pme}"
 		["dvo"]="${dvo}"
 
 		["Defaults"]="${Defaults}"
@@ -181,9 +182,10 @@ function definitions {
 	#             - uniqueness, group name start with 'u'
 
 	SUPERS_ref=(
-		["slid"]="${slid}:resym:4"
-		["prlid"]="${prlid}:resym:3"
+		["slid"]="${slid}:resym:3"
+		["prlid"]="${prlid}:resym:2"
 		["style"]="${style}:enum:watershed|islands"
+		["zs"]="${zs}:resym:2"
 		["quiet"]="${quiet}:bool::eg_sv"
 		["standard"]="${standard}:bool::eg_sv"
 		["extra"]="${extra}:bool::eg_sv"
@@ -195,7 +197,6 @@ function definitions {
 		["plid"]="${plid}:resym::ug_lid"
 		["ulid"]="${ulid}:resym::ug_lid"
 
-		["zs"]="${zs}:resym:2"
 		["os"]="${os}:resym:-_:ug_ttag" # in case missmatch param-name or tags
 		["tt"]="${tt}:resym:=:ug_ttag"  # in case `-param=`
 		["tf"]="${tf}:resym:=:ug_ttag"
@@ -223,7 +224,7 @@ function definitions {
 		["pf"]="${pf}:string::D-pfilter"
 		["rup"]="${rup}:bool::d-pfilter"
 		["afd"]="${afd}:bool::d-pfilter"
-		["prem"]="${prem}:bool::d-pfilter"
+		["pme"]="${pme}:bool::d-pfilter"
 
 		["oan"]="${oan}:string::umcg_arr_name"
 		["ban"]="${ban}:string::umcg_arr_name"
@@ -266,10 +267,9 @@ function definitions {
 		["${plid}"]="~-=_+%@!" # except:
 		["${ulid}"]="~-=_+%@!" # except:
 
-		["${zs}"]="~-=_+%@!" # except:
-		["${os}"]="~=+%@!"   # except: -_
-		["${tt}"]="~-_+%@!"  # except: =
-		["${tf}"]="~-_+%@!"  # except =
+		["${os}"]="~=+%@!"  # except: -_
+		["${tt}"]="~-_+%@!" # except: =
+		["${tf}"]="~-_+%@!" # except =
 	)
 
 	# escape symbles
@@ -303,6 +303,24 @@ function definitions {
 		['-']="_"
 	)
 
+	# regex metacharacters for prefix-matching escaping
+	BP_REGEX_METACHARS_ref=(
+		'\'
+		'.'
+		'['
+		']'
+		'('
+		')'
+		'{'
+		'}'
+		'^'
+		'$'
+		'*'
+		'+'
+		'?'
+		'|'
+	)
+
 	# BosParse configs
 	CONFIGS_ref=(
 		# running mode
@@ -325,9 +343,9 @@ function definitions {
 		["${pf}"]="${CONSTANTS_ref[NO_PFILTER]}"    # filter or a mark for unsupplied
 		["${pf_id}"]="${CONSTANTS_ref[PFILTER_ID]}" # the key in PFILTER to identify itself
 		# mandatories
-		["${prem}"]=true # enable prefix-matching for user params
-		["${rup}"]=true  # restrict parameters not defined in PFILTER
-		["${afd}"]=true  # apply PFILTER defaults for un-supplied parameters(exclude mcg-members)
+		["${pme}"]=true # enable prefix-matching for user params
+		["${rup}"]=true # restrict parameters not defined in PFILTER
+		["${afd}"]=true # apply PFILTER defaults for un-supplied parameters(exclude mcg-members)
 
 		# parse result arrays
 		["${oan}"]="${CONSTANTS_ref["OAN"]}" # ~oan, name of array to store Options
@@ -345,10 +363,10 @@ function definitions {
 
 		# Parsing-aid symbols
 		# lids
-		["${slid}"]='~~~~'
-		["${prlid}"]='~~~' # ~~~prlid,  leading id sighn for priors, psets and seps
-		["${plid}"]='~'    # ~~~plid,   leading id sign for setting-parameters
-		["${ulid}"]='-'    # ~~~ulid,   leading id sign for user-parameters
+		["${slid}"]='~~~'
+		["${prlid}"]='~~' # ~~prlid,  leading id sighn for priors, psets and seps
+		["${plid}"]='~'   # ~~~plid,   leading id sign for setting-parameters
+		["${ulid}"]='-'   # ~~~ulid,   leading id sign for user-parameters
 		# separators
 		["${zs}"]='--' # ~~~zs, separator between VAR_ZONE and PP_ZONE
 		["${os}"]='='  # ~~~os, separator between parameter names and their args
@@ -372,29 +390,29 @@ function definitions {
 		["110"]="Functionalities deal with JSON required 'jq' but not available."
 
 		# Basic parsing(without PFILTER)
-		["20"]="Only one ZONE-SEP '\${pros_tag}' permitted but '\${pros_tag2}' SEPs found."
+		["20"]="Only one ZONE-SEP '\${pros_tag}' permitted but '\${pros_tag[1]}' SEPs found."
 
 		["21"]="Unknown parameter '\${pros_tag}'"
 		["121"]="A solitary ARG '\${pros_tag}' found, parsing failed."
 
-		["22"]="Invalid Parameter: '\${pros_tag}', contains special character(s) '\${pros_tag2}'"
-		["122"]="Parameter name '\${pros_tag}' contains invalid character(s) '\${pros_tag2}', it should respect the Bash variable name convention."
+		["22"]="Invalid Parameter: '\${pros_tag}', contains special character(s) '\${pros_tag[1]}'"
+		["122"]="Parameter name '\${pros_tag}' contains invalid character(s) '\${pros_tag[1]}', it should respect the Bash variable name convention."
 
-		["23"]="Invalid parameter: '\${pros_tag}', start with a number '\${pros_tag2}'"
-		["123"]="Parameter name '\${pros_tag}' start with number '\${pros_tag2}', it should respect the Bash variable name convention."
+		["23"]="Invalid parameter: '\${pros_tag}', start with a number '\${pros_tag[1]}'"
+		["123"]="Parameter name '\${pros_tag}' start with number '\${pros_tag[1]}', it should respect the Bash variable name convention."
 
-		["24"]="Invalid parameter '\${pros_tag}' in LIGA '\${pros_tag2}'"
-		["124"]="Parameter '\${pros_tag}' in LIGA '\${pros_tag2}' not a valid Bash variable name."
+		["24"]="Invalid parameter '\${pros_tag}' in LIGA '\${pros_tag[1]}'"
+		["124"]="Parameter '\${pros_tag}' in LIGA '\${pros_tag[1]}' not a valid Bash variable name."
 
 		["25"]="Invalid LIGA name '\${pros_tag}', length mismatch."
-		["125"]="Invalid LIGA name '\${pros_tag}', length of LIGA name '\${pros_tag2}' should be multiple of member length '\${pros_tag3}'"
+		["125"]="Invalid LIGA name '\${pros_tag}', length of LIGA name '\${pros_tag[1]}' should be multiple of member length '\${pros_tag[2]}'"
 
 		# an empty parameter
 		["26"]="Empty parameter found."
 		["126"]="Found an empty parameter, perhaps input error."
 
 		# Priors/PSets
-		["27"]="Invalid \${pros_tag} '\${pros_tag2}', \${pros_tag3}"
+		["27"]="Invalid \${pros_tag} '\${pros_tag[1]}', \${pros_tag[2]}"
 
 		["28"]="Invalid Prior setting '\${pros_tag}' when using 'islands' style CML."
 
@@ -405,69 +423,76 @@ function definitions {
 
 		["32"]="Invalid parameter name '\${pros_tag}' in PFILTER, it should be a valid shell variable name."
 
-		["33"]="Invalid PFILTER entry type '\${pros_tag}', it should be one of '\${pros_tag2}'"
+		["33"]="Invalid PFILTER entry type '\${pros_tag}', it should be one of '\${pros_tag[1]}'"
 
-		["34"]="Invalid PFILTER entry '\${pros_tag}': default value '\${pros_tag3}' mismatch the type '\${pros_tag2}'"
+		["34"]="Invalid PFILTER entry '\${pros_tag}': default value '\${pros_tag[2]}' mismatch the type '\${pros_tag[1]}'"
 
 		["35"]="Invalid PFILTER enum entry \${pros_tag}: missing enum values."
 
-		["36"]="MCG member(s) '\${pros_tag}' in '\${pros_tag2}' depends on the D-member but not found in PFILTER."
+		["36"]="MCG member(s) '\${pros_tag}' in '\${pros_tag[1]}' depends on the D-member but not found in PFILTER."
 
-		["37"]="Invalid MCG name '\${pros_tag}', \${pros_tag2}."
-		# ["137"]="MCG name '\${pros_tag}' should satisfy MCG_TYPES, starting with '\${pros_tag2}'"
+		["37"]="Invalid MCG name '\${pros_tag}', \${pros_tag[1]}."
+		# ["137"]="MCG name '\${pros_tag}' should satisfy MCG_TYPES, starting with '\${pros_tag[1]}'"
 
 		# # multiple D-members allowed now
-		# ["38"]="Only one D-member in \${pros_tag} MCG '\${pros_tag2}' permitted, but multiple found: '\${pros_tag3}'"
+		# ["38"]="Only one D-member in \${pros_tag} MCG '\${pros_tag[1]}' permitted, but multiple found: '\${pros_tag[2]}'"
 
-		["38"]="Exclusion MCG '\${pros_tag}' should have at least two members, but found only one: '\${pros_tag2}'"
+		["38"]="Exclusion MCG '\${pros_tag}' should have at least two members, but found only one: '\${pros_tag[1]}'"
 
-		["39"]="Invalid Master MCG '\${pros_tag}' setting, \${pros_tag2}"
+		["39"]="Invalid Master MCG '\${pros_tag}' setting, \${pros_tag[1]}"
 
 		# PFILTER-MCG
-		["41"]="Parameters '\${pros_tag2}' should not be given the same value." # uniqueness(used)
-		["141"]="Same settings found among Uniqueness MCG '\${pros_tag}' members: '\${pros_tag2}'"
+		["41"]="Parameters '\${pros_tag[1]}' should not be given the same value." # uniqueness(used)
+		["141"]="Same settings found among Uniqueness MCG '\${pros_tag}' members: '\${pros_tag[1]}'"
 
-		["42"]="Parameters '\${pros_tag2}' cannot be supplied at same time." # exclusion
-		["142"]="Only one parameters in Exclusion MCG '\${pros_tag}' can be supplied, but found: '\${pros_tag2}'"
+		["42"]="Parameters '\${pros_tag[1]}' cannot be supplied at same time." # exclusion
+		["142"]="Only one parameters in Exclusion MCG '\${pros_tag}' can be supplied, but found: '\${pros_tag[1]}'"
 
 		["45"]="Only one of the parameters '\${pros_tag}' should be supplied."
-		["145"]="M-members '\${pros_tag}' of Master MCG '\${pros_tag2}' cannot supplied at sametime."
+		["145"]="M-members '\${pros_tag}' of Master MCG '\${pros_tag[1]}' cannot supplied at sametime."
 
-		["46"]="\${pros_tag} required by '\${pros_tag2}' but not supplied." # dependency
-		["146"]="\${pros_tag} in Dependency MCG '\${pros_tag3}' required by '\${pros_tag2}'"
+		["46"]="\${pros_tag} required by '\${pros_tag[1]}' but not supplied." # dependency
+		["146"]="\${pros_tag} in Dependency MCG '\${pros_tag[2]}' required by '\${pros_tag[1]}'"
 
-		["47"]="Invalid parameter '\${pros_tag}', use one of '\${pros_tag2}'"
-		["147"]="Parameter '\${pros_tag}' is an m-member of Master MCG '\${pros_tag3}', setting it by one of the parameters: '\${pros_tag2}'"
+		["47"]="Invalid parameter '\${pros_tag}', use one of '\${pros_tag[1]}'"
+		["147"]="Parameter '\${pros_tag}' is an m-member of Master MCG '\${pros_tag[2]}', setting it by one of the parameters: '\${pros_tag[1]}'"
 
-		["48"]="Needs one of the  parameters '\${pros_tag2}' supplied." # no supplied M-member and no default value
-		["148"]="No M-member of Master MCG '\${pros_tag}' supplied, needs one of '\${pros_tag2}'"
+		["48"]="Needs one of the  parameters '\${pros_tag[1]}' supplied." # no supplied M-member and no default value
+		["148"]="No M-member of Master MCG '\${pros_tag}' supplied, needs one of '\${pros_tag[1]}'"
 
-		["49"]="Invalid \${pros_tag} '\${pros_tag2}' in PFILTER, the value should be one of '\${pros_tag3}'"    # enum check(used)
-		["149"]="Invalid \${pros_tag} '\${pros_tag2}' in PFILTER, the value should be one of '\${pros_tag3}'" # bool/string/resym check(used)
+		["49"]="Invalid \${pros_tag} '\${pros_tag[1]}' in PFILTER, the value should be one of '\${pros_tag[2]}'"  # enum check(used)
+		["149"]="Invalid \${pros_tag} '\${pros_tag[1]}' in PFILTER, the value should be one of '\${pros_tag[2]}'" # bool/string/resym check(used)
 
 		# filter parameter with PFILTER
-		["50"]="Invalid \${pros_tag} \${pros_tag2}, the value should be one of '\${pros_tag3}'" # enum check(used)
-		["150"]="Invalid enum entry value: \${pros_tag2}, available enums: '\${pros_tag3}'"
+		["50"]="Invalid \${pros_tag} \${pros_tag[1]}, the value should be one of '\${pros_tag[2]}'" # enum check(used)
+		["150"]="Invalid enum entry value: \${pros_tag[1]}, available enums: '\${pros_tag[2]}'"
 
-		["51"]="Invalid setting: \${pros_tag2}" # bool/string/resym type check
-		["151"]="Invalid \${pros_tag} setting: \${pros_tag2}, ARG should be \${pros_tag3}"
+		["51"]="Invalid setting: \${pros_tag[1]}" # bool/string/resym type check
+		["151"]="Invalid \${pros_tag} setting: \${pros_tag[1]}, ARG should be \${pros_tag[2]}"
 
-		["52"]="Invalid \${pros_tag} setting \${pros_tag2}: \${pros_tag3}" # assert resym
+		["52"]="Invalid \${pros_tag} setting \${pros_tag[1]}: \${pros_tag[2]}" # assert resym
 
-		["53"]="Unknown parameter '\${pros_tag2}'" # for user parameter
+		["53"]="Unknown parameter '\${pros_tag[1]}'" # for user parameter
 		["153"]="PSet '~rup' requires all parameters matching 'PFILTER' but '\${pros_tag}' didn't."
 
-		["54"]="Unknown \${pros_tag} '\${pros_tag2}'" # for Priors/PSets
-		["154"]="Invalid \${pros_tag} '\${pros_tag2}', cannot match any \${pros_tag}."
+		["54"]="Unknown \${pros_tag} '\${pros_tag[1]}'" # for Priors/PSets
+		["154"]="Invalid \${pros_tag} '\${pros_tag[1]}', cannot match any \${pros_tag}."
 
 		["55"]="Missing parameter '\${pros_tag}'" # un-supplied and no default
 		["155"]="Un-supplied parameter '\${pros_tag}' requires a default value by '~afd'"
 
-		["56"]="Unrecognized \${pros_tag} '\${pros_tag2}', may be one of '\${pros_tag3}'?" # assert multi-prefix-matching
-		["156"]="Invalid \${pros_tag} '\${pros_tag2}', multiple matched: '\${pros_tag3}'."
+		["56"]="Unrecognized \${pros_tag} '\${pros_tag[1]}', may be one of '\${pros_tag[2]}'?" # assert multi-prefix-matching
+		["156"]="Invalid \${pros_tag} '\${pros_tag[1]}', multiple matched: '\${pros_tag[2]}'."
 
-		["70"]="Parameter '\${pros_tag2}' is required but not supplied."
-		["170"]="Parameter '\${pros_tag2}' in Required MCG '\${pros_tag} without default value and not supplied."
+		# duplicate param name with different type
+		["57"]="Parameter '\${pros_tag[1]}' has the same name as '\${pros_tag}' but a different type."
+
+		# PFILTER entry  name conflict after exceptions substitution
+		["58"]="Parameter name conflict: '\${pros_tag[1]}' vs '\${pros_tag}'"
+		["158"]="PFILTER entry name '\${pros_tag[1]}' conflict with parameter name '\${pros_tag}' after exception substitution."
+
+		["70"]="Parameter '\${pros_tag[1]}' is required but not supplied."
+		["170"]="Parameter '\${pros_tag[1]}' in Required MCG '\${pros_tag} without default value and not supplied."
 	)
 }
 
@@ -477,14 +502,14 @@ function validate_variable_name {
 	local return_on_error=${2:-false} # return if invalid instead of exit with a message
 
 	[[ -n "${var_name_ref}" ]] || exit_with_msg 26
-	pros_tag="${var_name_ref}"
+	pros_tag[0]="${var_name_ref}"
 
 	# leading or trailing hyphens are not allowed (would break LID/trailing-tag parsing)
 	if [[ ${var_name_ref} == -* ]] || [[ ${var_name_ref} == *- ]]; then
 		if [[ ${return_on_error} == true ]]; then
 			return 1
 		fi
-		pros_tag2="-"
+		pros_tag[1]="-"
 		exit_with_msg 22
 	fi
 
@@ -502,15 +527,13 @@ function validate_variable_name {
 	fi
 
 	if [[ ${var_name_ref:0:1} == [0-9] ]]; then
-		pros_tag2="${var_name_ref:0:1}"
+		pros_tag[1]="${var_name_ref:0:1}"
 		exit_with_msg 23
 	fi
 
 	if [[ ! ${var_name_ref} =~ ^[a-zA-Z0-9_]+$ ]]; then
-		pros_tag2="${var_name_ref//[a-zA-Z0-9_]/}"
+		pros_tag[1]="${var_name_ref//[a-zA-Z0-9_]/}"
 		exit_with_msg 22
 	fi
 	exit_with_msg 21
 }
-
-declare -ra BP_REGEX_METACHARS=('\' '.' '[' ']' '(' ')' '{' '}' '^' '$' '*' '+' '?' '|')
