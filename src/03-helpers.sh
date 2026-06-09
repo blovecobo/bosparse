@@ -14,67 +14,42 @@
 function reset_verbose {
 	local v
 	for v in "quiet" "extra" "debug" "trace"; do
-		CONFIGS["${PSETS[${v}]%%:*}"]=false
+		CONFIGS["${PSETS[${v}]%%${FLD_SEP}*}"]=false
 	done
-	CONFIGS["${PSETS["standard"]%%:*}"]=true
+	CONFIGS["${PSETS["standard"]%%${FLD_SEP}*}"]=true
 	verbose=1
 }
 
 # turn output settings to verbose
+# TRACE > DEBUG > EXTRA > STANDARD > QUIET, then:
 # trace > debug > extra > standard > quiet
 function update_verbose {
-	local spr
 
-	for spr in "${supers[@]}"; do
-		if [[ -v CONFIGS["${SUPERS[${spr}]%%:*}"] ]]; then
-			CONFIGS["${PSETS["${spr}"]%%:*}"]=true
+	if [[ ${#DEBUG_MAP[@]} -gt 0 ]]; then
+		if [[ ${DEBUG_MAP[TRACE]:-false} == true ]]; then
+			verbose=4
+		elif [[ ${DEBUG_MAP[DEBUG]:-false} == true ]]; then
+			verbose=3
+		elif [[ ${DEBUG_MAP[EXTRA]:-false} == true ]]; then
+			verbose=2
+		elif [[ ${DEBUG_MAP[STANDARD]:-false} == true ]]; then
+			verbose=1
+		elif [[ ${DEBUG_MAP[QUIET]:-false} == true ]]; then
+			verbose=0
 		fi
-	done
-
-	[[ ${CONFIGS["${PSETS["quiet"]%%:*}"]} == true ]] && {
-		__QUIET=true
-		verbose=0
-	}
-	[[ ${CONFIGS["${PSETS["standard"]%%:*}"]} == true ]] && {
-		CONFIGS["${PSETS["quiet"]%%:*}"]=false
-		__QUIET=false
-		__STANDARD=true
-		verbose=1
-	}
-	[[ ${CONFIGS["${PSETS["extra"]%%:*}"]} == true ]] && {
-		CONFIGS["${PSETS["quiet"]%%:*}"]=false
-		CONFIGS["${PSETS["standard"]%%:*}"]=true
-		__QUIET=false
-		__STANDARD=true
-		__EXTRA=true
-		verbose=2
-	}
-	[[ ${CONFIGS["${PSETS["debug"]%%:*}"]} == true ]] && {
-		CONFIGS["${PSETS["quiet"]%%:*}"]=false
-		CONFIGS["${PSETS["standard"]%%:*}"]=true
-		CONFIGS["${PSETS["extra"]%%:*}"]=true
-		__QUIET=false
-		__STANDARD=true
-		__EXTRA=true
-		__DEBUG=true
-		verbose=3
-	}
-	[[ ${CONFIGS["${PSETS["trace"]%%:*}"]} == true ]] && {
-		CONFIGS["${PSETS["quiet"]%%:*}"]=false
-		CONFIGS["${PSETS["standard"]%%:*}"]=true
-		CONFIGS["${PSETS["extra"]%%:*}"]=true
-		CONFIGS["${PSETS["debug"]%%:*}"]=true
-		__QUIET=false
-		__STANDARD=true
-		__EXTRA=true
-		__DEBUG=true
-		__TRACE=true
-		verbose=4
-	}
-	[[ -n ${verbose:-} ]] || {
-		verbose=1
-		__STANDARD=true
-	}
+	else
+		if [[ ${CONFIGS["${PSETS["trace"]%%${FLD_SEP}*}"]} == true ]]; then
+			verbose=4
+		elif [[ ${CONFIGS["${PSETS["debug"]%%${FLD_SEP}*}"]} == true ]]; then
+			verbose=3
+		elif [[ ${CONFIGS["${PSETS["extra"]%%${FLD_SEP}*}"]} == true ]]; then
+			verbose=2
+		elif [[ ${CONFIGS["${PSETS["quiet"]%%${FLD_SEP}*}"]} == true ]]; then
+			verbose=0
+		else
+			verbose=1
+		fi
+	fi
 	return 0
 }
 
@@ -107,7 +82,7 @@ function check_param_type {
 	param_ref="${current}"
 
 	if with_lid "${current}" "${lid}${lid}"; then
-		# '--current' or '~~current' like, liga
+		# '--current' like, uliga
 		return 1
 	elif with_lid "${current}" "${lid}"; then
 		# '-current ' like, with lid
@@ -196,8 +171,15 @@ function apply_setup {
 	# apply settings to CONFIGS
 	field_len=$(max_array_member_length "${!BP_OPTIONS[@]}")
 	for ps in "${!BP_OPTIONS[@]}"; do
+		# check if in IMMUTABLE_CONFIGS, otherwise update CONFIGS
+		if is_array_member "${ps}" IMMUTABLE_CONFIGS; then
+			pros_tag[0]="${title} setting:"
+			pros_tag[1]="${ps} is immutable"
+			pros_tag[2]="cannot be changed."
+			exit_with_msg 27
+		fi
 		msg_bp 4 "    $(printf "%${field_len}s | %s\n" "${ps}" "${BP_OPTIONS[${ps}]}")" >&2
-		CONFIGS["${setup_ref["${ps}"]%%:*}"]="${BP_OPTIONS["${ps}"]}"
+		CONFIGS["${setup_ref["${ps}"]%%${FLD_SEP}*}"]="${BP_OPTIONS["${ps}"]}"
 	done
 }
 
@@ -219,11 +201,11 @@ function reset_intermediate_arrays {
 function show_configs {
 	local output_as_json key param len_key
 
-	[[ ${CONFIGS[${PSETS["json"]%%:*}]} == true ]] && output_as_json=true || output_as_json=false
-	[[ ${CONFIGS[${PSETS["run"]%%:*}]} == "capture" ]] && output_as_json=true
+	[[ ${CONFIGS[${PSETS["json"]%%${FLD_SEP}*}]} == true ]] && output_as_json=true || output_as_json=false
+	[[ ${CONFIGS[${PSETS["run"]%%${FLD_SEP}*}]} == "capture" ]] && output_as_json=true
 
 	# output to stdout if '~config' set, or to stderr for debugging
-	# ~/~~~config set to true, output current CONFIGS settings to stdout
+	# ~/~~/~~~config set to true, output current CONFIGS settings to stdout
 	local -n mappings=__BP_SC_MAP
 	declare -A show_arr=()
 	for param in "${!CONFIGS[@]}"; do
@@ -231,7 +213,7 @@ function show_configs {
 		show_arr["${key}"]="${CONFIGS[${param}]}"
 	done
 
-	if [[ ${CONFIGS["${PSETS["config"]%%:*}"]} == true ]]; then
+	if [[ ${CONFIGS["${PSETS["config"]%%${FLD_SEP}*}"]} == true ]]; then
 		if [[ ${output_as_json} == true ]]; then
 			validate_jq
 			serialize_pfilter show_arr | jq
@@ -241,10 +223,9 @@ function show_configs {
 			for key in "${!show_arr[@]}"; do
 				printf "%q=%q\n" "${key}" "${show_arr[${key}]}"
 			done
-			# show_array show_arr "=" 2>&1 | sort -n
 		fi
-	else # for directive Defaults
-
+	else
+		# for directive Defaults
 		if [[ ${output_as_json} == true ]]; then
 			validate_jq
 			serialize_pfilter show_arr | jq
@@ -260,12 +241,12 @@ function show_configs {
 			echo2 ""
 			echo2 "Priors defaults:"
 			for key in "${!PRIORS[@]}"; do
-				printf "%${len_key}s | %s\n" "~~${key}" "${CONFIGS[${PRIORS[${key}]%%:*}]}" >&2
+				printf "%${len_key}s | %s\n" "~~${key}" "${CONFIGS[${PRIORS[${key}]%%${FLD_SEP}*}]}" >&2
 			done | sort -n
 			echo2 ""
 			echo2 "PSets defaults:"
 			for key in "${!PSETS[@]}"; do
-				printf "%${len_key}s | %s\n" "~${key}" "${CONFIGS[${PSETS[${key}]%%:*}]}" >&2
+				printf "%${len_key}s | %s\n" "~${key}" "${CONFIGS[${PSETS[${key}]%%${FLD_SEP}*}]}" >&2
 			done | sort -n
 		fi
 	fi

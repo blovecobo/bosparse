@@ -14,7 +14,7 @@
 function trace {
 	local start=${1:-0} ll
 
-	[[ ${verbose:-1} -gt 3 ]] || return
+	# [[ ${verbose:-1} -gt 2 ]] || return
 	local ln_levels fld_len
 
 	local fn=("${FUNCNAME[@]}")
@@ -68,6 +68,14 @@ function escape_symbol {
 	fi
 }
 
+# helper: valid number check (no leading zeros except '0')
+function is_number() {
+	if [[ $1 =~ ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$ ]]; then
+		return 0
+	fi
+	return 1
+}
+
 # count occurrences of substring in string
 function count_substr {
 	local sub="$1" str="$2"
@@ -80,7 +88,7 @@ function count_substr {
 }
 
 # calculate max length among array members without external tools('wc'.. )
-# usage:
+# usage:gde
 #   max_length "${sample[@]}"
 function max_array_member_length {
 	local max_len=0 item len
@@ -99,24 +107,10 @@ function validate_jq {
 # require a minimum Bash version and exit plainly if not available
 function require_bash_version {
 	local major=${1:-4} minor=${2:-4}
-	if (( BASH_VERSINFO[0] < major || (BASH_VERSINFO[0] == major && BASH_VERSINFO[1] < minor) )); then
+	if ((BASH_VERSINFO[0] < major || (BASH_VERSINFO[0] == major && BASH_VERSINFO[1] < minor))); then
 		printf 'BosParse requires bash %d.%d or newer. Current: %d.%d\n' "${major}" "${minor}" "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}" >&2
 		exit 1
 	fi
-}
-
-# extract a single value from capture-mode JSON output using a jq filter
-# Usage: capture_json_extract "$json" '.options.foo' 'default-value'
-function capture_json_extract {
-	local json="$1" jq_filter="${2:-.}" default="${3:-}"
-
-	validate_jq
-	if [[ -z "${json}" ]]; then
-		printf '%s' "${default}"
-		return 1
-	fi
-
-	jq -r --arg default "${default}" "try ${jq_filter} catch \$default" <<<"${json}"
 }
 
 # find array key of a member
@@ -178,9 +172,15 @@ function msg_bp {
 function render_exit_msg {
 	local exit_code=$1
 	local additional_msg=${2:-}
-	local msg
+	local msg index
 
-	msg="$(eval echo "\"${EXIT_MSG[${exit_code}]}\"")"
+	msg="${EXIT_MSG[${exit_code}]}"
+
+	for index in "${!pros_tag[@]}"; do
+		msg="${msg//\$\{pros_tag\[${index}\]\}/${pros_tag[index]}}"
+		additional_msg="${additional_msg//\$\{pros_tag\[${index}\]\}/${pros_tag[index]}}"
+	done
+
 	printf '\e[33merror %d:\e[0m %s\n' "${exit_code}" "${msg}" >&2
 
 	if [[ -n "${additional_msg}" ]]; then
@@ -266,5 +266,34 @@ function substitute_exceptions {
 
 	for except_char in "${!EXCEPTIONS[@]}"; do
 		var_name=${var_name//"${except_char}"/"${EXCEPTIONS[${except_char}]}"}
+	done
+}
+
+# extract a single value from a JSON string using a jq filter
+# Usage: capture_json_extract "$json" '.options.foo' 'default-value'
+function capture_json_extract {
+	local json="$1" jq_filter="${2:-.}" default="${3:-}"
+
+	validate_jq
+	if [[ -z "${json}" ]]; then
+		printf '%s' "${default}"
+		return 1
+	fi
+
+	jq -r --arg default "${default}" "try ${jq_filter} catch \$default" <<<"${json}"
+}
+
+# secure output specific vairables from a json string
+# usage:
+#   output_json_whitelist "${json}" "var1" "var2" "var3"
+function output_json_whitelist {
+	[[ $# -gt 1 ]] || return 0
+	local json=$1
+	shift
+	local white_list=("$@")
+
+	for k in "${white_list[@]}"; do
+		v=$(jq -r --arg k "${k}" '.[$k] // empty' <<<"${json}")
+		[[ -n "${v}" ]] && printf -v "${k}" '%s' "${v}"
 	done
 }

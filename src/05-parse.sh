@@ -1,16 +1,16 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2206
 # Module 05-parse: Core parsing logic
-#   extract_options()      — iterate CML tokens, classify via check_param_type()
-#   check_cml_super_settings() — detect watershed vs islands, parse supers (~~~style, ~~~zs)
-#   extract_watershed()    — split CML at ZN_SEP (--) into op_zone / pp_zone
-#   extract_islands()      — split CML by LID presence (options vs positionals)
-#   parse_ligas()          — expand ligatures (~abc) into multiple bools
-#   parse_bools()          — parse boolean params with trailing tags (+/-)
-#   parse_strings()        — parse string params with OA_SEP (=)
-#   parse_options()        — orchestrate liga/bool/string parsing for a LID
-#   parse_positionals()    — store remaining params as positional array
-#   prefix_matching()      — exact then prefix then postfix matching
+#   extract_options()       — iterate CML tokens, classify via check_param_type()
+#   bosparse_parse_supers() — detect watershed vs islands, parse supers (~~~style, ~~~zs)
+#   extract_watershed()     — split CML at ZN_SEP (--) into op_zone / pp_zone
+#   extract_islands()       — split CML by LID presence (options vs positionals)
+#   parse_ligas()           — expand ligatures (~abc) into multiple bools
+#   parse_bools()           — parse boolean params with trailing tags (+/-)
+#   parse_strings()         — parse string params with OA_SEP (=)
+#   parse_options()         — orchestrate liga/bool/string parsing for a LID
+#   parse_positionals()     — store remaining params as positional array
+#   prefix_matching()       — exact then prefix then postfix matching
 # --------------------------------------------------------------------------------
 
 # debugging helper: print all BP_OPTIONS, BP_STRINGS, BP_BOOLS to stderr
@@ -27,7 +27,7 @@ function extract_options {
 	local -n strings_ref=$2 bools_ref=$3 ligas_ref=$4 # for passing back PSets
 	local -n CML=$5
 
-	msg_bp 2 "  extract ${lid}options"
+	msg_bp -2 "  extract ${lid} " "options"
 
 	local curr_param next_param
 	local extracted_param param_type arg_consumed=false
@@ -35,19 +35,30 @@ function extract_options {
 
 	for i in "${!CML[@]}"; do
 
-		# process priors
-		if [[ ${lid} == "${PRLID}" ]]; then
+		# process supers & priors
+		if [[ ${lid} == "${PRLID}" || ${lid} == "${SLID}" ]]; then
 			# filter out non-prior params
-			with_lid "${CML[i]}" "${PRLID}" || continue
+			with_lid "${CML[i]}" "${lid}" || continue
 			# skip solitary PRLID (e.g. standalone '~~' zone separator colliding with PRLID)
-			[[ ${#CML[i]} -gt ${#PRLID} ]] || continue
+			[[ ${#CML[i]} -gt ${#lid} ]] || continue
+			# extract and validate param name (strip LID, OA_SEP+val, trailing bool tag)
+			local _pname="${CML[i]#"${lid}"}"
+			_pname="${_pname%%"${OA_SEP}"*}"               # strip OA_SEP and val
+			_pname="${_pname%["${TAG_TRUE}${TAG_FALSE}"]}" # strip trailing bool tag
+
+
+			local _ptype
+			if [[ ${lid} == "${PRLID}" ]]; then
+				_ptype="Prior"
+			else
+				_ptype="Super"
+			fi
+			msg_bp 2 "  found ${_ptype} token: ${CML[i]} -> name: ${_pname}"
+			validate_variable_name "${_ptype} name" _pname
 			if [[ ${CML[i]} == *${OA_SEP}* ]]; then
 				strings_ref+=("${CML[i]}")
 			else
-				# validate name to avoid collision with other LIDs
-				local _pname="${CML[i]#"${PRLID}"}"
-				_pname="${_pname%["${TAG_TRUE}${TAG_FALSE}"]}"
-				validate_variable_name _pname true && bools_ref+=("${CML[i]}")
+				bools_ref+=("${CML[i]}")
 			fi
 			continue
 		fi
@@ -81,94 +92,14 @@ function extract_options {
 		7)    # matching other lid followd by an arg, skip with a consumption signal
 			arg_consumed=true
 			;;
-		*) # a solitary arg found, parsing failed
+		0) # a solitary arg found, parsing failed
 			pros_tag[0]="${curr_param}"
 			exit_with_msg 21
 			;;
+		*) exit_with_msg 3 "unexpected param_type '${param_type}' from check_param_type." ;;
 		esac
 	done
 	return 0
-}
-
-# check command line super settings (style, zs)
-function check_cml_super_settings {
-	local CML_arr=("$@")
-	local param param_name matched stl super_list
-
-	local available_style=(
-		${CONSTS[CML_STYLE]%|*}
-		${CONSTS[CML_STYLE]#*|}
-	)
-
-	super_list=("${!SUPERS[@]}")
-
-	msg_bp 2 "Test CML style"
-	for param in "${CML_arr[@]}"; do
-		with_lid "${param}" "${SLID}" || continue
-		param_name="${param%%=*}"
-		param_name=${param_name##"${SLID}"}
-
-		# strip trailing bool tag for prefix matching if exist
-		local param_tag
-		param_tag="$(parse_bool_tag "${param_name}")"
-		if [[ ${param_tag} == true ]]; then
-			param_name="${param_name%${TAG_TRUE}}"
-		elif [[ ${param_tag} == false ]]; then
-			param_name="${param_name%${TAG_FALSE}}"
-		fi
-
-		matched=$(prefix_matching "${param_name}" super_list) || continue
-
-		case ${matched} in
-		style)
-			msg_bp 2 "CML style setting found: ${param}"
-			if [[ ${param} == *"${OA_SEP}"* ]]; then
-				local style_found=false
-				for stl in "${available_style[@]}"; do
-					if [[ ${stl} =~ ^${param#*"${OA_SEP}"} ]]; then
-						msg_bp 2 "CML style: ${stl}"
-						CML_STYLE="${stl}"
-						style_found=true
-						break
-					fi
-				done
-				if ! ${style_found}; then
-					pros_tag[0]="Prior setting"
-					pros_tag[1]="${param}"
-					pros_tag[2]="CML style should be one of '${CONSTS[CML_STYLE]}'"
-					exit_with_msg 27
-				fi
-			else
-				# no OA-SEP, bool syntax: +/bare -> EML, - -> EMF
-				if [[ ${param_tag} == "false" ]]; then
-					CML_STYLE="${CONSTS[CML_STYLE]%|*}"
-				else
-					CML_STYLE="${CONSTS[CML_STYLE]##*|}"
-				fi
-			fi
-			;;
-		zs)
-			msg_bp 2 "CML ZN-SEP setting found: ${param}"
-			if [[ ${param} == *"${OA_SEP}"* ]]; then
-				local zn_val="${param#*=}"
-				if [[ ${#zn_val} -ne 2 ]] || ! is_in_resyms "${zn_val}"; then
-					pros_tag[0]="Super setting"
-					pros_tag[1]="${param}"
-					pros_tag[2]="must be exactly 2 reserved symbols"
-					exit_with_msg 51
-				fi
-				msg_bp 2 "zone separator: ${zn_val}"
-				ZN_SEP="${zn_val}"
-			else
-				pros_tag[0]="Super setting"
-				pros_tag[1]="${param}"
-				pros_tag[2]="zone separator requires a value (2 reserved symbols)"
-				exit_with_msg 51
-			fi
-			;;
-		*) ;;
-		esac
-	done
 }
 
 # # extract islands style cml
@@ -213,7 +144,7 @@ function extract_watershed {
 
 	if [[ ${zsep_count} -gt 1 ]]; then
 		# duplicate ZONE_SEPs
-		pros_tag[0]="${CONFIGS[${SUPERS["zs"]%%:*}]}"
+		pros_tag[0]="${CONFIGS[${SUPERS["zs"]%%${FLD_SEP}*}]}"
 		pros_tag[1]="${zsep_count}"
 		exit_with_msg 20
 	elif [[ ${zsep_count} -eq 1 ]]; then
@@ -290,7 +221,7 @@ function parse_ligas {
 
 		for ((start = 0; start < ${#liga_name}; start += b_nlen)); do
 			b_name="${liga_name:${start}:${b_nlen}}"
-			if ! validate_variable_name b_name true; then
+			if ! validate_variable_name "bool-name in LIGA" b_name true; then
 				pros_tag[0]="${b_name}"
 				pros_tag[1]="${lid}${liga}"
 				exit_with_msg 24
@@ -317,7 +248,7 @@ function parse_bools {
 		b_name=${b_name%["${TAG_TRUE}${TAG_FALSE}"]} # remove tag
 
 		msg_bp -4 "    bool: " "${bl} | ${b_tag}"
-		validate_variable_name b_name
+		validate_variable_name "bool param name" b_name
 
 		BP_BOOLS["${b_name}"]="${b_tag}"
 		BP_OPTIONS["${b_name}"]="${b_tag}"
@@ -330,21 +261,21 @@ function parse_strings {
 	local lid=$1
 	local -n str_ref=$2
 
-	local str s_name val
+	local str str_name val
 
 	msg_bp -3 "  parse ${lid} " "strings"
 
 	for str in "${str_ref[@]}"; do
-		s_name=${str#"${lid}"}             # remove lid
-		s_name=${s_name%%"${OA_SEP}"*}     # remove OA_SEP and value
-		val="${str#*"${s_name}${OA_SEP}"}" # extract value(in case value contains OA_SEP)
+		str_name=${str#"${lid}"}             # remove lid
+		str_name=${str_name%%"${OA_SEP}"*}   # remove OA_SEP and value
+		val="${str#*"${str_name}${OA_SEP}"}" # extract value(in case value contains OA_SEP)
 
 		msg_bp -4 "    string: " "${str%%=*} | ${val:--}"
-		# validate param s_name
-		validate_variable_name s_name
+		# validate param str_name
+		validate_variable_name "string param name" str_name
 
-		BP_STRINGS["${s_name}"]="${val}"
-		BP_OPTIONS["${s_name}"]="${val}"
+		BP_STRINGS["${str_name}"]="${val}"
+		BP_OPTIONS["${str_name}"]="${val}"
 	done
 }
 
@@ -371,46 +302,46 @@ function parse_positionals {
 
 # validate:
 #   test exactly match an array member
-#   if not, try prefix-matching/postfix-matching(depends on $4)
-# output and return codes:
-#   0 - one matched:      expactly/prefixly matched
+#   if not, try prefix-matching/postfix-matching(depends on $3)
+# return code and output:
+#   0 - one matched:      expactly/prefixly/postfixly matched
 #	1 - non-matched:      ""
 #   2 - multiple matched: matching names
 # note:
 #   this script assumes that no duplicated members in matching-list
 function prefix_matching {
-	local candidate=$1
-	local -n matching_list=$2
-	local prefix=${3:-prefix}
+	local needle=$1
+	local -n haystack=$2
+	local match_method=${3:-prefix}
 
-	local pk candidate_regex
+	local pk needle_regex
 	local re_char
 
 	declare -a matched=()
 
-	# build regex-safe pattern from candidate
-	candidate_regex="${candidate}"
+	# build regex-safe pattern from needle
+	needle_regex="${needle}"
 	# escape regex metacharacters (backslash first to avoid double-escaping)
-	for re_char in "${BP_REGEX_METACHARS[@]}"; do
-		candidate_regex="${candidate_regex//"${re_char}"/\\"${re_char}"}"
+	for re_char in "${REGEX_METACHARS[@]}"; do
+		needle_regex="${needle_regex//"${re_char}"/\\"${re_char}"}"
 	done
 
 	# try exactly match (plain string comparison, no regex)
-	if is_array_member "${candidate}" matching_list; then
-		echo "${candidate}"
+	if is_array_member "${needle}" haystack; then
+		echo "${needle}"
 		return 0
 	fi
 
 	# try prefix/postfix matching
-	for pk in "${matching_list[@]}"; do
-		if [[ ${prefix} == "prefix" ]]; then
+	for pk in "${haystack[@]}"; do
+		if [[ "prefix" == "${match_method}" ]]; then
 			# prefix matching
-			[[ ${pk} =~ ^${candidate_regex} ]] && matched+=("${pk}")
-		elif [[ "postfix" =~ ^${prefix} ]]; then
+			[[ ${pk} =~ ^${needle_regex} ]] && matched+=("${pk}")
+		elif [[ "postfix" =~ ^${match_method} ]]; then
 			# postfix-matching
-			[[ ${pk} =~ ${candidate_regex}$ ]] && matched+=("${pk}")
+			[[ ${pk} =~ ${needle_regex}$ ]] && matched+=("${pk}")
 		else
-			pros_tag[0]="Wrong options '${prefix}' when calling 'prefix-matching()', 'prefix(default)|postfix' available."
+			pros_tag[0]="Wrong options '${match_method}' when calling 'prefix-matching()', 'prefix(default)|postfix' available."
 			exit_with_msg 3
 		fi
 	done

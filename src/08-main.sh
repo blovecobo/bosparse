@@ -1,15 +1,15 @@
 # shellcheck shell=bash
 # Module 08-main: Entry point and high-level orchestration
 #   bosparse() — main function, called when script is executed (not sourced)
-#   Workflow: init configs -> detect style -> extract zones ->
+#   Workflow: init configs -> detect style -> extract zones -> parse supers ->
 #   parse Priors -> parse PSets -> parse User params -> parse Positionals -> output
 #   Module-level: BP_ESC_PFX (random escape marker), __BP_READY (sourced marker)
 # --------------------------------------------------------------------------------
 
 # initialize runtime configs by calling definitions() and setting CONFIGS defaults
 function bosparse_initialize_runtime {
-	local_script_path="$(realpath "${BASH_SOURCE[0]}")"
-	local_script_name="${local_script_path##*\/}"
+	bosparse_script_path="$(realpath "${BASH_SOURCE[0]}")"
+	bosparse_script_name="${bosparse_script_path##*\/}"
 
 	definitions \
 		CONFIGS \
@@ -23,13 +23,11 @@ function bosparse_initialize_runtime {
 		PFILTER_ENTRY_TYPES \
 		MCG_TYPES \
 		SYMNAMES \
-		BP_REGEX_METACHARS
+		REGEX_METACHARS \
+		DEBUG_CMDS \
+		IMMUTABLE_CONFIGS
 
 	require_bash_version 4 4
-	# CONFIGS["run_mode"]="auto"
-	# CONFIGS["style_of_commandline"]="watershed"
-	# CONFIGS["output_as_json"]=false
-	# CONFIGS["param_filter"]="${CONSTS["NO_PFILTER"]}"
 }
 
 # split CML into op_zone (options) and pp_zone (positionals) by current CML_STYLE
@@ -51,9 +49,9 @@ function bosparse_show_config_if_needed {
 	local clear_after_show=${2:-false}
 	local -n setup_ref="${setup_map_name}"
 
-	if [[ ${CONFIGS[${setup_ref["config"]%%:*}]} == true ]]; then
+	if [[ -v setup_ref["config"] ]] && [[ ${CONFIGS[${setup_ref["config"]%%${FLD_SEP}*}]} == true ]]; then
 		show_configs
-		[[ ${clear_after_show} == true ]] && CONFIGS["${setup_ref["config"]%%:*}"]=false
+		[[ ${clear_after_show} == true ]] && CONFIGS["${setup_ref["config"]%%${FLD_SEP}*}"]=false
 	fi
 	return 0
 }
@@ -87,26 +85,26 @@ function bosparse_parse_stage {
 		else
 			reset_intermediate_arrays false
 		fi
-
-		bosparse_show_config_if_needed "${setup_map_name}" "${clear_after_show}"
-		if [[ ${rebuild_zones} == true ]]; then
-			bosparse_extract_zones "$@"
-			local -a _filtered_zone=()
-			local _tok
-			for _tok in "${op_zone[@]}"; do
-				with_lid "${_tok}" "${lid}" || _filtered_zone+=("${_tok}")
-			done
-			op_zone=("${_filtered_zone[@]}")
-			_filtered_zone=()
-			for _tok in "${pp_zone[@]}"; do
-				with_lid "${_tok}" "${lid}" || _filtered_zone+=("${_tok}")
-			done
-			pp_zone=("${_filtered_zone[@]}")
-		fi
-		return 0
+	else
+		msg_bp 3 "  no ${stage_label} supplied, skip parsing ${stage_label}"
 	fi
 
-	msg_bp 3 "  no ${stage_label} supplied, skip parsing ${stage_label}"
+	bosparse_show_config_if_needed "${setup_map_name}" "${clear_after_show}"
+	if [[ ${rebuild_zones} == true ]]; then
+		bosparse_extract_zones "$@"
+		local -a _filtered_zone=()
+		local _tok
+		for _tok in "${op_zone[@]}"; do
+			with_lid "${_tok}" "${lid}" || _filtered_zone+=("${_tok}")
+		done
+		op_zone=("${_filtered_zone[@]}")
+		_filtered_zone=()
+		for _tok in "${pp_zone[@]}"; do
+			with_lid "${_tok}" "${lid}" || _filtered_zone+=("${_tok}")
+		done
+		pp_zone=("${_filtered_zone[@]}")
+	fi
+	return 0
 }
 
 # parse user-supplied option params: extract, parse, then validate against PFILTER
@@ -118,7 +116,7 @@ function bosparse_parse_user_options {
 	parse_options "${ULID}" strings bools ligas
 
 	if [[ ${#BP_OPTIONS[@]} -ne 0 ]] ||
-		[[ ${CONFIGS["${PSETS["afd"]%%:*}"]} == true ]]; then
+		[[ ${CONFIGS["${PSETS["afd"]%%${FLD_SEP}*}"]} == true ]]; then
 		validate_user_options
 	fi
 }
@@ -147,35 +145,10 @@ function bosparse_emit_output {
 
 # reject empty input, lone '--', or lone ZN_SEP before any parsing
 function bosparse_validate_input {
-	if [[ $# -eq 0 || $* == '--' || $* == "${ZN_SEP}" ]]; then
+	if [[ $# -eq 0 || "$*" == '--' || "$*" == "${ZN_SEP}" ]]; then
 		verbose=1
 		exit_with_msg 2
 	fi
-}
-
-# collect super (~~~) flags from CML before main parsing starts
-function bosparse_collect_super_flags {
-	local CML=("$@") prm slid="${SLID}"
-
-	# in case value of '~pf' broke supers parsing
-	for i in "${!CML[@]}"; do
-		if [[ ${CML[i]} =~ ^\~pf= ]]; then
-			unset "CML[i]"
-			# break # commented out to allow multiple ~pf flags, if needed in future
-		fi
-	done
-
-	for prm in "${!SUPERS[@]}"; do
-		[[ ${SUPERS[${prm}]##*"${FLD_SEP}"} == "eg_sv" ]] || continue
-		for i in "${!CML[@]}"; do
-			if [[ ${CML[i]} =~ ${slid}${prm} ]]; then
-				supers+=("${prm}")
-			fi
-		done
-	done
-
-	update_verbose
-	unset supers
 }
 
 # store remaining non-option params from pp_zone as positionals
@@ -190,75 +163,112 @@ function bosparse_finalize {
 	msg_bp 3 "${BP_PARSING_STAGE}"
 }
 
+# debug setting
+function bosparse_debug_setting {
+	local -n params=$1
+	local index db_level mapped=false
+
+	for index in "${!params[@]}"; do
+		# skip PFILTER, which may contains debug-like strings
+		[[ ${params[index]} == ~pf* ]] && continue
+		for db_level in "${!DEBUG_CMDS[@]}"; do
+			if [[ ${params[index]} == "${DEBUG_CMDS[${db_level}]}" ]]; then
+				msg_bp 1 "Debug Setting: ${db_level}"
+				DEBUG_MAP["${db_level}"]=true
+				mapped=true
+			fi
+		done
+		if [[ ${mapped} == true ]]; then
+			unset 'params[index]'
+			mapped=false
+		fi
+	done
+	update_verbose
+}
+
 # main entry: orchestrate full parsing pipeline (Priors to PSets to User to Positionals to Output)
 function bosparse {
-	# trap on_exit_bp EXIT
-	local verbose
-	local -a pros_tag
+	trap on_exit_bp EXIT
 
+	local verbose=1 bosparse_script_name
+	declare -a pros_tag=() op_zone=() pp_zone=()
 	declare -a op_zone=() pp_zone=()
 	declare -a strings=() bools=() ligas=()
 	declare -A CONFIGS CONSTS SUPERS PRIORS PSETS
-	declare -A EXCEPTIONS EXIT_MSG MCG_TYPES SYMNAMES
-	declare -a RESYMS PFILTER_ENTRY_TYPES BP_REGEX_METACHARS
+	declare -A EXCEPTIONS EXIT_MSG MCG_TYPES SYMNAMES DEBUG_CMDS
+	declare -a RESYMS PFILTER_ENTRY_TYPES REGEX_METACHARS IMMUTABLE_CONFIGS
 
 	bosparse_initialize_runtime
 
-	declare -n SLID="CONFIGS[${SUPERS["slid"]%%:*}]"
-	declare -n PRLID="CONFIGS[${SUPERS["prlid"]%%:*}]"
-	declare -n CML_STYLE="CONFIGS[${SUPERS["style"]%%:*}]"
-	# declare -l param="$SLID"
-
-	declare -n PLID="CONFIGS[${PRIORS["plid"]%%:*}]"
-	declare -n ULID="CONFIGS[${PRIORS["ulid"]%%:*}]"
-	declare -n ZN_SEP="CONFIGS[${SUPERS["zs"]%%:*}]"
-	declare -n OA_SEP="CONFIGS[${PRIORS["os"]%%:*}]"
-	declare -n TAG_TRUE="CONFIGS[${PRIORS["tt"]%%:*}]"
-	declare -n TAG_FALSE="CONFIGS[${PRIORS["tf"]%%:*}]"
-	declare -n TAG_DEFAULT="CONFIGS[${PRIORS[td]%%:*}]"
-
-	declare -n RUN_MODE="CONFIGS[${PSETS["run"]%%:*}]"
-	declare -n PARAM_FILTER="CONFIGS[${PSETS["pf"]%%:*}]"
-
 	declare -n NO_PFILTER='CONSTS["NO_PFILTER"]'
 	declare -n PFILTER_ID='CONSTS["PFILTER_ID"]'
-	declare -n FLD_SEP="CONSTS[FLD_SEP]"
-	declare -n ELM_SEP="CONSTS[ELM_SEP]"
+	declare -n FLD_SEP='CONSTS["FLD_SEP"]'
+	declare -n ELM_SEP='CONSTS["ELM_SEP"]'
 
-	declare -A "${CONFIGS[${PSETS["oan"]%%:*}]}"
-	declare -A "${CONFIGS[${PSETS["san"]%%:*}]}"
-	declare -A "${CONFIGS[${PSETS["ban"]%%:*}]}"
-	declare -ga "${CONFIGS[${PSETS["pan"]%%:*}]}"
+	declare -n PLID="CONFIGS[${SUPERS["plid"]%%${FLD_SEP}*}]"
+	declare -n ULID="CONFIGS[${SUPERS["ulid"]%%${FLD_SEP}*}]"
+	declare -n ZN_SEP="CONFIGS[${SUPERS["zs"]%%${FLD_SEP}*}]"
+	declare -n OA_SEP="CONFIGS[${PRIORS["os"]%%${FLD_SEP}*}]"
+	declare -n TAG_TRUE="CONFIGS[${PRIORS["tt"]%%${FLD_SEP}*}]"
+	declare -n TAG_FALSE="CONFIGS[${PRIORS["tf"]%%${FLD_SEP}*}]"
+	declare -n TAG_DEFAULT="CONFIGS[${PRIORS[td]%%${FLD_SEP}*}]"
 
-	declare -n BP_OPTIONS="${CONFIGS[${PSETS["oan"]%%:*}]}"
-	declare -n BP_STRINGS="${CONFIGS[${PSETS["san"]%%:*}]}"
-	declare -n BP_BOOLS="${CONFIGS[${PSETS["ban"]%%:*}]}"
-	declare -n BP_POSITIONALS="${CONFIGS[${PSETS["pan"]%%:*}]}"
+	declare -n SLID="CONFIGS[${SUPERS["slid"]%%${FLD_SEP}*}]"
+	local PRLID="${PLID}${PLID}"
+	declare -n CML_STYLE="CONFIGS[${SUPERS["style"]%%${FLD_SEP}*}]"
+
+	declare -n RUN_MODE="CONFIGS[${PSETS["run"]%%${FLD_SEP}*}]"
+	declare -n PARAM_FILTER="CONFIGS[${PSETS["pf"]%%${FLD_SEP}*}]"
+
+	declare -A "${CONFIGS[${PSETS["oan"]%%${FLD_SEP}*}]}"
+	declare -A "${CONFIGS[${PSETS["san"]%%${FLD_SEP}*}]}"
+	declare -A "${CONFIGS[${PSETS["ban"]%%${FLD_SEP}*}]}"
+	declare -ga "${CONFIGS[${PSETS["pan"]%%${FLD_SEP}*}]}"
+
+	declare -n BP_OPTIONS="${CONFIGS[${PSETS["oan"]%%${FLD_SEP}*}]}"
+	declare -n BP_STRINGS="${CONFIGS[${PSETS["san"]%%${FLD_SEP}*}]}"
+	declare -n BP_BOOLS="${CONFIGS[${PSETS["ban"]%%${FLD_SEP}*}]}"
+	declare -n BP_POSITIONALS="${CONFIGS[${PSETS["pan"]%%${FLD_SEP}*}]}"
+
+	# collision-resistant escape marker prefix; generated once to prevent
+	# placeholder collisions with user data containing __COLON__ etc.
+	if [[ ! -v BP_ESC_PFX ]]; then
+		declare -r BP_ESC_PFX="_bp_${BASHPID}_${RANDOM}_"
+	fi
 
 	# build static mapping cache for show_configs
 	declare -A __BP_SC_MAP
 	for key in "${!SUPERS[@]}"; do
-		__BP_SC_MAP["${key}"]="${SUPERS[${key}]%%:*}"
+		__BP_SC_MAP["${key}"]="${SUPERS[${key}]%%${FLD_SEP}*}"
 	done
 	for key in "${!PRIORS[@]}"; do
-		__BP_SC_MAP["${key}"]="${PRIORS[${key}]%%:*}"
+		__BP_SC_MAP["${key}"]="${PRIORS[${key}]%%${FLD_SEP}*}"
 	done
 	for key in "${!PSETS[@]}"; do
-		__BP_SC_MAP["${key}"]="${PSETS[${key}]%%:*}"
+		__BP_SC_MAP["${key}"]="${PSETS[${key}]%%${FLD_SEP}*}"
 	done
 
-	declare -a supers=()
+	# setting debug
+	declare -A DEBUG_MAP=()
+	declare -a CML=("$@")
+	bosparse_debug_setting CML
+	# restore original CML without debug flags for parsing stages
+	set -- "${CML[@]}"
+
+	msg_bp 3 "Command line: " "$*"
+	msg_bp -2 "verbose: " "${verbose}"
+
 	bosparse_validate_input "$@"
-	bosparse_collect_super_flags "$@"
 
 	msg_bp 3 "Command line: " "$*"
 	msg_bp -2 "verbose: " "${verbose}"
 
 	reset_intermediate_arrays
-	check_cml_super_settings "$@"
-	bosparse_extract_zones "$@"
 
-	[[ ${#op_zone[@]} -eq 0 && ${#pp_zone[@]} -eq 0 ]] && exit_with_msg 2
+	# Supers prarsing needs all params as op_zone
+	op_zone=("$@")
+	bosparse_parse_stage "Supers" "${SLID}" SUPERS true true true "$@"
+	PRLID="${PLID}${PLID}" # sync after supers may change PLID
 
 	if [[ ${#op_zone[@]} -ne 0 ]]; then
 		bosparse_parse_stage "Priors" "${PRLID}" PRIORS true true true "$@"
@@ -276,12 +286,6 @@ function bosparse {
 }
 
 __BP_READY=true # identifying BosParse used
-
-# collision-resistant escape marker prefix; generated once to prevent
-# placeholder collisions with user data containing __COLON__ etc.
-if [[ ! -v BP_ESC_PFX ]]; then
-	declare -gr BP_ESC_PFX="_bp_${BASHPID}_${RANDOM}_"
-fi
 
 # echo "source assert: $(basename "$(realpath "${BASH_SOURCE[0]}")") | $(basename "$0") "
 if [[ $(basename "$(realpath "${BASH_SOURCE[0]}")") == $(basename "$0") ]]; then

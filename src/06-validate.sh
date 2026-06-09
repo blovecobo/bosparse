@@ -22,10 +22,11 @@ function validate_option_name {
 	local matched_names rtn=0
 
 	# msg_bp 4 "      validate param: ${param_ref} | mandatory: ${mandatory}"
+	# msg_bp 4 "      filter: ${matching_filter[*]}"
 
 	# ~pme only affects user params; PSets/Priors/Supers always use prefix matching
 	# if [[ ${lid} == "${ULID}" && ${CONFIGS[prefix_matching_enabled]} != true ]]; then
-	if [[ ${lid} == "${ULID}" && ${CONFIGS["${PSETS[pme]%%:*}"]} != true ]]; then
+	if [[ ${lid} == "${ULID}" && ${CONFIGS["${PSETS[pme]%%${FLD_SEP}*}"]} != true ]]; then
 		# user param with prefix matching disabled: only exact match allowed
 		if is_array_member "${param_ref}" matching_filter; then
 			return 0
@@ -179,15 +180,16 @@ function validate_option_args {
 function get_all_mcg_names {
 	local lid=$1
 	local -n pfilter=$2 mcg_groups_ref=$3
-	local mem dummy mcg mcg_name
+	local mem dummy mcg mcg_name mcg_names=()
 
 	for mem in "${!pfilter[@]}"; do
 		extract_filter_schema "${lid}" "${pfilter[${mem}]}" dummy dummy mcg
 		if [[ -n ${mcg} ]]; then
 			escape_symbol mcg "${ELM_SEP}"
-			# a param might belongs to multiple groups
+			# a param might belongs to multiple groups separated by ELM_SEP
 			local IFS="${ELM_SEP}"
-			for mcg_name in ${mcg}; do
+			read -ra mcg_names <<<"${mcg}"
+			for mcg_name in "${mcg_names[@]}"; do
 				# clean up mcg-name
 				escape_symbol mcg_name "${ELM_SEP}" "regress"
 				mcg_groups_ref["${mcg_name}"]=true
@@ -232,7 +234,7 @@ function validate_required_groups {
 
 	msg_bp 3 "    checking Required MCGs"
 	for mcg in "${groups[@]}"; do
-		[[ "require" =~ ^${mcg,,} ]] || continue
+		[[ ${mcg,,} =~ ^r ]] || continue
 		# msg_bp -3 "    - checking MCG - " "${mcg}"
 
 		member_mcg=""
@@ -382,7 +384,7 @@ function _validate_master_groups {
 			if [[ ${_mc_count["${mcg}"]} -ne 1 ]]; then
 				msg_bp 3 "      - MCG ${mcg}: Failed"
 				pros_tag[0]="${_mc_supplied[${mcg}]#\|}"
-				pros_tag[1]="${_mc_members[${mcg^}]#|}"
+				pros_tag[1]="${_mc_members[${mcg}]#|}"
 				exit_with_msg 45
 			fi
 			[[ -v _vpe_bools["${_ml_unsupplied[${mcg,}]}"] ]] &&
@@ -492,6 +494,8 @@ function validate_option_mcgs {
 						default_value="${CONFIGS[${PSETS[${member}]%%"${FLD_SEP}"*}]}"
 					elif [[ ${lid} == "${PRLID}" ]]; then
 						default_value="${CONFIGS[${PRIORS[${member}]%%"${FLD_SEP}"*}]}"
+					elif [[ ${lid} == "${SLID}" ]]; then
+						default_value="${CONFIGS[${SUPERS[${member}]%%"${FLD_SEP}"*}]}"
 					fi
 					msg_bp -4 "      member " "'${member}' un-supplied, default: '${default_value}'"
 					ug_values["${default_value}"]=true
@@ -560,6 +564,10 @@ function validate_options_by_filter {
 	"${PRLID}") # for Priors
 		declare -n def=PRIORS
 		ptitle="Prior"
+		;;
+	"${SLID}") # for Supers
+		declare -n def=SUPERS
+		ptitle="Super"
 		;;
 	*) ;;
 	esac

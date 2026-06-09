@@ -66,7 +66,8 @@ function extract_filter_schema {
 	local lid=$1 p_schema=$2
 	local -n p_type=$3 p_data=$4 p_mcg=$5
 
-	# escape FLD-SEPs
+	# escape backslashes before FLD-SEPs, to prevent `\\:` being misinterpreted as `\:`
+	escape_symbol p_schema "\\"
 	escape_symbol p_schema "${FLD_SEP}"
 
 	# for Priors/PSets, remove conf_name field
@@ -76,9 +77,11 @@ function extract_filter_schema {
 	local IFS="${FLD_SEP}"
 	read -r p_type p_data p_mcg <<<"${p_schema}"
 
-	# regress escaped FLD_SEPs; no need for Priors and PSets
+	# regress escaped symbols; no need for Priors and PSets
 	[[ ${lid} != "${ULID}" ]] || escape_symbol p_data "${FLD_SEP}" "regress"
 	[[ ${lid} != "${ULID}" ]] || escape_symbol p_mcg "${FLD_SEP}" "regress"
+	[[ ${lid} != "${ULID}" ]] || escape_symbol p_data "\\" "regress"
+	[[ ${lid} != "${ULID}" ]] || escape_symbol p_mcg "\\" "regress"
 
 	return 0
 }
@@ -151,7 +154,7 @@ function _process_mcg_name {
 
 	[[ -n ${mcg_name} ]] || return 0
 
-	if ! validate_variable_name mcg_name true; then
+	if ! validate_variable_name "mcg-name" mcg_name true; then
 		escape_symbol mcg_name "${FLD_SEP}" "restore"
 		pros_tag[0]="${mcg_name}"
 		pros_tag[1]="it should be a valid shell variable name(with exceptions)"
@@ -318,7 +321,7 @@ function validate_pfilter {
 		pros_tag[0]="it's an 'empty' variable."
 		exit_with_msg 31
 	fi
-	if validate_variable_name PARAM_FILTER true; then
+	if validate_variable_name "PFILTER name" PARAM_FILTER true; then
 		msg_bp 3 "  - PFILTER name: ${PARAM_FILTER}"
 
 		if [[ "$(declare -p "${PARAM_FILTER}" 2>/dev/null)" == "declare -A "* ]]; then
@@ -384,7 +387,7 @@ function validate_pfilter {
 	#   exception substitution on key
 	for pk in "${!PF_copy[@]}"; do
 		new_pk="${pk}"
-		if validate_variable_name new_pk true; then
+		if validate_variable_name "PFILTER entry key" new_pk true; then
 			if [[ ${pk} != "${new_pk}" ]]; then
 				# check: same name after substitution, conflict
 				if [[ -v PF_copy["${new_pk}"] ]]; then

@@ -66,15 +66,14 @@ function validate_user_options {
 	local param pf_type pf_data pf_mcg
 	local mandatory no_pfilter=true
 
-	mandatory="${CONFIGS[${PSETS["rup"]%%:*}]}"
+	mandatory="${CONFIGS[${PSETS["rup"]%%${FLD_SEP}*}]}"
 	# check if PFILTER supplied or not
-	[[ "${CONFIGS[${PSETS["pf"]%%:*}]}" == "${NO_PFILTER}" ]] &&
+	[[ "${CONFIGS[${PSETS["pf"]%%${FLD_SEP}*}]}" == "${NO_PFILTER}" ]] &&
 		no_pfilter=true || no_pfilter=false
 
 	msg_bp 4 "  PFILTER-ID: ${PFILTER_ID} | rup: ${mandatory}"
 
 	if [[ "${no_pfilter}" == true ]]; then
-		# [[ ${mandatory} == true ]] && exit_with_msg 30 # no PFILTER supplied
 		msg_bp 3 "  No PFILTER supplied, no validation for supplied parameters."
 		return 0
 	fi
@@ -128,7 +127,7 @@ function validate_user_options {
 # create variables for option parameters as parsing result
 function create_variables {
 	local var
-	if [[ ${CONFIGS["${PSETS[dvo]%%:*}"]} == true ]]; then
+	if [[ ${CONFIGS["${PSETS[dvo]%%${FLD_SEP}*}"]} == true ]]; then
 		msg_bp 2 "  - Options output disabled."
 		return 0
 	fi
@@ -166,7 +165,7 @@ function output_param_array {
 	local key_max_len i
 
 	local -n arr_ref="${array_name}"
-	local result_name="${CONFIGS[${PSETS[${pset_key}]%%:*}]}"
+	local result_name="${CONFIGS[${PSETS[${pset_key}]%%${FLD_SEP}*}]}"
 
 	msg_bp 2 "  - ${label} in '${result_name}()'"
 	key_max_len=$(max_array_member_length "${!arr_ref[@]}")
@@ -213,7 +212,7 @@ function output_param_arrays {
 	output_param_array "Boolean parameters" BP_BOOLS "ban" "${CONSTS["BAN"]}"
 	output_param_array "String parameters" BP_STRINGS "san" "${CONSTS["SAN"]}"
 
-	output_positionals_array "${CONFIGS[${PSETS["pan"]%%:*}]}"
+	output_positionals_array "${CONFIGS[${PSETS["pan"]%%${FLD_SEP}*}]}"
 }
 
 # output parsing result as variable assignment statements, for run-mode eval
@@ -228,7 +227,7 @@ function output_eval {
 	done
 	# output optional parameters as vars
 	# variable name prefix
-	pvn_prefix="${CONFIGS[${PSETS["pan"]%%:*}]}"
+	pvn_prefix="${CONFIGS[${PSETS["pan"]%%${FLD_SEP}*}]}"
 	for index in "${!BP_POSITIONALS[@]}"; do
 		echo "${pvn_prefix}_${index}=$(printf %q "${BP_POSITIONALS[${index}]}")"
 	done
@@ -243,14 +242,6 @@ function output_json {
 	local expr='{}'
 
 	validate_jq
-
-	# helper: valid number check (no leading zeros except '0')
-	function is_number() {
-		if [[ $1 =~ ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$ ]]; then
-			return 0
-		fi
-		return 1
-	}
 
 	for param in "${!BP_OPTIONS[@]}"; do
 		val="${BP_OPTIONS[${param}]}"
@@ -270,16 +261,32 @@ function output_json {
 	done
 
 	# Emit positional parameters as a JSON array under the key 'bp_positionals'
+	# this implements handling special characters(include newlines) in positionals without breaking
+	# the JSON structure
 	if [[ ${#BP_POSITIONALS[@]} -gt 0 ]]; then
-		local positionals_json
-		positionals_json=$(printf '%s\n' "${BP_POSITIONALS[@]}" | jq -R -s -c 'split("\n")[:-1]')
 		idx=$((idx + 1))
-		jq_args+=(--arg "k${idx}" "${CONFIGS[${PSETS["pan"]%%:*}]}")
-		jq_args+=(--argjson "v${idx}" "${positionals_json}")
-		expr+=" + {(\$k${idx}): \$v${idx}}"
-	fi
+		local local_jq_args=() positional_keys=""
 
-	jq -n "${jq_args[@]}" "${expr}"
+		# 1. Build all --arg flags correctly, preserving newlines in values
+		for index in "${!BP_POSITIONALS[@]}"; do
+			local_jq_args+=(--arg "p${index}" "${BP_POSITIONALS[index]}")
+			positional_keys+="\$p${index}, "
+		done
+		positional_keys="${positional_keys%,*}"
+
+		# append these arguments to jq_args and re-run the main jq command.
+		jq_args+=(--arg "k${idx}" "${CONFIGS[${PSETS["pan"]%%${FLD_SEP}*}]}") # Use PSET value as key
+		jq_args+=("${local_jq_args[@]}")
+
+		#  Construct the jq expression to create the array from the individual arguments
+		expr+=" + {(\$k${idx}): [${positional_keys}]}"
+
+	else
+		idx=$((idx + 1))
+		jq_args+=(--arg "k${idx}" "${CONFIGS[${PSETS["pan"]%%${FLD_SEP}*}]}") # Use PSET value as key
+		expr+=" + {(\$k${idx}): []}"
+	fi
+	jq -n -c "${jq_args[@]}" "${expr}"
 }
 
 # Run-mode detection --------------------------------------------------------------
@@ -287,12 +294,12 @@ function update_run_mode {
 	# unless '~run' or '~mode' specified, autodetect
 	if [[ ${RUN_MODE} == 'auto' ]]; then
 		# autodetect
-		if [[ ${local_script_name} != $(basename "$0") ]]; then
+		if [[ ${bosparse_script_name} != $(basename "$0") ]]; then
 			msg_bp 3 "  Sourced, output option parameters as variables."
 			RUN_MODE="source"
 		else
 			# not source, assert with '~json'
-			if [[ ${CONFIGS[${PSETS["json"]%%:*}]} == true ]]; then
+			if [[ ${CONFIGS[${PSETS["json"]%%${FLD_SEP}*}]} == true ]]; then
 				msg_bp 3 "Not sourced, use run-mode 'capture' as 'json' specified."
 				RUN_MODE="capture"
 			else
@@ -318,8 +325,8 @@ function show_help {
 	echo "    ${SLID}style=islands|watershed   set at runtime"
 	echo
 	echo "PARAMETER TYPES"
-	echo "    bool         ${ULID}name, ${ULID}name${TAG_TRUE}, ${ULID}name${TAG_FALSE}"
-	echo "    string       ${ULID}name${OA_SEP}value, ${ULID}name value"
+	echo "    bool         ${ULID}flag, ${ULID}flag${TAG_TRUE}, ${ULID}flag${TAG_FALSE}"
+	echo "    string       ${ULID}param${OA_SEP}value, ${ULID}param value"
 	echo "    enum         like string, matched against enum list in PFILTER"
 	echo "    liga         ${ULID}${ULID}nparams (expands to params of length n; n=1 may omit)"
 	echo
@@ -331,8 +338,8 @@ function show_help {
 	echo "PSETs (${PLID} prefix):"
 	echo "    ${PLID}run=<mode>         set run mode (auto/source/eval/capture)"
 	echo "    ${PLID}json               force JSON output"
-	echo "    ${PLID}dvo                disable variable output (source mode)"
 	echo "    ${PLID}pf=<pfilter>       pass PFILTER (array/json/keys-values)"
+	echo "    ${PLID}dvo                disable variable output (source mode)"
 	echo "    ${PLID}rup                restrict unknown parameters"
 	echo "    ${PLID}afd                apply PFILTER defaults"
 	echo "    ${PLID}pme                prefix-matching for user params (default: on)"
@@ -355,10 +362,10 @@ function show_help {
 	echo "    ${SLID}trace           verbose level 4"
 	echo "    ${SLID}style=<style>   set CML style (watershed/islands)"
 	echo "    ${SLID}zs=<resym2>     zone separator (default: ${ZN_SEP})"
+	echo "    ${SLID}plid=<resym>    PSET lid (default: ${PLID})"
+	echo "    ${SLID}ulid=<resym>    user-param lid (default: ${ULID})"
 	echo
 	echo "PRIORS (${PRLID} prefix, customize at runtime):"
-	echo "    ${PRLID}plid=<resym>     PSET lid (default: ${PLID})"
-	echo "    ${PRLID}ulid=<resym>     user-param lid (default: ${ULID})"
 	echo "    ${PRLID}os=<resym>       OA separator (default: ${OA_SEP})"
 	echo "    ${PRLID}tt=<resym>       true tag (default: ${TAG_TRUE})"
 	echo "    ${PRLID}tf=<resym>       false tag (default: ${TAG_FALSE})"
@@ -395,22 +402,23 @@ function direct_pset_commands {
 	# direct commands for some special PSets, which will not be output user parameters but
 	# executed directly in BosParse, e.g. show version or print a message
 
-	if [[ "${CONFIGS[${PSETS["Help"]%%:*}]}" == true ]]; then
+	if [[ "${CONFIGS[${PSETS["Help"]%%${FLD_SEP}*}]}" == true ]]; then
 		show_help
-	elif [[ "${CONFIGS[${PSETS["Banner"]%%:*}]}" == true ]]; then
+	elif [[ "${CONFIGS[${PSETS["Banner"]%%${FLD_SEP}*}]}" == true ]]; then
 		# show banner
 		echo -e "${CONSTS["BANNER"]} with love"
-	elif [[ "${CONFIGS[${PSETS["Version"]%%:*}]}" == true ]]; then
+	elif [[ "${CONFIGS[${PSETS["Version"]%%${FLD_SEP}*}]}" == true ]]; then
 		# show version
 		echo "${CONSTS["VERSION"]}"
-	elif [[ "${CONFIGS[${PSETS["Resymbols"]%%:*}]}" == true ]]; then
+	elif [[ "${CONFIGS[${PSETS["Resymbols"]%%${FLD_SEP}*}]}" == true ]]; then
 		# show resyms
-		echo "Available resyms: ${RESYMS[*]}"
-	elif [[ "${CONFIGS[${PSETS["Defaults"]%%:*}]}" == true ]]; then
+		echo "Available resyms${FLD_SEP} ${RESYMS[*]}"
+	elif [[ "${CONFIGS[${PSETS["Defaults"]%%${FLD_SEP}*}]}" == true ]]; then
 		# show_configs
 		show_configs
 	else
 		return 0
 	fi
+	BP_PARSING_STAGE="Mission complete."
 	exit 0
 }

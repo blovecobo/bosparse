@@ -30,8 +30,7 @@ eval "$(./bosparse "$@")"
 echo "name=$name"
 ```
 
-> Note: `eval` mode executes generated shell assignments. Only use it when the invocation and parameter names are trusted.
-> For details and mitigations, see the Reference Manual: [Eval Mode Security](doc/BosParse-Reference-Manual.md#eval-mode-security).
+> Note: `eval` mode executes generated shell assignments. Only use it when the invocation and parameter names are trusted. For details and mitigations, see the Reference Manual: [Eval Mode Security](./BosParse-Reference-Manual.md).
 
 Run it:
 
@@ -91,6 +90,7 @@ The main difference between the two styles is how they handle the separation of 
 - `-flag+` sets boolean true
 - `-flag-` sets boolean false
 - `-flag` set `true` (default setting)
+- `-flag=true` or `-flag true` sets booleans not strings
 
 Example:
 
@@ -137,7 +137,7 @@ They do not set variables directly but affect the parsing process and output for
 - `~dvo`: disable variables output; for source mode only
 - `~quiet`, `~standard`, `~extra`, `~debug`, `~trace`: output control, `~standard` by default
 - `~oan`, `~san`, `~ban`, `~pan`: specify array names of parsing result
-- `~pme`: enable prefix matching for user params (default `true`); disable with `~pme-`
+<!-- - `~pme`: enable prefix matching for user params (default `true`); disable with `~pme-` -->
 - `~Banner`, `~Version`, `~Resymbols`, `~Defaults`, `~Help`: display BosParse properties
 
 Example:
