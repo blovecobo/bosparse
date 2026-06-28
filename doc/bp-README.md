@@ -123,21 +123,22 @@ Ligatures compress boolean flags:
 
 This sets `a=true`, `b=true`, `c=true`, `d=true`, or `ab=true`, `cd=true`, `ef=true`.
 
-## Parser Settings (`~` PSets)
+## Parser Harnesses (`~` `~~` `~~~`)
 
-Parser setting parameters use the `~` as LID. They control how BosParse behaves and outputs results.
+Parser Harnesses are parameters used to configure the parser. They use the `~` LID and control how BosParse behaves and outputs results.
 
 They do not set variables directly but affect the parsing process and output format.
 
 ### Common settings
 
 - `~~~style`: command line structure style, `watershed`(default) or `islands`
+- `~~os`: separator for option names and args, `=` by default
+- `~~tt` and `~~tf`: trailing tags for booleans, `+`/`-` by default
 - `~json`: produce JSON output
 - `~run`: run-mode setting, `auto` (default), `source`, `eval`, `capture`
 - `~dvo`: disable variables output; for source mode only
-- `~quiet`, `~standard`, `~extra`, `~debug`, `~trace`: output control, `~standard` by default
-- `~oan`, `~san`, `~ban`, `~pan`: specify array names of parsing result
-<!-- - `~pme`: enable prefix matching for user params (default `true`); disable with `~pme-` -->
+- `~quiet`, `~standard`, `~extra`, `~debug`, `~trace`: output control, `~quiet` by default
+- `~oan`, `~pan`: specify array names of parsing result
 - `~Banner`, `~Version`, `~Resymbols`, `~Defaults`, `~Help`: display BosParse properties
 
 Example:
@@ -148,11 +149,11 @@ Example:
 
 ## Important Features
 
-- BosParse supports PSet names prefix-matching in all PSets scope, e.g. `~r=j` -> `~run=json`
-- Options sequence is insensitive for PSets and User-params in OP-ZONE (`watershed`) or in whole CML (`islands`)
-- Prefix-matching (`~pme`, default `true`) supports unambiguous abbreviation for parameter names and enum values for PSets, disable with `~pme-` when strict exact matching is needed; Prefix-matching for User options needs `PFILTER` support, see doc/BosParse-Reference-Manual.md#Prefix-Matching
+- Options sequence is insensitive for params in OP-ZONE (`watershed`) or the whole CML (`islands`)
 - When the same parameter supplied multiple times, the latter wins; when the same parameter name used with different types, parsing fails
-- If a boolean parameter supplied as a boolean and a member of LIGA-style flag at sametime, boolean setting takes precedence
+- If a boolean parameter is supplied as both a standalone boolean and a member of a LIGA-style flag, the boolean setting takes precedence
+- BosParse supports prefix-matching on Harnesses name and enum values in all Harnesses scope, e.g. `~r=j` -> `~run=json`
+- Prefix-matching on user parameters needs `PFILTER` support, see BosParse-Reference-Manual.md#Prefix-Matching
 - Parameters like `-flag=true` or `-flag=false` are parsed as boolean, not string
 
 ## Run Modes
@@ -225,16 +226,59 @@ output:
 
 - Always use `ZN-SEP` to separate Options and Positional arguments for `watershed` style CML
 - `islands` style CML allows intermixing Options and Positionals, `ZN-SEP` not required but permitted
-- `OA-SEP` must be used to separate Option name and value in `islands` style CML, while `space(s)` as `OA-SEP` allowed in `watershed` style CML
+- `OA-SEP` must be used to separate Option name and value in `islands` style CML, while `space(s)` as `OA-SEP` is allowed in `watershed` style CML
 - Quote values with spaces or special characters
 - Use clear, consistent Option names
 - Use `~json` for machine-readable output
 
 ## PFILTER
 
-For advanced validation, default values, prefix matching, and parameter relationships, see `doc/bp-PFILTER.md`.
+For advanced validation, default values, prefix matching, and parameter relationships, see `bp-PFILTER.md`.
 
-For details about BosParse like parsing-aid symbols and customization, see `doc/BosParse-Reference-Manual.md`.
+For details about BosParse like parsing-aid symbols and customization, see `BosParse-Reference-Manual.md`.
+
+## Quick Reference
+
+All parser harnesses, their LIDs, types, defaults, and tiers:
+
+| Key         | LID   | Type   | Default          | Level     |
+| ----------- | ----- | ------ | ---------------- | --------- |
+| `style`     | `~~~` | enum   | `watershed`      | global    |
+| `zs`        | `~~~` | resym  | `--`             | global    |
+| `glid`      | `~~~` | resym  | `~~~`            | global    |
+| `plid`      | `~~~` | resym  | `~~`             | global    |
+| `slid`      | `~~~` | resym  | `~`              | global    |
+| `ulid`      | `~~~` | resym  | `-`              | global    |
+| `os`        | `~~`  | resym  | `=`              | prior     |
+| `tt`        | `~~`  | resym  | `+`              | prior     |
+| `tf`        | `~~`  | resym  | `-`              | prior     |
+| `td`        | `~~`  | bool   | `true`           | prior     |
+| `run`       | `~`   | enum   | `auto`           | spec      |
+| `json`      | `~`   | bool   | `false`          | spec      |
+| `dvo`       | `~`   | bool   | `false`          | spec      |
+| `pf`        | `~`   | string |                  | spec      |
+| `rup`       | `~`   | bool   | `true`           | spec      |
+| `afd`       | `~`   | bool   | `true`           | spec      |
+| `pme`       | `~`   | bool   | `true`           | spec      |
+| `oan`       | `~`   | string |                  | spec      |
+| `pan`       | `~`   | string | `BP_Positionals` | spec      |
+| `Banner`    | `~`   | bool   | `false`          | spec      |
+| `Defaults`  | `~`   | bool   | `false`          | spec      |
+| `Help`      | `~`   | bool   | `false`          | spec      |
+| `Resymbols` | `~`   | bool   | `false`          | spec      |
+| `Version`   | `~`   | bool   | `false`          | spec      |
+| `quiet`     | all   | bool   | `true`           | all tiers |
+| `standard`  | all   | bool   | `false`          | all tiers |
+| `extra`     | all   | bool   | `false`          | all tiers |
+| `debug`     | all   | bool   | `false`          | all tiers |
+| `trace`     | all   | bool   | `false`          | all tiers |
+| `config`    | all   | bool   | `false`          | all tiers |
+
+- **Global** (`~~~`): CML style, LIDs, zone separator, verbosity
+- **Prior** (`~~`): trailing tags, OA separator, verbosity
+- **Spec** (`~`): run mode, PFILTER, output arrays, directives, verbosity
+- **Verbosity**: `quiet` (0), `standard` (1), `extra` (2), `debug` (3), `trace` (4)
+- **MCG validation order**: required → exclusion/uniqueness → dependency → master
 
 ## Requirements
 

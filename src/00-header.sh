@@ -11,11 +11,11 @@
 #
 # BosParse - a parameter parser in & for bash script
 # author: blovecobo
-# version: 0.2.0
+# version: 0.2.3
 # platform: bash 4.4+
 #
 # usage:
-#	- style: 
+#	- style:
 #	  - watershed style:
 #	    bosparse [options] -- [positionals]
 #	  - islands style:
@@ -31,11 +31,5 @@
 # dependencies:
 #   - bash, version 4.4+
 #   - jq, if output json(capture-mode) or serialized-pfilter passed
-
-# changelog:
-#   - islands/watershed ~~~style
-#   - add pset ~dvo (disable values output) for source mode
-#   - add new PFILTER format: "keys-values" string, no-need special serialize function
-#   - online help added
 
 set -euo pipefail

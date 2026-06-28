@@ -16,7 +16,7 @@ Use `PFILTER` when you want:
 
 ### 1. Define `PFILTER`
 
-BosParse use an associative array called `PFILTER` to define parameters. Every `PFILTER` must include a `PARAM-FILTER` identifier entry:
+BosParse uses an associative array called `PFILTER` to define parameters. Every `PFILTER` must include a `PARAM-FILTER` identifier entry:
 
 ```bash
 declare -A PFILTER=(
@@ -39,18 +39,17 @@ There are three ways to pass `PFILTER` to bosparse:
    bosparse ~pf=PFILTER "$@"
    ```
 
-1. Pass serialized `PFILTER` (json string), for all `run-modes`:
+1. Pass serialized `PFILTER` (JSON string), for all `run-modes`:
 
    ```bash
    pfilter=$(serialize-pfilter PFILTER)
    eval "$(./bosparse ~pf="${pfilter}" "$@")"
    ```
 
-1. by `keys-values` pairs, for all `run-modes`:
+1. By `key-value` pairs, for all `run-modes`:
 
    ```bash
-   result=$(./bosparse ~pf="${!PFILTER[*]} ${PFILTER[*]}" ~json "$@")
-   echo "${result}" | jq '.'
+    ~pf="key1 value1 key2 value2 ..."
    ```
 
 ### 3. Validation and assignment
@@ -59,10 +58,10 @@ BosParse parses Options, validates values against `PFILTER`, and then assigns va
 
 ## `PFILTER` Entry Format
 
-Each entry has the form:
+`PFILTER` is an associative array with each entry has the form:
 
 ```bash
-[param_name]="type:data:mcg"
+["param_name"]="type:data:mcg"
 ```
 
 - `type`: `bool`, `string` or `enum`
@@ -112,9 +111,9 @@ Each entry has the form:
 - Default value assignment applied to `un-grouped` parameters only; MCG members follow group rules
 - For MCG members, see section MCG
 
-## `PFILTER` Control PSets
+## `PFILTER` Control Harnesses
 
-- `~pf`: pass `PFILTER` via name reference, serialized json string or `keys-values` pairs from `PFILTER`
+- `~pf`: pass `PFILTER` via name reference, serialized JSON string or `key-value` pairs from `PFILTER`
 - `~rup` (default: true): restrict unknown parameters, causing parsing to fail if an option parameter is not defined in `PFILTER`
 - `~afd` (default: true): apply `PFILTER` defaults for un-grouped parameters
 - `~pme` (default: true): enable prefix matching for user parameter names; disable with `~pme-`
@@ -185,6 +184,15 @@ Parameters must receive different values.
 ["item_b"]="string::ug_items"
 ```
 
+## MCG Validation Order
+
+Default value assignment can affect validation results, so order matters:
+
+1. **Required rules** — check all `r`-group members are supplied or have defaults (assign defaults first)
+2. **Exclusion / Uniqueness rules** — check `e`-group has at most one member; check `u`-group members have distinct values
+3. **Dependency rules** — check `d`-members require their `D`-member
+4. **Master rules** — check `m`/`M`-group: assign M-member name to m-member; error on multiple M-members
+
 ## Escaping `PFILTER` Characters
 
 `PFILTER` uses special schema characters:
@@ -210,10 +218,10 @@ declare -A PFILTER=(
 - Unknown Option errors might mean `~rup` enabled but the Option is not defined in `PFILTER`
 - Ambiguous prefix errors mean the prefix matches more than one parameter
 - Enum validation errors mean the value is not in the allowed list
-- Duplicate parameter names but have different types will result an error
+- Duplicate parameter names with different types will result in an error
 - Hyphens in parameter names will be replaced by underscores after parsing(e.g. `my-param` -> `my_param`)
 
 ## See also
 
 - `bp-README.md` for basic BosParse usage
-- `doc/BosParse-Reference-Manual.md` for more details like parsing-aid symbols
+- `BosParse-Reference-Manual.md` for more details like parsing-aid symbols

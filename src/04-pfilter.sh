@@ -1,19 +1,22 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2153,SC2206
 # Module 04-pfilter: PFILTER validation and serialization
-#   serialize_pfilter()     — assoc array to JSON string (via jq)
-#   deserialize_to_pfilter() — JSON string to assoc array (via jq)
-#   extract_filter_schema() — split "type:data:mcg" entry into components
-#   extract_enum_list()     — split enum values from |-delimited string
-#   _validate_pfilter_entry_type() — check type is one of bool/string/enum
-#   _validate_pfilter_default() — ensure default value matches declared type
-#   _process_mcg_name()     — classify MCG member (d/D/e/m/M) and record
-#   pfilter_integrity_check() — full cross-member MCG validation
-#   validate_pfilter()      — entry point: accept name-ref / JSON / keys-values
+#   bp_serialize_pfilter()        — assoc array to JSON string (via jq)
+#   bp_deserialize_to_pfilter()   — JSON string to assoc array (via jq)
+#   bp_extract_filter_schema()    — split "type:data:mcg" entry into components
+#   bp_extract_enum_list()        — split enum values from |-delimited string
+#   _bp_validate_pfilter_entry_type() — check type is one of bool/string/enum
+#   _bp_validate_pfilter_default()    — ensure default value matches declared type
+#   _process_mcg_name()               — classify MCG member (d/D/e/m/M) and record
+#   _bp_validate_mcg_exclusion()      — check exclusion group has >=2 members
+#   _bp_validate_mcg_dependency()     — check d-member has a D-member
+#   _validate_mcg_master()            — check M/m master group relationship
+#   bp_pfilter_integrity_check()      — full cross-member MCG validation
+#   bp_validate_pfilter()             — entry point: accept name-ref / JSON / keys-values
 # --------------------------------------------------------------------------------
 
 # serialize an associative array to JSON string via jq
-function serialize_pfilter {
+bp_serialize_pfilter() {
 	local -n arr=$1
 
 	# validate jq
@@ -24,7 +27,7 @@ function serialize_pfilter {
 	# in case not an associative array
 	if [[ "$(declare -p "${!arr}")" != "declare -A"* ]]; then
 		# not an associative array, should output empty?
-		echo # "{}"
+		echo "{}"
 		return 1
 	fi
 	# if the associative array is empty
@@ -48,212 +51,248 @@ function serialize_pfilter {
 }
 
 # usage
-#   deserialize_to_pfilter "$pf_str" PFILTER
-function deserialize_to_pfilter {
+#   bp_deserialize_to_pfilter "$pf_str" PFILTER
+bp_deserialize_to_pfilter() {
 	local json="$1"
 	local -n arr_name="$2"
 	local keyj valuej
 
-	validate_jq
+	bp_validate_jq
 
-	while read -r keyj valuej; do
+	while IFS=$'\t' read -r keyj valuej; do
 		arr_name["${keyj}"]="${valuej}"
-	done < <(jq -r 'to_entries[] | "\(.key) \(.value)"' <<<"${json}")
+	done < <(jq -r 'to_entries[] | "\(.key)\t\(.value)"' <<<"${json}")
 }
 
-# split PFILTER entry "type:data:mcg" into its component fields
-function extract_filter_schema {
-	local lid=$1 p_schema=$2
-	local -n p_type=$3 p_data=$4 p_mcg=$5
+# split a PFILTER entry "type:data:mcg" into its three component fields
+# $1 — lid context (determines whether to regress symbols after split)
+# $2 — entry string (e.g. "bool:true:eg_t")
+# $3 — nameref: receives the type field
+# $4 — nameref: receives the data field
+# $5 — nameref: receives the mcg field
+# backslashes and field separators within data are escaped before IFS split,
+# then regressed for ulid entries; other lid levels skip regression
+bp_extract_filter_schema() {
+	local lid=$1 fe_schema=$2
+	local -n type_efs=$3 data_efs=$4 mcg_efs=$5
+
+	local FLD_SEP="${CONFIGS[fs]}"
 
 	# escape backslashes before FLD-SEPs, to prevent `\\:` being misinterpreted as `\:`
-	escape_symbol p_schema "\\"
-	escape_symbol p_schema "${FLD_SEP}"
+	bp_escape_symbol fe_schema "\\"
+	bp_escape_symbol fe_schema "${FLD_SEP}"
 
-	# for Priors/PSets, remove conf_name field
-	[[ ${lid} == "${ULID}" ]] || p_schema=${p_schema#*"${FLD_SEP}"}
-
-	# use 'read' instead of 'awk' to speed up
+	local OLD_IFS=${IFS}
 	local IFS="${FLD_SEP}"
-	read -r p_type p_data p_mcg <<<"${p_schema}"
+	read -r type_efs data_efs mcg_efs <<<"${fe_schema}"
+	IFS="${OLD_IFS}"
 
-	# regress escaped symbols; no need for Priors and PSets
-	[[ ${lid} != "${ULID}" ]] || escape_symbol p_data "${FLD_SEP}" "regress"
-	[[ ${lid} != "${ULID}" ]] || escape_symbol p_mcg "${FLD_SEP}" "regress"
-	[[ ${lid} != "${ULID}" ]] || escape_symbol p_data "\\" "regress"
-	[[ ${lid} != "${ULID}" ]] || escape_symbol p_mcg "\\" "regress"
+	# regress escaped symbols; no need for Harnesses
+	if [[ ${lid} == "${CONFIGS[ulid]}" ]]; then
+		bp_escape_symbol type_efs "${FLD_SEP}" "regress"
+		bp_escape_symbol data_efs "${FLD_SEP}" "regress"
+		bp_escape_symbol mcg_efs "${FLD_SEP}" "regress"
+		bp_escape_symbol type_efs "\\" "regress"
+		bp_escape_symbol data_efs "\\" "regress"
+		bp_escape_symbol mcg_efs "\\" "regress"
+	fi
 
 	return 0
 }
 
-# extract enum values string to array and pass back
-function extract_enum_list {
+# split an element-separated enum list string into an indexed array
+# $1 — enum string (elements separated by CONFIGS[es], typically "|")
+# $2 — nameref: receives the resulting array
+# escapes backslash, field-sep, and element-sep before IFS split,
+# then regresses each element
+bp_extract_enum_list() {
 	local enum_str=$1
 	local -n enum_arr=$2
 
-	# substitude escaped symbol
-	escape_symbol enum_str "\\"
-	escape_symbol enum_str "${FLD_SEP}"
-	escape_symbol enum_str "${ELM_SEP}"
+	local FLD_SEP="${CONFIGS[fs]}"
+	local ELM_SEP="${CONFIGS[es]}"
+	local ESC_PFX="${CONFIGS[ep]}"
+
+	# in case empty string passed
+	if [[ -z ${enum_str:-} ]]; then
+		enum_arr=()
+		return
+	fi
+
+	# substitute escaped symbols before IFS split
+	bp_escape_symbol enum_str "\\" "${ESC_PFX}"
+	bp_escape_symbol enum_str "${FLD_SEP}" "${ESC_PFX}"
+	bp_escape_symbol enum_str "${ELM_SEP}" "${ESC_PFX}"
 
 	# load into array
-	local IFS="${ELM_SEP}"
-	read -ra enum_arr <<<"${enum_str}"
+	readarray -d "${ELM_SEP}" -t enum_arr <<<"${enum_str}"
+	enum_arr[-1]="${enum_arr[-1]%$'\n'}"
 
-	# clear array member
+	# regress escaped symbols in each element
 	local i
 	for i in "${!enum_arr[@]}"; do
-		escape_symbol enum_arr[i] "${ELM_SEP}" "regress"
-		escape_symbol enum_arr[i] "${FLD_SEP}" "regress"
-		escape_symbol enum_arr[i] "\\" "regress"
+		bp_escape_symbol enum_arr[i] "${ELM_SEP}" "${ESC_PFX}" "regress"
+		bp_escape_symbol enum_arr[i] "${FLD_SEP}" "${ESC_PFX}" "regress"
+		bp_escape_symbol enum_arr[i] "\\" "${ESC_PFX}" "regress"
 	done
 }
 
-# validate a single PFILTER entry type against PFILTER_ENTRY_TYPES
-function _validate_pfilter_entry_type {
+# validate a single PFILTER entry type against PFE_TYPES
+_bp_validate_pfilter_entry_type() {
 	local entry_type=$1
-	if ! is_array_member "${entry_type}" PFILTER_ENTRY_TYPES; then
-		pros_tag[0]="${entry_type}"
-		local IFS="${ELM_SEP}"
-		pros_tag[1]="${PFILTER_ENTRY_TYPES[*]}"
-		exit_with_msg 33
+	if ! bp_is_array_member "${entry_type}" PFE_TYPES; then
+		local pros_tag[0]="${entry_type}"
+		pros_tag[1]="$(bp_join_array_members PFE_TYPES "${CONFIGS[es]}")"
+		bp_exit_with_msg 33 pros_tag
+	else
+		bp_msg -3 "        " "- type '${entry_type}' validated."
 	fi
 }
 
 # validate default value matches entry type (string/bool/enum)
-function _validate_pfilter_default {
+_bp_validate_pfilter_default() {
 	local entry_type=$1 entry_data=$2 pf_key=$3 entry_schema=$4
-	pros_tag[0]="${entry_schema}"
+	local pros_tag[0]="${entry_schema}"
 	pros_tag[1]="${entry_type}"
 	pros_tag[2]="${entry_data}"
 
 	if [[ -n "${entry_data}" ]]; then
 		case ${entry_type} in
 		# values mismatch entry type
-		string) [[ ${entry_data} == true || ${entry_data} == false ]] && exit_with_msg 34 ;;
-		bool) [[ ${entry_data} == true || ${entry_data} == false ]] || exit_with_msg 34 ;;
+		string) [[ ${entry_data} == true || ${entry_data} == false ]] && bp_exit_with_msg 34 pros_tag ;;
+		bool) [[ ${entry_data} == true || ${entry_data} == false ]] || bp_exit_with_msg 34 pros_tag ;;
 		*) ;;
 		esac
 	elif [[ ${entry_type} == 'enum' ]]; then
 		# empty enum list
 		pros_tag[0]=$(printf '%s' "[\"${pf_key}\"]=\"${entry_schema}\"")
-		exit_with_msg 35
+		bp_exit_with_msg 35 pros_tag
 	fi
+	bp_msg -3 "        " "- default value '${entry_data}' validated."
 	return 0
 }
 
 # validate MCG name, record it, and classify member by type
-function _process_mcg_name {
-	local pf_key=$1 mcg_name=$2
-	local -n _mcg_types=$3 _mcg_names=$4
+_process_mcg_name() {
+	local pf_key=$1
+	local -n mcg_name_pmn=$2
+	local -n _mcg_types=$3 _mcg_name_pmns=$4
 	local -n _dc_members=$5 _dc_count=$6 _dl_members=$7 _dl_count=$8
 	local -n _mc_members=${9} _mc_count=${10} _ml_members=${11} _ml_count=${12}
 	local -n _el_members=${13} _el_count=${14}
 
-	escape_symbol mcg_name "${ELM_SEP}" "regress"
+	bp_escape_symbol mcg_name_pmn "${CONFIGS[es]}" "regress"
 
-	[[ -n ${mcg_name} ]] || return 0
+	[[ -n ${mcg_name_pmn} ]] || return 0
 
-	if ! validate_variable_name "mcg-name" mcg_name true; then
-		escape_symbol mcg_name "${FLD_SEP}" "restore"
-		pros_tag[0]="${mcg_name}"
+	# bp_substitute_exceptions mcg_name_pmn
+	if ! bp_validate_mcg_name "${mcg_name_pmn}"; then
+		bp_escape_symbol mcg_name_pmn "${CONFIGS[es]}" "restore"
+		local pros_tag[0]="${mcg_name_pmn}"
 		pros_tag[1]="it should be a valid shell variable name(with exceptions)"
-		exit_with_msg 37
+		bp_exit_with_msg 37 pros_tag
 	fi
-	if ! is_array_member "${mcg_name:0:1}" _mcg_types; then
-		pros_tag[0]="${mcg_name}"
-		local IFS="${ELM_SEP}"
-		pros_tag[1]="it should respected MCG-TYPES, starts with '${_mcg_types[*]}'"
-		exit_with_msg 37
+	if ! bp_is_array_member "${mcg_name_pmn:0:1}" _mcg_types; then
+		pros_tag[0]="${mcg_name_pmn}"
+		local types
+		types="$(bp_join_array_members _mcg_types "${CONFIGS[es]}")"
+		pros_tag[1]="it should respected MCG-TYPES, starts with '${types}'"
+		bp_exit_with_msg 37 pros_tag
 	fi
 
-	_mcg_names["${mcg_name}"]=true
-	msg_bp 4 "    - member: ${pf_key}@${mcg_name}"
+	_mcg_name_pmns["${mcg_name_pmn}"]=true
+	bp_msg -3 "        member: " "${pf_key}@${mcg_name_pmn}"
 
-	case ${mcg_name:0:1} in
+	case ${mcg_name_pmn:0:1} in
 	D)
-		_dc_members["${mcg_name}"]="${_dc_members[${mcg_name}]:-}|${pf_key}"
-		((_dc_count["${mcg_name}"] += 1))
+		_dc_members["${mcg_name_pmn}"]="${_dc_members[${mcg_name_pmn}]:-}|${pf_key}"
+		((_dc_count["${mcg_name_pmn}"] += 1))
 		;;
 	d)
-		_dl_members["${mcg_name}"]="${_dl_members[${mcg_name}]:-}|${pf_key}"
-		((_dl_count["${mcg_name}"] += 1))
+		_dl_members["${mcg_name_pmn}"]="${_dl_members[${mcg_name_pmn}]:-}|${pf_key}"
+		((_dl_count["${mcg_name_pmn}"] += 1))
 		;;
 	M)
-		_mc_members["${mcg_name}"]="${_mc_members[${mcg_name}]:-}|${pf_key}"
-		((_mc_count["${mcg_name}"] += 1))
+		_mc_members["${mcg_name_pmn}"]="${_mc_members[${mcg_name_pmn}]:-}|${pf_key}"
+		((_mc_count["${mcg_name_pmn}"] += 1))
 		;;
 	m)
-		_ml_members["${mcg_name}"]="${_ml_members[${mcg_name}]:-}|${pf_key}"
-		((_ml_count["${mcg_name}"] += 1))
+		_ml_members["${mcg_name_pmn}"]="${_ml_members[${mcg_name_pmn}]:-}|${pf_key}"
+		((_ml_count["${mcg_name_pmn}"] += 1))
 		;;
 	e)
-		_el_members["${mcg_name}"]="${_el_members[${mcg_name}]:-}|${pf_key}"
-		((_el_count["${mcg_name}"] += 1))
+		_el_members["${mcg_name_pmn}"]="${_el_members[${mcg_name_pmn}]:-}|${pf_key}"
+		((_el_count["${mcg_name_pmn}"] += 1))
 		;;
 	*) ;;
 	esac
 }
 
 # validate exclusion group: at least two members within same MCG
-function _validate_mcg_exclusion {
+_bp_validate_mcg_exclusion() {
 	local mcg_name=$1
 	local -n _el_count=$2 _el_members=$3
 
 	if [[ ${_el_count["${mcg_name}"]:-0} -eq 1 ]]; then
-		pros_tag[0]="${mcg_name}"
+		local pros_tag[0]="${mcg_name}"
 		pros_tag[1]="${_el_members[${mcg_name}]#\|}"
-		exit_with_msg 38
+		bp_exit_with_msg 38 pros_tag
 	fi
 }
 
 # validate d-member depends on D-member for a single MCG
-function _validate_mcg_dependency {
+_bp_validate_mcg_dependency() {
 	local mcg_name=$1
 	local -n _dl_count=$2 _dc_count=$3 _dl_members=$4
 
 	if [[ ${_dl_count["${mcg_name}"]:-0} -gt 0 ]] &&
 		[[ ${_dc_count["${mcg_name^}"]:-0} -eq 0 ]]; then
 		# no D-member defined for d-members
-		pros_tag[0]="${_dl_members[*]#\|}"
+		local pros_tag[0]="${_dl_members[*]#\|}"
 		pros_tag[1]="${mcg_name}"
-		exit_with_msg 36
+		bp_exit_with_msg 36 pros_tag
 	fi
 }
 
 # validate m/M master-group relationship for a single MCG
-function _validate_mcg_master {
+_validate_mcg_master() {
 	local mcg_name=$1
 	local -n _ml_count=$2 _mc_count=$3 _ml_members=$4 _mc_members=$5
 
 	if [[ ${_ml_count["${mcg_name}"]:-0} -gt 1 ]]; then
 		# more than one m-member defined for a MCG
-		pros_tag[0]="${mcg_name}"
+		local pros_tag[0]="${mcg_name}"
 		pros_tag[1]="only one m-member permitted but got '${_ml_members[${mcg_name}]#\|}'"
-		exit_with_msg 39
+		bp_exit_with_msg 39 pros_tag
 	elif [[ ${_ml_count["${mcg_name}"]:-0} -eq 1 ]]; then
 		if [[ ${_mc_count["${mcg_name^}"]:-0} -eq 0 ]]; then
 			# m-member defined but no M-member defined for a MCG
-			pros_tag[0]="${mcg_name}"
+			local pros_tag[0]="${mcg_name}"
 			pros_tag[1]="m-member '${_ml_members["${mcg_name}"]#\|}' requires a M-member."
-			exit_with_msg 39
+			bp_exit_with_msg 39 pros_tag
 		fi
 	fi
 
 	if [[ ${_mc_count[${mcg_name}]:-} -gt 0 ]]; then
 		if [[ ${_ml_count["${mcg_name,}"]:-} -eq 0 ]]; then
 			# M-member defined but no m-member defined for a MCG
-			pros_tag[0]="${mcg_name}"
+			local pros_tag[0]="${mcg_name}"
 			pros_tag[1]="no m-member for M-member '${_mc_members[${mcg_name}]#\|}'"
-			exit_with_msg 39
+			bp_exit_with_msg 39 pros_tag
 		fi
 	fi
 }
 
-# validate all MCG cross-references: dependency, master, exclusion integrity
-function pfilter_integrity_check {
+# validate all MCG cross-references within a PFILTER
+# $1 — nameref to PFILTER associative array
+# for each entry: extracts schema, classifies MCG members (d/D/e/m/M),
+# validates entry type and default value
+# then for each MCG: checks dependency (d→D), master (m↔M), exclusion (e≥2 members)
+# exits with 33-39 on violations
+bp_pfilter_integrity_check() {
 	local -n p_filter=$1
 
+	bp_msg 3 "      Integrity check"
 	declare -a mcg_types=() mcg_name_entry=()
 	local mcg_type mcg_name
 	declare -A mcg_names=()
@@ -265,24 +304,24 @@ function pfilter_integrity_check {
 	local pf_key entry_schema
 
 	for mcg_type in "${MCG_TYPES[@]}"; do
-		mcg_types+=("${mcg_type#*"${FLD_SEP}"}")
+		mcg_types+=("${mcg_type#*"${CONFIGS[fs]}"}")
 	done
 
 	for pf_key in "${!p_filter[@]}"; do
 		local entry_type="" entry_data="" entry_mcg=""
 
 		entry_schema="${p_filter[${pf_key}]}"
-		extract_filter_schema "${ULID}" "${entry_schema}" entry_type entry_data entry_mcg
-
-		_validate_pfilter_entry_type "${entry_type}"
+		bp_extract_filter_schema "${CONFIGS[ulid]}" "${entry_schema}" entry_type entry_data entry_mcg
+		bp_msg -3 "      - extract schema: " "${entry_type} | ${entry_data:--} | ${entry_mcg:--}"
 
 		if [[ -n ${entry_mcg} ]]; then
-			escape_symbol entry_mcg "${ELM_SEP}"
-			local IFS="${ELM_SEP}"
-			read -ra mcg_name_entry <<<"${entry_mcg}"
+			bp_escape_symbol entry_mcg "${CONFIGS[es]}" "${CONFIGS[ep]}"
+			readarray -d "${CONFIGS[es]}" -t mcg_name_entry <<<"${entry_mcg}"
+			mcg_name_entry[-1]="${mcg_name_entry[-1]%$'\n'}"
+
 			for mcg_name in "${mcg_name_entry[@]}"; do
 				_process_mcg_name \
-					"${pf_key}" "${mcg_name}" \
+					"${pf_key}" mcg_name \
 					mcg_types mcg_names \
 					dc_members dc_count dl_members dl_count \
 					mc_members mc_count ml_members ml_count \
@@ -290,124 +329,144 @@ function pfilter_integrity_check {
 			done
 		fi
 
-		_validate_pfilter_default "${entry_type}" "${entry_data}" "${pf_key}" "${entry_schema}"
+		_bp_validate_pfilter_entry_type "${entry_type}"
+		_bp_validate_pfilter_default "${entry_type}" "${entry_data}" "${pf_key}" "${entry_schema}"
 	done
 
 	for mcg_name in "${!mcg_names[@]}"; do
-		_validate_mcg_dependency "${mcg_name}" dl_count dc_count dl_members
+		_bp_validate_mcg_dependency "${mcg_name}" dl_count dc_count dl_members
 		_validate_mcg_master "${mcg_name}" ml_count mc_count ml_members mc_members
-		_validate_mcg_exclusion "${mcg_name}" el_count el_members
+		_bp_validate_mcg_exclusion "${mcg_name}" el_count el_members
 	done
 
-	msg_bp 4 "    - PFILTER integration check PASSED"
+	bp_msg 4 "      PFILTER integration check PASSED"
 	return 0
 }
 
-# PFILTER name or serialize PFILTER stored in CONFIGS while parsing if supplied; or it
-# will be ${CONST["NO_PFILTER"]} by default
-# three ways to pass PFILTER in:
-#   1. PFILTER name_ref    - for an associative array, used in source run-mode
-#   2. serialized PFILTER  - a json string, used for all run-modes
-#   3. "keys values" pairs - ~pf="${!pfilter[*]} ${pfilter[*]}"
-# a valid PFILTER must include a member whose key is "PARAM-FILTER" as identifier
-function validate_pfilter {
-	local -n PF_copy=$1
+# load and validate a PFILTER from CONFIGS["pf"] into an associative array
+# $1 — nameref: receives the validated PFILTER entries
+#
+# three input formats accepted:
+#   1. name-ref — a declared associative array name in the caller's scope
+#   2. JSON string — serialized associative array via jq
+#   3. "keys values" pairs — space-separated string: key1 key2 ... val1 val2 ...
+#
+# all input formats must contain a PFILTER_ID key ("PARAM_FILTER" or "PARAM-FILTER")
+# which is removed after validation
+# validates each key name: exception substitution, shell variable name check,
+# duplicate-after-substitution detection (exit 58)
+# then runs full MCG integrity check
+bp_validate_pfilter() {
+	local -n PF=$1
+
+	local UP_FILTER="${CONFIGS[pf]}"
+	local PFILTER_ID="${CONSTS["PFILTER_ID"]}"
+	local PFILTER_ID2="${CONSTS["PFILTER_ID"]//_/-}"
 
 	local pk new_pk
 
-	# msg_bp 4 "    param-filter: ${PARAM_FILTER}"
+	bp_msg -3 "    " "filter: ${UP_FILTER}"
 
-	if [[ -z ${PARAM_FILTER} ]]; then
-		pros_tag[0]="it's an 'empty' variable."
-		exit_with_msg 31
+	if [[ -z ${UP_FILTER} ]]; then
+		local pros_tag[0]="it's an 'empty' variable."
+		bp_exit_with_msg 31 pros_tag
 	fi
-	if validate_variable_name "PFILTER name" PARAM_FILTER true; then
-		msg_bp 3 "  - PFILTER name: ${PARAM_FILTER}"
+	# bp_substitute_exceptions UP_FILTER
+	if bp_validate_variable_name "PFILTER name" UP_FILTER true; then
+		bp_msg 3 "    PFILTER name: ${UP_FILTER}"
 
-		if [[ "$(declare -p "${PARAM_FILTER}" 2>/dev/null)" == "declare -A "* ]]; then
+		if [[ "$(declare -p "${UP_FILTER}" 2>/dev/null)" == "declare -A "* ]]; then
 			# an associative array
-			msg_bp 3 "  - an associative array"
+			bp_msg 3 "    An associative array found"
 			# if contains id-key
-			declare -n tmp="${PARAM_FILTER}"
-			if [[ -v tmp["${PFILTER_ID}"] ]]; then
+			declare -n tmp="${UP_FILTER}"
+			if [[ -v tmp["${PFILTER_ID}"] ]] || [[ -v tmp["${PFILTER_ID2}"] ]]; then
 				# all test passed
-				msg_bp 3 "  - PFILTER-ID found."
+				bp_msg 3 "    PFILTER-ID found"
 				for pk in "${!tmp[@]}"; do
-					PF_copy["${pk}"]="${tmp[${pk}]}"
+					PF["${pk}"]="${tmp[${pk}]}"
 				done
-				msg_bp 4 "    - PFILTER nameref '${PARAM_FILTER}' supplied."
+				bp_msg 3 "    PFILTER nameref '${UP_FILTER}' supplied"
 			else
 				# no id-key
-				pros_tag[0]="an identifier key '${PFILTER_ID}' required."
-				exit_with_msg 31
+				local pros_tag[0]="an identifier key '${PFILTER_ID}' required"
+				bp_exit_with_msg 31 pros_tag
 			fi
 		else
 			# not an associative array
-			pros_tag[0]="not an associative array."
-			exit_with_msg 31
+			local pros_tag[0]="not an associative array"
+			bp_exit_with_msg 31 pros_tag
 		fi
 	else
 		# not an associative array, try json and "keys-values" pairs
-		if jq -e . >/dev/null 2>&1 <<<"${PARAM_FILTER}"; then
+		if jq -e . <<<"${UP_FILTER}" >/dev/null 2>&1; then
 			# a valid json string
-			if ! deserialize_to_pfilter "${PARAM_FILTER}" PF_copy; then
-				pros_tag[0]="it is not a valid seriliazed associative array."
-				exit_with_msg 31
+			if ! bp_deserialize_to_pfilter "${UP_FILTER}" PF; then
+				local pros_tag[0]="it is not a valid seriliazed associative array"
+				bp_exit_with_msg 31 pros_tag
 			fi
+			bp_msg 3 "    JSON string found"
 		else
-			# a string, may be keys+values stream
-			local -a pf_arr
-			read -ra pf_arr <<<"${PARAM_FILTER}"
-			local len=${#pf_arr[@]}
-			if [[ $((len % 2)) -ne 0 ]]; then
-				# length not an even number
-				pros_tag[0]="it is not a valid 'keys-values' string."
-				exit_with_msg 31
+			# a string: alternating key-value pairs (space-delimited)
+			declare -a pf_arr=()
+			# Split on spaces, preserving empty fields.
+			# readarray -t pf_arr < <(printf '%q\n' "${UP_FILTER}" | sed 's/ /\n/g')
+			readarray -d ' ' -t pf_arr <<<"${UP_FILTER}"
+			# remove trailing newline '<<<' added
+			pf_arr[-1]="${pf_arr[-1]%$'\n'}"
+			local n=${#pf_arr[@]}
+			if ((n % 2)); then
+				local pros_tag[0]="it is not a valid 'keys-values' string"
+				bp_exit_with_msg 31 pros_tag
 			fi
-			len=$((len / 2))
 			local i
-			for ((i = 0; i < len; i += 1)); do
-				PF_copy["${pf_arr[i]}"]="${pf_arr[$((i + len))]}"
+			for ((i = 0; i < n; i += 2)); do
+				PF["${pf_arr[i]}"]="${pf_arr[i + 1]}"
 			done
+			bp_msg 3 "    'keys-values' pairs found"
+			# echo2 "filter: ${UP_FILTER}"
 		fi
 		# if id-key exist, it is
-		if [[ -v PF_copy["${PFILTER_ID}"] ]]; then
-			msg_bp 4 "    - Serialized PFILTER supplied."
+		if [[ -v PF["${PFILTER_ID}"] ]] || [[ -v PF["${PFILTER_ID2}"] ]]; then
+			bp_msg 3 "    PFILTER-ID found"
+			bp_msg 3 "    Serialized PFILTER supplied"
 		else
-			pros_tag[0]="no identifier key '${PFILTER_ID}' or not an associative array."
-			exit_with_msg 31
+			local pros_tag[0]="no identifier key '${PFILTER_ID}' or not an associative array"
+			bp_exit_with_msg 31 pros_tag
 		fi
 	fi
 
 	# remove PFILTER_ID
-	unset "PF_copy[${PFILTER_ID}]"
+	[[ -v PF["${PFILTER_ID}"] ]] && unset "PF[${PFILTER_ID}]"
+	[[ -v PF["${PFILTER_ID2}"] ]] && unset "PF[${PFILTER_ID2}]"
 
 	# load PFILTER with:
-	#   validate key name
+	#   key name validation
 	#   exception substitution on key
-	for pk in "${!PF_copy[@]}"; do
+	for pk in "${!PF[@]}"; do
 		new_pk="${pk}"
-		if validate_variable_name "PFILTER entry key" new_pk true; then
+		bp_substitute_exceptions new_pk
+		if bp_validate_variable_name "PFILTER entry key" new_pk true; then
 			if [[ ${pk} != "${new_pk}" ]]; then
 				# check: same name after substitution, conflict
-				if [[ -v PF_copy["${new_pk}"] ]]; then
-					pros_tag[0]="${new_pk}"
+				if [[ -v PF["${new_pk}"] ]]; then
+					local pros_tag[0]="${new_pk}"
 					pros_tag[1]="${pk}"
-					exit_with_msg 58
+					bp_exit_with_msg 58 pros_tag
 				fi
 				# remove old entry if key name changed after substitution
-				PF_copy["${new_pk}"]="${PF_copy[${pk}]}"
-				unset "PF_copy[${pk}]"
+				PF["${new_pk}"]="${PF[${pk}]}"
+				unset "PF[${pk}]"
 			fi
 		else
 			# param-name invalid
-			pros_tag[0]="${pk}"
-			exit_with_msg 32
+			local pros_tag[0]="$(printf '%q' "${pk}")"
+			bp_exit_with_msg 32 pros_tag
 		fi
 	done
 
 	# integrity checking:
-	pfilter_integrity_check PF_copy
+	bp_pfilter_integrity_check PF
 
-	msg_bp 3 "    PFILTER validated"
+	bp_msg 3 "    PFILTER validated"
 }
