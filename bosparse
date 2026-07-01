@@ -32,6 +32,9 @@
 #   - bash, version 4.4+
 #   - jq, if output json(capture-mode) or serialized-pfilter passed
 
+# change log:
+#   - enhanced 'key-value' pair serialize approch, support empty value and values contain spaces by escape
+#   - emproved error message content
 set -euo pipefail
 
 # shellcheck shell=bash
@@ -103,7 +106,7 @@ bp_definitions() {
 	CONSTANTS_ref=(
 		["BANNER"]="Parsed by BosParse"
 		# ["NO_PFILTER"]="no_param_filter"
-		["PFILTER_ID"]="PARAM_FILTER" # 'PARAM-FILTER' accepted
+		["PFILTER_ID"]="PARAM_FILTER" # 'PARAM_FILTER' accepted so far
 
 		["OAN"]="BP_Options"
 		# ["SAN"]="BP_Strings"
@@ -169,7 +172,7 @@ bp_definitions() {
 
 		# -- PFILTER related (spec level) --
 		["pf"]="string::D-pfilter:spec:::"
-		["pf_id"]="string:::spec::PARAM-FILTER:"
+		["pf_id"]="string:::spec::PARAM_FILTER:"
 		["rup"]="bool::d-pfilter:spec::true:"
 		["afd"]="bool::d-pfilter:spec::true:"
 		["pme"]="bool::d-pfilter:spec::true:"
@@ -309,7 +312,8 @@ bp_definitions() {
 		["0"]="Parsing succeeded."
 		["1"]="Parsing failed."
 		["2"]="No parameter supplied."
-		["3"]="\${pros_tag[0]}"
+		["3"]="Unknow error"
+		["4"]="\${pros_tag[0]}"
 
 		# system
 		["10"]="'\${pros_tag[0]}' required but not available."
@@ -338,11 +342,14 @@ bp_definitions() {
 		["27"]="Invalid \${pros_tag[0]} \${pros_tag[1]}, \${pros_tag[2]}"
 		["28"]="Invalid Prior setting '\${pros_tag[0]}' when using 'islands' style CML."
 
+		# escape symbol
+		["29"]="Cannot escape symbol, \${pros_tag[0]}"
+
 		# Validate PFILTER
 		["30"]="Specs '~rup' requires a 'PFILTER'(by ~pf) but not supplied."
-		["31"]="Invalid PFILTER: \${pros_tag[0]}"
+		["31"]="Invalid PFILTER: '\${pros_tag[0]}'"
 		["32"]="Invalid PFILTER key name '\${pros_tag[0]}' in PFILTER, it should be a valid shell variable name."
-		["33"]="Invalid PFILTER entry type '\${pros_tag[0]}', it should be one of '\${pros_tag[1]}'"
+		["33"]="Invalid PFILTER entry '\${pros_tag[0]}' type '\${pros_tag[1]}', it should be one of '\${pros_tag[2]}'"
 		["34"]="Invalid PFILTER entry '\${pros_tag[0]}': default value '\${pros_tag[2]}' mismatch the type '\${pros_tag[1]}'"
 		["35"]="Invalid PFILTER enum entry \${pros_tag[0]}: missing enum values."
 		["36"]="MCG member(s) '\${pros_tag[0]}' in '\${pros_tag[1]}' depends on the D-member but not found in PFILTER."
@@ -555,7 +562,7 @@ bp_trace() {
 		for ((ll = start; ll < ln_levels; ll += 1)); do
 			compact_info+=$(printf ' <= %s(%s)' "${fn[ll]}" "${BASH_LINENO[ll]}")
 		done
-		printf '\e[2m%s\e[0m\n' "${compact_info%}"
+		printf '\e[2m%s\e[0m\n' "${compact_info%}" >&2
 	else
 		local fld_len
 
@@ -581,7 +588,7 @@ echo2() { printf '%s\n' "$*" >&2; }
 # operations:
 #   mark: symbol -> symbol-with-mark
 #           : -> \:
-#   substitue: symbol-with-escape-mark -> symbol-name-pattern(default)
+#   substitute: symbol-with-escape-mark -> symbol-name-pattern(default)
 #           \: -> <ESC_PFX><SYMBOLNAME>__
 #   restore: symbol-name-pattern -> symbol-with-escape-mark
 #           <ESC_PFX><SYMBOLNAME>__ -> \:
@@ -599,6 +606,14 @@ bp_escape_symbol() {
 
 	local esc_pfx="${CONFIGS[ep]}"
 
+	declare syms pros_tag
+	if [[ ! -v SYMNAMES["${symbol}"] ]]; then
+		# unsupport symbol
+		syms="$(printf '%q' "${!SYMNAMES[@]}")"
+		pros_tag[0]="symbol '${symbol}' not supported, available symbols: '${syms}"
+		bp_exit_with_msg 29 pros_tag
+	fi
+
 	if [[ ${esc_mode} == "mark" ]]; then
 		str_escp="${str_escp//"${symbol}"/\\"${symbol}"}"
 	elif [[ ${esc_mode} == "substitute" ]]; then
@@ -610,7 +625,9 @@ bp_escape_symbol() {
 	elif [[ ${esc_mode} == "remove" ]]; then
 		str_escp="${str_escp//\\"${symbol}"/"${symbol}"}"
 	else
-		:
+		# unknow escape mode
+		pros_tag[0]="invalid escape mode '${esc_mode}', available operations: 'mark|substitute|restore|regress|remove"
+		bp_exit_with_msg 29 pros_tag
 	fi
 }
 
@@ -674,8 +691,15 @@ bp_split_string_into_array() {
 	local -n _array=$2
 	local sym=${3:-:}
 
-	local IFS="${sym}"
-	read -r -a _array <<<"${string}"
+	if [[ -n "${string}" ]]; then
+		local IFS="${sym}"
+		read -r -a _array <<<"${string}"
+	else
+		# When string is empty, read -r -a _array <<<"" produces a single empty
+		# element, not an empty array. Callers expecting empty results would get
+		# [""] instead.
+		_array=()
+	fi
 }
 
 # calculate max length among array members without external tools('wc'.. )
@@ -723,7 +747,12 @@ bp_key_of_array_member() {
 # returns: 0 if found, 1 if not found
 bp_is_array_member() {
 	local str=$1
-	local -n arr_ref=${2:-}
+
+	if (($# < 2)) || [[ $2 == "" ]]; then
+		return 1
+	else
+		local -n arr_ref=${2:-}
+	fi
 
 	local mem
 	for mem in "${arr_ref[@]}"; do
@@ -743,7 +772,7 @@ bp_msg() {
 
 	[[ ${verbose:-0} -ge 1 ]] || return 0
 	[[ -n ${title} ]] || {
-		echo
+		echo -e "\e[2mno title\e[0m" >&2
 		return 0
 	}
 
@@ -760,7 +789,7 @@ bp_msg() {
 		printf '\e[33m%s\e[0m' "${title}" >&2
 		[[ -n ${content} ]] && printf '\n\e[2m%s\e[0m' "${content}" >&2
 	fi
-	((${msg_level} == 4)) && bp_trace 1 true || echo
+	((${msg_level} == 4)) && bp_trace 1 true || echo >&2
 	return 0
 }
 
@@ -772,7 +801,7 @@ bp_msg() {
 # always exits; does not return
 bp_exit_with_msg() {
 	local exit_code=$1
-	(($# > 1)) && local -n pt_ref=${2:-}
+	if (($# > 1)); then local -n pt_ref=$2; else local pt_ref=(); fi
 	local additional_msg=${3:-}
 
 	if [[ ${verbose:-0} -ge 3 ]]; then
@@ -780,14 +809,19 @@ bp_exit_with_msg() {
 		[[ -v EXIT_MSG["$((exit_code + 100))"] ]] && ((exit_code += 100))
 	fi
 
-	local msg
+	local msg exit_code_orig
 	msg="${EXIT_MSG[${exit_code}]}"
-	if [[ -n ${pt_ref:-} ]]; then
+	if [[ ${#pt_ref[@]} -gt 0 ]]; then
 		# substitute pros_tag placeholders in message
 		for index in "${!pt_ref[@]}"; do
 			msg="${msg//\$\{pros_tag\["${index}"\]\}/${pt_ref[index]}}"
 			additional_msg="${additional_msg//\$\{pros_tag\[${index}\]\}/${pt_ref[index]}}"
 		done
+	else
+		# now pros_tag passed, use 'unknown error'
+		exit_code_orig="${exit_code}"
+		exit_code=3 # error code for unknow error
+		msg="${EXIT_MSG[${exit_code}]} (${exit_code_orig})."
 	fi
 
 	printf '\e[33merror %d:\e[0m %s\n' "${exit_code}" "${msg}" >&2
@@ -838,8 +872,9 @@ bp_show_array() {
 	local -n target_arr=$1
 	local separator=${2:--}
 	local gap=${3:-1}
+	local sort_opt=${4:-}
 
-	echo >&2 "${!target_arr}:"
+	# echo >&2 "${!target_arr}:"
 	if [[ ${gap} -gt 0 ]]; then
 		gap=$(printf '%*s' "${gap}" '')
 	else
@@ -850,9 +885,14 @@ bp_show_array() {
 		((${#key} > lmax)) && lmax=${#key}
 	done
 	((lmax += 2))
+	if [[ ${sort_opt} == true ]]; then
+		sort_opt=' -n'
+	else
+		sort_opt=""
+	fi
 	for key in "${!target_arr[@]}"; do
-		printf "%${lmax}s%s%s%s%s \n" "${key}" "${gap}" "${separator}" "${gap}" "${target_arr[${key}]}"
-	done | sort >&2
+		printf "%${lmax}s%s%s%s'%s'\n" "${key}" "${gap}" "${separator}" "${gap}" "${target_arr[${key}]}"
+	done | sort ${sort_opt} >&2
 }
 
 # extract a single value from a JSON string using a jq filter
@@ -908,8 +948,8 @@ bp_set_configs() {
 	local key=$1 value=$2
 
 	if [[ ! -v HARNESSES["${key}"] ]]; then
-		local pros_tag[0]="Invalid CONFIGS setting, wrong config name: '$key'"
-		bp_exit_with_msg 3 pros_tag
+		local pros_tag[0]="Invalid CONFIGS setting, wrong config name: '${key}'"
+		bp_exit_with_msg 4 pros_tag
 	fi
 
 	# validate settings
@@ -931,14 +971,15 @@ bp_set_configs() {
 	fi
 
 	# check BASH_VARS
-	local var
-	for var in "${BASH_VARS[@]}"; do
-		bp_validate_variable_name "harness" var true && continue
-		local pros_tag[0]="Harness"
-		pros_tag[1]="${var}='${value}'"
-		pros_tag[2]="the value should be a valid BASH variable name."
-		bp_exit_with_msg 27 pros_tag
-	done
+	if bp_is_array_member "${key}" "${BASH_VARS}"; then
+		# key in blacklist, validate value
+		if ! bp_validate_variable_name "harness" value true; then
+			local pros_tag[0]="Harness"
+			pros_tag[1]="${key}='${value}'"
+			pros_tag[2]="the value should be a valid BASH variable name."
+			bp_exit_with_msg 27 pros_tag
+		fi
+	fi
 	# update CONFIGS
 	CONFIGS["${key}"]="${value}"
 	# sync llid when ulid changes; sync plid when slid changes
@@ -1100,7 +1141,7 @@ bp_apply_setup() {
 	field_len=$(bp_max_array_member_length "${!setup_bas[@]}")
 	for ps in "${!setup_bas[@]}"; do
 		bp_msg 4 "      $(printf "\e[0;2m%${field_len}s - '%s'\n" "${ps}" "${setup_bas[${ps}]}")" >&2
-		bp_set_configs "${ps}" "${setup_bas[${ps}]}" "${setup_bas[${ps}]}"
+		bp_set_configs "${ps}" "${setup_bas[${ps}]}"
 	done
 	bosparse_update_mutables
 }
@@ -1148,8 +1189,7 @@ bp_apply_filter_default() {
 			;;
 		enum)
 			# set with first enum as default value
-			default_enum=${pf_data%%"${CONFIGS[es]}"*}
-			opt_afd["${param}"]="${default_enum}"
+			opt_afd["${param}"]="${pf_data%%"${CONFIGS[es]}"*}"
 			;;
 		*) # this will not happen since integrity checking already done in bp_validate_pfilter
 			;;
@@ -1201,9 +1241,9 @@ bp_substitute_exceptions() {
 
 	local except_char
 	for except_char in "${!VN_EXCEPTIONS[@]}"; do
-		var_name=${test_name//"${except_char}"/"${VN_EXCEPTIONS[${except_char}]}"}
+		test_name=${test_name//"${except_char}"/"${VN_EXCEPTIONS[${except_char}]}"}
 	done
-	var_name="${first}${var_name}${last}"
+	var_name="${first}${test_name}${last}"
 	bp_msg -3 "      " "- substitution: ${orig} -> ${var_name}"
 }
 
@@ -1329,9 +1369,9 @@ bp_extract_enum_list() {
 	fi
 
 	# substitute escaped symbols before IFS split
-	bp_escape_symbol enum_str "\\" "${ESC_PFX}"
-	bp_escape_symbol enum_str "${FLD_SEP}" "${ESC_PFX}"
-	bp_escape_symbol enum_str "${ELM_SEP}" "${ESC_PFX}"
+	bp_escape_symbol enum_str "\\"
+	bp_escape_symbol enum_str "${FLD_SEP}"
+	bp_escape_symbol enum_str "${ELM_SEP}"
 
 	# load into array
 	readarray -d "${ELM_SEP}" -t enum_arr <<<"${enum_str}"
@@ -1340,21 +1380,22 @@ bp_extract_enum_list() {
 	# regress escaped symbols in each element
 	local i
 	for i in "${!enum_arr[@]}"; do
-		bp_escape_symbol enum_arr[i] "${ELM_SEP}" "${ESC_PFX}" "regress"
-		bp_escape_symbol enum_arr[i] "${FLD_SEP}" "${ESC_PFX}" "regress"
-		bp_escape_symbol enum_arr[i] "\\" "${ESC_PFX}" "regress"
+		bp_escape_symbol enum_arr[i] "${ELM_SEP}" "regress"
+		bp_escape_symbol enum_arr[i] "${FLD_SEP}" "regress"
+		bp_escape_symbol enum_arr[i] "\\" "regress"
 	done
 }
 
 # validate a single PFILTER entry type against PFE_TYPES
 _bp_validate_pfilter_entry_type() {
-	local entry_type=$1
-	if ! bp_is_array_member "${entry_type}" PFE_TYPES; then
-		local pros_tag[0]="${entry_type}"
-		pros_tag[1]="$(bp_join_array_members PFE_TYPES "${CONFIGS[es]}")"
+	local _key=$1 _entry_type=$2
+	if ! bp_is_array_member "${_entry_type}" PFE_TYPES; then
+		local pros_tag[0]="${_key}"
+		pros_tag[1]="${_entry_type}"
+		pros_tag[2]="$(bp_join_array_members PFE_TYPES "${CONFIGS[es]}")"
 		bp_exit_with_msg 33 pros_tag
 	else
-		bp_msg -3 "        " "- type '${entry_type}' validated."
+		bp_msg -3 "        " "- type '${_entry_type}' validated."
 	fi
 }
 
@@ -1524,7 +1565,7 @@ bp_pfilter_integrity_check() {
 		bp_msg -3 "      - extract schema: " "${entry_type} | ${entry_data:--} | ${entry_mcg:--}"
 
 		if [[ -n ${entry_mcg} ]]; then
-			bp_escape_symbol entry_mcg "${CONFIGS[es]}" "${CONFIGS[ep]}"
+			bp_escape_symbol entry_mcg "${CONFIGS[es]}"
 			readarray -d "${CONFIGS[es]}" -t mcg_name_entry <<<"${entry_mcg}"
 			mcg_name_entry[-1]="${mcg_name_entry[-1]%$'\n'}"
 
@@ -1538,7 +1579,7 @@ bp_pfilter_integrity_check() {
 			done
 		fi
 
-		_bp_validate_pfilter_entry_type "${entry_type}"
+		_bp_validate_pfilter_entry_type "${pf_key}" "${entry_type}"
 		_bp_validate_pfilter_default "${entry_type}" "${entry_data}" "${pf_key}" "${entry_schema}"
 	done
 
@@ -1552,6 +1593,34 @@ bp_pfilter_integrity_check() {
 	return 0
 }
 
+_bp_validate_key_value_pairs() {
+	local -n kv_pairs=$1 _PF=$2
+
+	# not a json string: try key-value pairs (space-delimited)
+	declare -a pf_arr=()
+	# escape first in case escaped spaces "\\ " missing
+	bp_escape_symbol kv_pairs ' '
+	readarray -d ' ' -t pf_arr <<<"${kv_pairs}"
+	# remove trailing newline '<<<' added as '-t' only remove DELM ' '
+	pf_arr[-1]="${pf_arr[-1]%$'\n'}"
+	# escape regress
+	local i
+	for i in "${!pf_arr[@]}"; do
+		bp_escape_symbol pf_arr[i] ' ' "regress"
+	done
+	# if element cout is even number
+	local n=${#pf_arr[@]}
+	if ((n % 2)); then
+		local pros_tag[0]="it is not a valid 'keys-values' string"
+		bp_exit_with_msg 31 pros_tag
+	fi
+	# load into associative array
+	for ((i = 0; i < n; i += 2)); do
+		_PF["${pf_arr[i]}"]="${pf_arr[i + 1]}"
+	done
+	bp_msg 3 "    'keys-values' pairs found"
+}
+
 # load and validate a PFILTER from CONFIGS["pf"] into an associative array
 # $1 — nameref: receives the validated PFILTER entries
 #
@@ -1560,7 +1629,7 @@ bp_pfilter_integrity_check() {
 #   2. JSON string — serialized associative array via jq
 #   3. "keys values" pairs — space-separated string: key1 key2 ... val1 val2 ...
 #
-# all input formats must contain a PFILTER_ID key ("PARAM_FILTER" or "PARAM-FILTER")
+# all input formats must contain a PFILTER_ID key ("PARAM_FILTER" or "PARAM_FILTER")
 # which is removed after validation
 # validates each key name: exception substitution, shell variable name check,
 # duplicate-after-substitution detection (exit 58)
@@ -1570,7 +1639,6 @@ bp_validate_pfilter() {
 
 	local UP_FILTER="${CONFIGS[pf]}"
 	local PFILTER_ID="${CONSTS["PFILTER_ID"]}"
-	local PFILTER_ID2="${CONSTS["PFILTER_ID"]//_/-}"
 
 	local pk new_pk
 
@@ -1580,7 +1648,7 @@ bp_validate_pfilter() {
 		local pros_tag[0]="it's an 'empty' variable."
 		bp_exit_with_msg 31 pros_tag
 	fi
-	# bp_substitute_exceptions UP_FILTER
+
 	if bp_validate_variable_name "PFILTER name" UP_FILTER true; then
 		bp_msg 3 "    PFILTER name: ${UP_FILTER}"
 
@@ -1589,7 +1657,7 @@ bp_validate_pfilter() {
 			bp_msg 3 "    An associative array found"
 			# if contains id-key
 			declare -n tmp="${UP_FILTER}"
-			if [[ -v tmp["${PFILTER_ID}"] ]] || [[ -v tmp["${PFILTER_ID2}"] ]]; then
+			if [[ -v tmp["${PFILTER_ID}"] ]] ; then
 				# all test passed
 				bp_msg 3 "    PFILTER-ID found"
 				for pk in "${!tmp[@]}"; do
@@ -1607,7 +1675,7 @@ bp_validate_pfilter() {
 			bp_exit_with_msg 31 pros_tag
 		fi
 	else
-		# not an associative array, try json and "keys-values" pairs
+		# not an associative array, try json and "key-value" pairs
 		if jq -e . <<<"${UP_FILTER}" >/dev/null 2>&1; then
 			# a valid json string
 			if ! bp_deserialize_to_pfilter "${UP_FILTER}" PF; then
@@ -1616,27 +1684,11 @@ bp_validate_pfilter() {
 			fi
 			bp_msg 3 "    JSON string found"
 		else
-			# a string: alternating key-value pairs (space-delimited)
-			declare -a pf_arr=()
-			# Split on spaces, preserving empty fields.
-			# readarray -t pf_arr < <(printf '%q\n' "${UP_FILTER}" | sed 's/ /\n/g')
-			readarray -d ' ' -t pf_arr <<<"${UP_FILTER}"
-			# remove trailing newline '<<<' added
-			pf_arr[-1]="${pf_arr[-1]%$'\n'}"
-			local n=${#pf_arr[@]}
-			if ((n % 2)); then
-				local pros_tag[0]="it is not a valid 'keys-values' string"
-				bp_exit_with_msg 31 pros_tag
-			fi
-			local i
-			for ((i = 0; i < n; i += 2)); do
-				PF["${pf_arr[i]}"]="${pf_arr[i + 1]}"
-			done
-			bp_msg 3 "    'keys-values' pairs found"
-			# echo2 "filter: ${UP_FILTER}"
+			# not a json string: try key-value pairs (space-delimited)
+			_bp_validate_key_value_pairs UP_FILTER PF
 		fi
 		# if id-key exist, it is
-		if [[ -v PF["${PFILTER_ID}"] ]] || [[ -v PF["${PFILTER_ID2}"] ]]; then
+		if [[ -v PF["${PFILTER_ID}"] ]] ; then
 			bp_msg 3 "    PFILTER-ID found"
 			bp_msg 3 "    Serialized PFILTER supplied"
 		else
@@ -1647,7 +1699,6 @@ bp_validate_pfilter() {
 
 	# remove PFILTER_ID
 	[[ -v PF["${PFILTER_ID}"] ]] && unset "PF[${PFILTER_ID}]"
-	[[ -v PF["${PFILTER_ID2}"] ]] && unset "PF[${PFILTER_ID2}]"
 
 	# load PFILTER with:
 	#   key name validation
@@ -1694,6 +1745,37 @@ bp_validate_pfilter() {
 #   bp_prefix_matching()    — exact then prefix then postfix matching
 # --------------------------------------------------------------------------------
 
+# extract harnesses from CML(for Globals) or OP-ZONE(for Priors & Specs)
+_bp_extract_options_harnesses() {
+	local lid_eoh=$1
+	local -n oz_eoh=$2 strs_eoh=$3 bls_eoh=$4 opts_eoh=$5
+
+	if [[ ${lid_eoh} == "${CONFIGS[glid]}" ]] ||
+		[[ ${lid_eoh} == "${CONFIGS[slid]}" ]] ||
+		[[ ${lid_eoh} == "${CONFIGS[plid]}" ]]; then
+		local i
+		for i in "${!oz_eoh[@]}"; do
+			bp_with_lid "${oz_eoh[i]}" "${lid_eoh}" || continue
+			# skip solitary LIDS (e.g. standalone '~~' zone separator colliding with PLID)
+			[[ ${#oz_eoh[i]} -gt ${#lid_eoh} ]] || continue
+
+			# bp_msg -3 "    " "- token: ${oz_eoh[i]}"
+			opts_eoh+=("${oz_eoh[i]}")
+
+			if [[ ${oz_eoh[i]#"${lid_eoh}"} == *${CONFIGS[os]}* ]]; then
+				strs_eoh+=("${oz_eoh[i]}")
+				bp_msg -3 "    " "- string token:  ${oz_eoh[i]}"
+			else
+				bls_eoh+=("${oz_eoh[i]}")
+				bp_msg -3 "    " "- boolean token: ${oz_eoh[i]}"
+			fi
+		done
+		return 0
+	else
+		return 1
+	fi
+}
+
 # iterate CML tokens, classify each via bp_check_param_type, sort into buckets
 # $1 — lid to match against
 # $2 — nameref: option-zone array (tokens to classify)
@@ -1712,23 +1794,26 @@ bp_extract_options() {
 
 	bp_msg -2 "  Extract Options '${lid}': " "${oz_eo[*]}"
 
+	# process globals & priors; specs?
+	_bp_extract_options_harnesses "${lid}" oz_eo strings_eo bools_eo options_eo && return 0
+
+	# process user-params
 	local i arg_consumed=false
 	for i in "${!oz_eo[@]}"; do
 
-		# process globals & priors; specs?
-		if [[ ${lid} == "${CONFIGS[glid]}" || ${lid} == "${CONFIGS[plid]}" ]]; then
-			# filter out params not match current lid
-			bp_with_lid "${oz_eo[i]}" "${lid}" || continue
-			# skip solitary LIDS (e.g. standalone '~~' zone separator colliding with PLID)
-			[[ ${#oz_eo[i]} -gt ${#lid} ]] || continue
-
-			bp_msg -3 "    " "- token: ${oz_eo[i]}"
-			options_eo+=("${oz_eo[i]}")
-			[[ ${oz_eo[i]} =~ ${CONFIGS[os]} ]] &&
-				strings_eo+=("${oz_eo[i]}") ||
-				bools_eo+=("${oz_eo[i]}")
-			continue
-		fi
+		# if [[ ${lid} == "${CONFIGS[glid]}" || ${lid} == "${CONFIGS[plid]}" ]]; then
+		# 	# filter out params not match current lid
+		# 	bp_with_lid "${oz_eo[i]}" "${lid}" || continue
+		# 	# skip solitary LIDS (e.g. standalone '~~' zone separator colliding with PLID)
+		# 	[[ ${#oz_eo[i]} -gt ${#lid} ]] || continue
+		#
+		# 	bp_msg -3 "    " "- token: ${oz_eo[i]}"
+		# 	options_eo+=("${oz_eo[i]}")
+		# 	[[ ${oz_eo[i]} =~ ${CONFIGS[os]} ]] &&
+		# 		strings_eo+=("${oz_eo[i]}") ||
+		# 		bools_eo+=("${oz_eo[i]}")
+		# 	continue
+		# fi
 
 		local curr_param next_param
 		local extracted_param="" param_type
@@ -1771,7 +1856,7 @@ bp_extract_options() {
 			;;
 		*)
 			local pros_tag="unexpected param_type '${param_type}' from bp_check_param_type."
-			bp_exit_with_msg 3 pros_tag
+			bp_exit_with_msg 4 pros_tag
 			;;
 		esac
 		options_eo+=("${extracted_param}")
@@ -2025,6 +2110,7 @@ bp_prefix_matching() {
 
 	declare -a matched=()
 
+	((${#haystack[@]} > 0)) || return 1
 	[[ -n ${needle} ]] || return 1
 
 	# build regex-safe pattern from needle
@@ -2052,7 +2138,7 @@ bp_prefix_matching() {
 			[[ ${pk} =~ ${needle_regex}$ ]] && matched+=("${pk}")
 		else
 			pros_tag[0]="Wrong options '${match_method}' when calling 'prefix-matching()', 'prefix(default)|postfix' available."
-			bp_exit_with_msg 3
+			bp_exit_with_msg 4
 		fi
 	done
 
@@ -2165,6 +2251,7 @@ bp_validate_option_args() {
 	enum)
 		# this branch must in front of "bool" branch in case EMF & EMl usage
 		# split enum string safely into array, handling escapes
+		# pf_data not empty ensured by pfilter integration test
 		local pf_data_orig="${pf_data}" # may useful for error msg
 		local enum_list=()
 		bp_extract_enum_list "${pf_data}" enum_list
@@ -2301,7 +2388,8 @@ bp_validate_mcg_types() {
 
 # bp_validate_required_groups: ensure all members of Required MCGs are supplied or have defaults
 bp_validate_required_groups() {
-	local -n groups=$1 filter_rg=$2 opts=$3
+	local lid_rg=$1
+	local -n groups=$2 filter_rg=$3 opts=$4
 
 	local mcg mem def_type def_data def_mcg
 	local mem_mcgs
@@ -2317,7 +2405,7 @@ bp_validate_required_groups() {
 
 		# find members in the same mcg
 		for mem in "${!filter_rg[@]}"; do
-			bp_extract_filter_schema "${lid}" "${filter_rg[${mem}]}" def_type def_data mem_mcg
+			bp_extract_filter_schema "${lid_rg}" "${filter_rg[${mem}]}" def_type def_data mem_mcg
 			readarray -d "${CONFIGS[es]}" -t mem_mcgs <<<"${mem_mcg}"
 			mem_mcgs[-1]="${mem_mcgs[-1]%$'\n'}"
 			for mcg_entry in "${mem_mcgs[@]}"; do
@@ -2334,7 +2422,7 @@ bp_validate_required_groups() {
 				bp_msg -3 "      " "- member '${mem}@${mcg}' supplied"
 				continue
 			else
-				bp_extract_filter_schema "${lid}" "${filter_rg[${mem}]}" def_type def_data def_mcg
+				bp_extract_filter_schema "${lid_rg}" "${filter_rg[${mem}]}" def_type def_data def_mcg
 				if [[ -n ${def_data} ]]; then
 					bp_msg -3 "      " "- member '${mem}@${mcg}' fulfill with default"
 					opts["${mem}"]="${def_data}"
@@ -2492,7 +2580,7 @@ bp_validate_option_mcgs() {
 	bp_validate_mcg_types mcg_list
 
 	# validate requirement mcg for user parameters only
-	bp_validate_required_groups mcg_list filter_vom options_vom
+	bp_validate_required_groups "${lid}" mcg_list filter_vom options_vom
 
 	# build MCG membership map
 	declare -A mcg_members_map=()
@@ -2514,7 +2602,6 @@ bp_validate_option_mcgs() {
 	# classify members for each MCG
 	for mcg in "${mcg_list[@]}"; do
 		# skip r/R (required — handled by bp_validate_required_groups) and non-MCG names
-		# skip r/R (required — handled by validate_required_groups) and non-MCG names
 		[[ ${mcg:0:1} == [rR] ]] && continue
 
 		readarray -d "${CONFIGS[es]}" -t mcg_members <<<"${mcg_members_map[${mcg}]#|}"
@@ -2763,7 +2850,7 @@ bp_output_source_arrays() {
 	local -n OPTS_OUTPUT=$1 POS_OUTPUT=$2
 	bp_msg 3 "    Output parameter arrays"
 
-	local key
+	local key tmp
 
 	# output options
 	tmp="${CONFIGS["oan"]}"
@@ -3018,7 +3105,7 @@ bp_direct_commands() {
 		echo "${CONSTS["VERSION"]}"
 	elif [[ "${CONFIGS["Resymbols"]}" == true ]]; then
 		# show resyms
-		echo "Available resyms}: ${RESYMS[*]}"
+		echo "Available resyms: ${RESYMS[*]}"
 	elif [[ "${CONFIGS["Defaults"]}" == true ]]; then
 		# bp_show_configs
 		bp_show_configs
@@ -3175,7 +3262,7 @@ bp_service_priors() {
 	[[ ${CONFIGS[config]} == false ]] || bp_show_configs
 
 	bp_msg -4 "  OP-ZONE:" " '${o_zone[*]}'"
-	bp_msg -4 "  PP-ZONE:" " '${p_zone[*]}'"
+	# bp_msg -4 "  PP-ZONE:" " '${p_zone[*]}'"
 }
 
 # service tier: parse spec-level (~) tokens, apply spec settings, handle directives
@@ -3204,7 +3291,7 @@ bp_service_specs() {
 	[[ ${CONFIGS[config]} == false ]] || bp_show_configs
 
 	bp_msg -4 "  OP-ZONE:" " '${o_zone[*]}'"
-	bp_msg -4 "  PP-ZONE:" " '${p_zone[*]}'"
+	# bp_msg -4 "  PP-ZONE:" " '${p_zone[*]}'"
 }
 
 # service tier: parse user-level (-) tokens, validate against PFILTER
@@ -3260,6 +3347,7 @@ bp_service_users() {
 # create groups of immutables from HARNESSES
 bosparse_immutables() {
 	bp_derive_harness_entries_by_field "immutable" "imm" IMMUTABLES
+	# DONFIGS value should be a validate shell variable name if the key in BASH_VARS
 	bp_derive_harness_entries_by_field "cluster" "bash_variable" BASH_VARS
 	bp_derive_harness_entries_by_field "cluster" "lid" LID_NAMES
 	bp_derive_harness_entries_by_field "cluster" "tag" TAG_NAMES
@@ -3319,7 +3407,8 @@ bosparse_emit_output() {
 bosparse_validate_input() {
 	if [[ $# -eq 0 || "$*" == '--' || "$*" == "${CONFIGS[zs]}" ]]; then
 		verbose=1
-		bp_exit_with_msg 2
+		local pros_tag[0]=""
+		bp_exit_with_msg 2 pros_tag
 	fi
 }
 

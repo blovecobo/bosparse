@@ -8,11 +8,11 @@ For a quick start guide, see `bp-README.md`. For PFILTER-specific documentation,
 
 ## Workflow
 
-1. **Initialize**: Loading pre-defined data, generate runtime environment, `CONFIGS`, verbose, etc.
-1. **Global Parsing**: Parsing Global arguments, which will set CML Style and ZONE-SEP
-1. **Prior Parsing**: Parsing Prior arguments, which will set up the Parsing-Aid-Symbols (PAS)
-1. **Spec Parsing**: Parsing Spec arguments, which will set up essential parsing Options
-1. **Parsing User Parameters**: Parsing user parameters, which will extract the user's input, validate parsing results if needed
+1. **Initialize**: Load pre-defined data, generate runtime environment, `HARNESSES`, `CONFIGS`, verbose, etc.
+1. **Globals Parsing**: Parsing Global arguments, which will set CML Style and ZONE-SEP
+1. **Priors Parsing**: Parsing Prior arguments, which will set up the Parsing-Aid-Symbols (PAS)
+1. **Specs Parsing**: Parsing Spec arguments, which will set up essential parsing Options
+1. **User Parameters Parsing**: Process user parameters, include Options and Positionals
 1. **Output Parsing Results**: Outputting the parsing results, according to the user's preferences
 
 ## Main Data Structures
@@ -67,7 +67,7 @@ For a quick start guide, see `bp-README.md`. For PFILTER-specific documentation,
 Bosparse accepts the following command line structures:
 
 ```bash
-[OP-ZONE] [ZN-SEP] [PP-ZONE] # watershed style
+[OP-ZONE] [ZN-SEP] [PP-ZONE] # watershed style, default
 [Options | Positionals]      # islands style
 ```
 
@@ -77,40 +77,58 @@ where:
 - `ZN-SEP` (`--` by default): separator between Option parameters and Positional parameters
 - `PP-ZONE`: contains all the Positional parameters
 
-For `watershed` style CML, a `ZN-SEP` is always recommended even if only one zone is provided. While `ZN-SEP` not found, BosParse will try to 'guess': if the first parameter is an Option parameter(starts with any LIDs), BosParse will assume that only `op-zone` is provided; otherwise, Bosparse will assume that only `pp-zone` is provided.
+For `watershed` style CML, a `ZN-SEP` is always recommended even if only one Zone is provided. While `ZN-SEP` not found, BosParse will try to 'guess': if the first parameter is an Option parameter(starts with any LIDs), BosParse will assume that only `OP-ZONE` is provided; otherwise, Bosparse will assume that only `PP-ZONE` is provided.
 
 `watershed` style is more suitable for complex CML with many parameters, especially when there are many Positional parameters which may cause ambiguity if `ZN-SEP` not provided.
 
-For `islands` style CML, all parameters regarded as standalone parameters(Options or Positionals) instead of values of other Options. `Space(s)` cannot be used to separate user parameter names and values, `ZN-SEP` acceptable but not required.
+`islands` style CML is a flexible way for input, every parameter is self-contained and the CML is order independent; `ZN-SEP` is welcome but not required. The only limitation is, spaces never allowed to use as `OA-SEP` to avoid ambiguity
 
-`islands` style is more suitable for simple CML, For example, if there is only one Positional parameter, `islands` style can be more concise and user-friendly.:
+Command lines with same context but in different styles will get the same parsing result.
 
-```bash
-#!/bin/bash
-bosparse ~~sty=i "$@"
-echo "name: ${BP_Positionals_0}"
-```
+Compare the command line and script in different style:
 
-Then run the script with:
+- 'watershed' style:
 
-```bash
-# 'island' style command line
-./script.sh charlie
-```
+  ```bash
+  #!/bin/bash
+  bosparse ~~sty=i "$@"
+  echo "${BP_Positionals_0}:"
+  echo "  Species: ${species}
+  echo "  Rank:    ${rank}"
+  ```
 
-With `islands` style, `charlie` will be parsed as a Positional parameter, without `zn-sep` or parameter name supplied. When using `watershed` style, with the script modified, the CML should be:
+  CML in `watershed` style:
 
-```bash
-# with ZN-SEP
-# 'watershed' style command line
-./script.sh -- charlie
-# or an Option parameter with value needed
-./script.sh -name charlie --
-```
+  ```bash
+  # 'island' style command line, no parameter sequence requirements
+  ./script.sh Spock -species="Vulcan/Human hybrid" -rank="Captain"
+  ```
+
+  ```
+
+  ```
+
+- `islands` style:
+
+  ```bash
+  #!/bin/bash
+  bosparse ~~sty=w "$@"
+  echo "${name}:"
+  echo "  Species: ${species}
+  echo "  Rank:    ${rank}"
+  ```
+
+  CML in `islnads` style:
+
+  ```bash
+  # with ZN-SEP
+  # 'watershed' style command line
+  ./script.sh -name="Spock" -species="Vulcan/Human hybrid" -rank="Captain" --
+  ```
 
 ## PFILTER Definition
 
-BosParse supports flexible parameter definition using `PFILTER` created by developer, which is an associative array containing all the necessary information for parsing user parameters.
+BosParse supports flexible parameter definition using `PFILTER`, which is an associative array containing all the necessary information for parsing user parameters.
 
 ### Syntax of `PFILTER` entry
 
@@ -124,15 +142,16 @@ Where:
 
 - **param-name**: the name of the parameter
 - **type** field: the type of the parameter, which can be `string`, `boolean` or `enum`
-- **data** field: the data for the parameter, which can be default value, or a list of available values for `enum` separated by ELM-SEP (`|` pipe)
-- **mcg-name** field: the name(s) of the mutual correlation group(s), used to group parameters that are mutually correlated; multiple group names separated by ELM-SEP (`|` pipe)
+- **data** field: the data for the parameter, which can be default value, or a list of available values for `enum` separated by `ELM-SEP` (`|` pipe)
+- **mcg-name** field: the name(s) of the mutual correlation group(MCG), used to group parameters that are mutually correlated; multiple group names separated by `ELM-SEP` (`|` pipe)
 
 #### Note
 
-- Data field and mcg-name field are optional.
-- As `param-name` of Options will be used as Bash variable name in the parsing result, Option `param-name` should satisfy Bash variable naming convention, but in command line, an Option like `--dry-run` sounds reasonable. For this reason, BosParse accepts hyphen `-` using in `param-name` as an exception if it isn't at the beginning or end of the param-name. BosParse will replace every hyphen `-` with a underscore `_` in the final result.
-- Exceptions substituting hyphen `-` with underscore `_` may cause name collision, for example, `--dry-run` and `--dry_run` will both be converted to `dry_run`. To avoid this, BosParse will check for potential collision in `PFILTER` definition and exit with error if any is detected.
-- `mcg-name` follows the same naming rules and the exception.
+- Fields separated by `FLD-SEP` (`:` colon)
+- Data field and mcg-name field are optional with`FLD-SEP` kept.
+- As `param-name` of Option names will be used as Bash variable name in the parsing result, any Option names should satisfy shell variable naming convention; but in command line, an Option like `--dry-run` sounds reasonable. For this reason, BosParse accepts hyphen `-` using in `param-name` as an exception if it isn't at the beginning or end of the param-name. BosParse will replace every hyphen `-` with an underscore `_` in the final result.
+- Exceptions substituting hyphen `-` with underscore `_` may cause name collision, for example, `--dry-run` and `--dry_run` will both be converted to `dry_run`. To avoid this, BosParse will check for potential collision in `PFILTER` definition and exit with an error if any is detected.
+- `mcg-name` follows the same naming rules and the exception as that of option-name.
 
 ### Serializing `PFILTER`
 
@@ -144,7 +163,7 @@ When running BosParse in `eval/capture` mode, `PFILTER` should be serialized bef
   ~pf="$(bp-serialize-pfilter PFILTER)"
   ```
 
-- `key-value` pairs:
+- `key-value` pairs, for simple keys and values:
 
   ```bash
   ~pf="key1 value1 key2 value2 ..."
@@ -152,44 +171,52 @@ When running BosParse in `eval/capture` mode, `PFILTER` should be serialized bef
 
   Restrictions for this purpose:
 
-  - `PFILTER` entry value contains space(s) or special characters will break the `key-value` pairs passing. Assign a double quoted variable to `~pf` can solve this problem:
+  - `PFILTER` entry value is empty or contains space(s) will break the `key-value` pairs passing. Assign a double quoted variable to `~pf` can solve this problem:
 
-  ```bash
-  for key in "${PFILTER[@]}"; do
-       spf+="${key} "
-       spf+="${PFILTER[${key}]} "
-   done
-  result=$(./bosparse ~pf="${spf% }" ~json "$@")
-  ```
+    ```bash
+    spf=""
+    for key in "${PFILTER[@]}"; do
+         spf+="${key} ${PFILTER[${key}]} "
+    done
+    spf="${spf% }" # IMPORTANT: remove trailing space
+    result=$(./bosparse ~pf="${spf}" ~json "$@")
+    ```
 
-  - No space(s) or special characters in `PFILTER` entry value is recommended
+  - Trailing(or leading) space should be removed before passing
+
+  - As spaces used as separator, any spaces in `PFILTER` entry should be escaped:
+
+    ```bash
+    ["captain"]="string:James\\ T.\\ Kirk"
+    ```
+
+  - `key-value` pair method is suitable for simple usage, special characters in keys or values may result unexpected behavior. JSON string is always reliable and is recommended.
 
 ### PFILTER-ID
 
-`PFILTER-ID` is a special entry in `PFILTER`, which is used to validate the `PFILTER` by `PARAM-FILTER` as key:
+`PFILTER-ID` is a special entry in `PFILTER`, which is used to identify the `PFILTER` by `PARAM_FILTER` as a key:
 
 ```bash
-["PARAM-FILTER"]="arbitrary-content"
+["PARAM_FILTER"]="arbitrary-content"
 ```
 
-The value of `PFILTER-ID` entry does not matter while the key `PARAM-FILTER` is reserved as `PFILTER-ID`; BosParse will check the existence of `PFILTER-ID` entry to determine if this associative array is a valid `PFILTER` or not.
+The value of `PFILTER-ID` entry does not matter while the key `PARAM_FILTER` is reserved as `PFILTER-ID`; BosParse will check the existence of `PFILTER-ID` entry to determine if this associative array is a valid `PFILTER` or not.
 
 ### PFILTER-related Harnesses
 
 - `~pf`: Pass `PFILTER` to BosParse, should be a name reference(source mode) or a serialized `PFILTER`(JSON string/key-value pairs, for all modes)
   - PFILTER must be defined in the current shell environment when using name reference
-  - When no PFILTER provided, or `~pf=""`, no respective functionality is added; BosParse behaves as if PFILTER is not used
+  - When no PFILTER provided, or `~pf=""`, no respective functionality applied on user-params; BosParse behaves as if PFILTER is not used
   - When PFILTER not valid, parsing fails with an error
 - `~rup`: Restrict unknown parameters, an undefined parameter will be rejected if `~rup` is set
   - enabled by default
-  - `~rup` enables strict validation and rejects parameters not defined in PFILTER
   - `~rup-` allows any parameters; only those defined in PFILTER are validated
 - `~afd`: Apply `PFILTER` defaults for parameters not belong to any MCGs; MCG member parameters follow group rules.
   - enabled by default
   - `~afd-` disables default assignment
 - `~dvo`: Disable variable output, no `variable=value` output to avoid variable name conflict
   - for `source-mode` only
-  - `false` by default (variables are output)
+  - `false` by default (output variables)
 - '~pme': Enable-prefix-matching, allows prefix matching for user parameter names and their enum values.
   - enabled by default
   - for user parameters only; prefix-matching on Harnesses are always enabled
@@ -200,24 +227,24 @@ BosParse supports prefix-matching for parameter names(include LIAG members) and 
 
 ```bash
 ["help"]="bool:false"
-["fruit"]="enum:apple|banana|cherry"
+["ship"]="enum:Enterprise|Voyager|Kevin"
 ```
 
-When no ambiguity is found, BosParse will use the prefix-matched parameter:
+When no ambiguity is found, BosParse will map parameter names and enum values via prefix-matching:
 
-- `-h`, `-he`, `-hel`, `-help`: will all be matched to `help`
-- `-f=b` or `-f b`: assign `banana` to `fruit` (`fruit=banana`)
+- `-h`, `-he`, `-hel`, `-help`: will all be mapped to `help`
+- `-s=e` (all styles) or `-s e` (watershed style): assign `Enterprise` to `ship` (same as `-ship="Enterpise` or `-ship Enterprise`)
 
 ### Enum Matching First(EMF) and Enum Matching Last(EML)
 
 When an Enum type parameter is provided using Boolean syntax, BosParse will use the First or Last value in the enum list:
 
 ```bash
-["color"]="enum:red|green|blue"
+["captain"]="enum:Kirk|Picard|Janeway"
 ```
 
-- When `-c` provided, use `blue` (`true`, EML)
-- When `-c-` provided, use `red` (`false`, EMF)
+- When `-c` provided, use `Kirk` (`true`, EML)
+- When `-c-` provided, use `Janeway` (`false`, EMF)
 
 ### Symbol Escaping
 
@@ -326,9 +353,6 @@ BosParse supports the following directives:
 1. Globals - Set `Style`, `ZONE-SEP` and `LIDs` (LID: `~~~`)
 
    - `~~~style`: command line structure style, available styles: `watershed`(default) and `islands`
-     - `~~~style=islands` or `~~~style=watershed` to set explicitly
-     - `~~~style` without a value (bare) defaults to `islands` (EML — last enum value)
-     - `~~~style-` match to `watershed` (EMF — first enum value)
    - `~~~glid`: (default `~~~`) Global LID string, nonconfigurable
    - `~~~plid`: (default `~~`) Prior LID string, nonconfigurable, sync with double `slid` (<slid><slid>)
    - `~~~slid`: (default `~`) Spec LID string
@@ -361,7 +385,7 @@ BosParse supports the following directives:
      - `~pf`: Pass `PFILTER` to BosParse
      - `~rup`: Restrict unknown parameters
      - `~afd`: Apply `PFILTER` defaults
-     - `~pme`: prefix-matching for user params enabled (default `true`)
+     - `~pme`: enable prefix-matching for user params enabled (default `true`)
 
    - Directives
 
@@ -397,7 +421,7 @@ Output parsing results according to the `run-mode` specified by the user.
 By default, BosParse outputs as follows in `source-mode`:
 
 1. Output Options as shell variables(can be disabled by `~dvo`)
-    - if `~dvo` set, variables will output via array named after `CONSTS[OAN]`
+   - if `~dvo` set, variables will output via array named after `CONSTS[OAN]`
 1. Output Positional Arguments as an associative array named after `CONSTS[PAN]`
 
 If user specified, BosParse outputs parsing result in arrays with customize name:
@@ -486,4 +510,4 @@ Prefer the first pattern (direct assignment via `jq` + `printf -v`) because it a
 
 ### Capture Mode
 
-Output Options and Positional arguments in JSON format.
+Output Options and Positional arguments in JSON format. Capture mode is recommended as its reliability and robustness.

@@ -22,7 +22,7 @@ bp_trace() {
 		for ((ll = start; ll < ln_levels; ll += 1)); do
 			compact_info+=$(printf ' <= %s(%s)' "${fn[ll]}" "${BASH_LINENO[ll]}")
 		done
-		printf '\e[2m%s\e[0m\n' "${compact_info%}"
+		printf '\e[2m%s\e[0m\n' "${compact_info%}" >&2
 	else
 		local fld_len
 
@@ -48,7 +48,7 @@ echo2() { printf '%s\n' "$*" >&2; }
 # operations:
 #   mark: symbol -> symbol-with-mark
 #           : -> \:
-#   substitue: symbol-with-escape-mark -> symbol-name-pattern(default)
+#   substitute: symbol-with-escape-mark -> symbol-name-pattern(default)
 #           \: -> <ESC_PFX><SYMBOLNAME>__
 #   restore: symbol-name-pattern -> symbol-with-escape-mark
 #           <ESC_PFX><SYMBOLNAME>__ -> \:
@@ -66,6 +66,14 @@ bp_escape_symbol() {
 
 	local esc_pfx="${CONFIGS[ep]}"
 
+	declare syms pros_tag
+	if [[ ! -v SYMNAMES["${symbol}"] ]]; then
+		# unsupport symbol
+		syms="$(printf '%q' "${!SYMNAMES[@]}")"
+		pros_tag[0]="symbol '${symbol}' not supported, available symbols: '${syms}"
+		bp_exit_with_msg 29 pros_tag
+	fi
+
 	if [[ ${esc_mode} == "mark" ]]; then
 		str_escp="${str_escp//"${symbol}"/\\"${symbol}"}"
 	elif [[ ${esc_mode} == "substitute" ]]; then
@@ -77,7 +85,9 @@ bp_escape_symbol() {
 	elif [[ ${esc_mode} == "remove" ]]; then
 		str_escp="${str_escp//\\"${symbol}"/"${symbol}"}"
 	else
-		:
+		# unknow escape mode
+		pros_tag[0]="invalid escape mode '${esc_mode}', available operations: 'mark|substitute|restore|regress|remove"
+		bp_exit_with_msg 29 pros_tag
 	fi
 }
 
@@ -141,8 +151,15 @@ bp_split_string_into_array() {
 	local -n _array=$2
 	local sym=${3:-:}
 
-	local IFS="${sym}"
-	read -r -a _array <<<"${string}"
+	if [[ -n "${string}" ]]; then
+		local IFS="${sym}"
+		read -r -a _array <<<"${string}"
+	else
+		# When string is empty, read -r -a _array <<<"" produces a single empty
+		# element, not an empty array. Callers expecting empty results would get
+		# [""] instead.
+		_array=()
+	fi
 }
 
 # calculate max length among array members without external tools('wc'.. )
@@ -190,7 +207,12 @@ bp_key_of_array_member() {
 # returns: 0 if found, 1 if not found
 bp_is_array_member() {
 	local str=$1
-	local -n arr_ref=${2:-}
+
+	if (($# < 2)) || [[ $2 == "" ]]; then
+		return 1
+	else
+		local -n arr_ref=${2:-}
+	fi
 
 	local mem
 	for mem in "${arr_ref[@]}"; do
@@ -210,7 +232,7 @@ bp_msg() {
 
 	[[ ${verbose:-0} -ge 1 ]] || return 0
 	[[ -n ${title} ]] || {
-		echo
+		echo -e "\e[2mno title\e[0m" >&2
 		return 0
 	}
 
@@ -227,7 +249,7 @@ bp_msg() {
 		printf '\e[33m%s\e[0m' "${title}" >&2
 		[[ -n ${content} ]] && printf '\n\e[2m%s\e[0m' "${content}" >&2
 	fi
-	((${msg_level} == 4)) && bp_trace 1 true || echo
+	((${msg_level} == 4)) && bp_trace 1 true || echo >&2
 	return 0
 }
 
@@ -239,7 +261,7 @@ bp_msg() {
 # always exits; does not return
 bp_exit_with_msg() {
 	local exit_code=$1
-	(($# > 1)) && local -n pt_ref=${2:-}
+	if (($# > 1)); then local -n pt_ref=$2; else local pt_ref=(); fi
 	local additional_msg=${3:-}
 
 	if [[ ${verbose:-0} -ge 3 ]]; then
@@ -247,14 +269,19 @@ bp_exit_with_msg() {
 		[[ -v EXIT_MSG["$((exit_code + 100))"] ]] && ((exit_code += 100))
 	fi
 
-	local msg
+	local msg exit_code_orig
 	msg="${EXIT_MSG[${exit_code}]}"
-	if [[ -n ${pt_ref:-} ]]; then
+	if [[ ${#pt_ref[@]} -gt 0 ]]; then
 		# substitute pros_tag placeholders in message
 		for index in "${!pt_ref[@]}"; do
 			msg="${msg//\$\{pros_tag\["${index}"\]\}/${pt_ref[index]}}"
 			additional_msg="${additional_msg//\$\{pros_tag\[${index}\]\}/${pt_ref[index]}}"
 		done
+	else
+		# now pros_tag passed, use 'unknown error'
+		exit_code_orig="${exit_code}"
+		exit_code=3 # error code for unknow error
+		msg="${EXIT_MSG[${exit_code}]} (${exit_code_orig})."
 	fi
 
 	printf '\e[33merror %d:\e[0m %s\n' "${exit_code}" "${msg}" >&2
@@ -305,8 +332,9 @@ bp_show_array() {
 	local -n target_arr=$1
 	local separator=${2:--}
 	local gap=${3:-1}
+	local sort_opt=${4:-}
 
-	echo >&2 "${!target_arr}:"
+	# echo >&2 "${!target_arr}:"
 	if [[ ${gap} -gt 0 ]]; then
 		gap=$(printf '%*s' "${gap}" '')
 	else
@@ -317,9 +345,14 @@ bp_show_array() {
 		((${#key} > lmax)) && lmax=${#key}
 	done
 	((lmax += 2))
+	if [[ ${sort_opt} == true ]]; then
+		sort_opt=' -n'
+	else
+		sort_opt=""
+	fi
 	for key in "${!target_arr[@]}"; do
-		printf "%${lmax}s%s%s%s%s \n" "${key}" "${gap}" "${separator}" "${gap}" "${target_arr[${key}]}"
-	done | sort >&2
+		printf "%${lmax}s%s%s%s'%s'\n" "${key}" "${gap}" "${separator}" "${gap}" "${target_arr[${key}]}"
+	done | sort ${sort_opt} >&2
 }
 
 # extract a single value from a JSON string using a jq filter

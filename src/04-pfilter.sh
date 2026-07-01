@@ -120,9 +120,9 @@ bp_extract_enum_list() {
 	fi
 
 	# substitute escaped symbols before IFS split
-	bp_escape_symbol enum_str "\\" "${ESC_PFX}"
-	bp_escape_symbol enum_str "${FLD_SEP}" "${ESC_PFX}"
-	bp_escape_symbol enum_str "${ELM_SEP}" "${ESC_PFX}"
+	bp_escape_symbol enum_str "\\"
+	bp_escape_symbol enum_str "${FLD_SEP}"
+	bp_escape_symbol enum_str "${ELM_SEP}"
 
 	# load into array
 	readarray -d "${ELM_SEP}" -t enum_arr <<<"${enum_str}"
@@ -131,21 +131,22 @@ bp_extract_enum_list() {
 	# regress escaped symbols in each element
 	local i
 	for i in "${!enum_arr[@]}"; do
-		bp_escape_symbol enum_arr[i] "${ELM_SEP}" "${ESC_PFX}" "regress"
-		bp_escape_symbol enum_arr[i] "${FLD_SEP}" "${ESC_PFX}" "regress"
-		bp_escape_symbol enum_arr[i] "\\" "${ESC_PFX}" "regress"
+		bp_escape_symbol enum_arr[i] "${ELM_SEP}" "regress"
+		bp_escape_symbol enum_arr[i] "${FLD_SEP}" "regress"
+		bp_escape_symbol enum_arr[i] "\\" "regress"
 	done
 }
 
 # validate a single PFILTER entry type against PFE_TYPES
 _bp_validate_pfilter_entry_type() {
-	local entry_type=$1
-	if ! bp_is_array_member "${entry_type}" PFE_TYPES; then
-		local pros_tag[0]="${entry_type}"
-		pros_tag[1]="$(bp_join_array_members PFE_TYPES "${CONFIGS[es]}")"
+	local _key=$1 _entry_type=$2
+	if ! bp_is_array_member "${_entry_type}" PFE_TYPES; then
+		local pros_tag[0]="${_key}"
+		pros_tag[1]="${_entry_type}"
+		pros_tag[2]="$(bp_join_array_members PFE_TYPES "${CONFIGS[es]}")"
 		bp_exit_with_msg 33 pros_tag
 	else
-		bp_msg -3 "        " "- type '${entry_type}' validated."
+		bp_msg -3 "        " "- type '${_entry_type}' validated."
 	fi
 }
 
@@ -315,7 +316,7 @@ bp_pfilter_integrity_check() {
 		bp_msg -3 "      - extract schema: " "${entry_type} | ${entry_data:--} | ${entry_mcg:--}"
 
 		if [[ -n ${entry_mcg} ]]; then
-			bp_escape_symbol entry_mcg "${CONFIGS[es]}" "${CONFIGS[ep]}"
+			bp_escape_symbol entry_mcg "${CONFIGS[es]}"
 			readarray -d "${CONFIGS[es]}" -t mcg_name_entry <<<"${entry_mcg}"
 			mcg_name_entry[-1]="${mcg_name_entry[-1]%$'\n'}"
 
@@ -329,7 +330,7 @@ bp_pfilter_integrity_check() {
 			done
 		fi
 
-		_bp_validate_pfilter_entry_type "${entry_type}"
+		_bp_validate_pfilter_entry_type "${pf_key}" "${entry_type}"
 		_bp_validate_pfilter_default "${entry_type}" "${entry_data}" "${pf_key}" "${entry_schema}"
 	done
 
@@ -343,6 +344,34 @@ bp_pfilter_integrity_check() {
 	return 0
 }
 
+_bp_validate_key_value_pairs() {
+	local -n kv_pairs=$1 _PF=$2
+
+	# not a json string: try key-value pairs (space-delimited)
+	declare -a pf_arr=()
+	# escape first in case escaped spaces "\\ " missing
+	bp_escape_symbol kv_pairs ' '
+	readarray -d ' ' -t pf_arr <<<"${kv_pairs}"
+	# remove trailing newline '<<<' added as '-t' only remove DELM ' '
+	pf_arr[-1]="${pf_arr[-1]%$'\n'}"
+	# escape regress
+	local i
+	for i in "${!pf_arr[@]}"; do
+		bp_escape_symbol pf_arr[i] ' ' "regress"
+	done
+	# if element cout is even number
+	local n=${#pf_arr[@]}
+	if ((n % 2)); then
+		local pros_tag[0]="it is not a valid 'keys-values' string"
+		bp_exit_with_msg 31 pros_tag
+	fi
+	# load into associative array
+	for ((i = 0; i < n; i += 2)); do
+		_PF["${pf_arr[i]}"]="${pf_arr[i + 1]}"
+	done
+	bp_msg 3 "    'keys-values' pairs found"
+}
+
 # load and validate a PFILTER from CONFIGS["pf"] into an associative array
 # $1 — nameref: receives the validated PFILTER entries
 #
@@ -351,7 +380,7 @@ bp_pfilter_integrity_check() {
 #   2. JSON string — serialized associative array via jq
 #   3. "keys values" pairs — space-separated string: key1 key2 ... val1 val2 ...
 #
-# all input formats must contain a PFILTER_ID key ("PARAM_FILTER" or "PARAM-FILTER")
+# all input formats must contain a PFILTER_ID key ("PARAM_FILTER" or "PARAM_FILTER")
 # which is removed after validation
 # validates each key name: exception substitution, shell variable name check,
 # duplicate-after-substitution detection (exit 58)
@@ -361,7 +390,6 @@ bp_validate_pfilter() {
 
 	local UP_FILTER="${CONFIGS[pf]}"
 	local PFILTER_ID="${CONSTS["PFILTER_ID"]}"
-	local PFILTER_ID2="${CONSTS["PFILTER_ID"]//_/-}"
 
 	local pk new_pk
 
@@ -371,7 +399,7 @@ bp_validate_pfilter() {
 		local pros_tag[0]="it's an 'empty' variable."
 		bp_exit_with_msg 31 pros_tag
 	fi
-	# bp_substitute_exceptions UP_FILTER
+
 	if bp_validate_variable_name "PFILTER name" UP_FILTER true; then
 		bp_msg 3 "    PFILTER name: ${UP_FILTER}"
 
@@ -380,7 +408,7 @@ bp_validate_pfilter() {
 			bp_msg 3 "    An associative array found"
 			# if contains id-key
 			declare -n tmp="${UP_FILTER}"
-			if [[ -v tmp["${PFILTER_ID}"] ]] || [[ -v tmp["${PFILTER_ID2}"] ]]; then
+			if [[ -v tmp["${PFILTER_ID}"] ]] ; then
 				# all test passed
 				bp_msg 3 "    PFILTER-ID found"
 				for pk in "${!tmp[@]}"; do
@@ -398,7 +426,7 @@ bp_validate_pfilter() {
 			bp_exit_with_msg 31 pros_tag
 		fi
 	else
-		# not an associative array, try json and "keys-values" pairs
+		# not an associative array, try json and "key-value" pairs
 		if jq -e . <<<"${UP_FILTER}" >/dev/null 2>&1; then
 			# a valid json string
 			if ! bp_deserialize_to_pfilter "${UP_FILTER}" PF; then
@@ -407,27 +435,11 @@ bp_validate_pfilter() {
 			fi
 			bp_msg 3 "    JSON string found"
 		else
-			# a string: alternating key-value pairs (space-delimited)
-			declare -a pf_arr=()
-			# Split on spaces, preserving empty fields.
-			# readarray -t pf_arr < <(printf '%q\n' "${UP_FILTER}" | sed 's/ /\n/g')
-			readarray -d ' ' -t pf_arr <<<"${UP_FILTER}"
-			# remove trailing newline '<<<' added
-			pf_arr[-1]="${pf_arr[-1]%$'\n'}"
-			local n=${#pf_arr[@]}
-			if ((n % 2)); then
-				local pros_tag[0]="it is not a valid 'keys-values' string"
-				bp_exit_with_msg 31 pros_tag
-			fi
-			local i
-			for ((i = 0; i < n; i += 2)); do
-				PF["${pf_arr[i]}"]="${pf_arr[i + 1]}"
-			done
-			bp_msg 3 "    'keys-values' pairs found"
-			# echo2 "filter: ${UP_FILTER}"
+			# not a json string: try key-value pairs (space-delimited)
+			_bp_validate_key_value_pairs UP_FILTER PF
 		fi
 		# if id-key exist, it is
-		if [[ -v PF["${PFILTER_ID}"] ]] || [[ -v PF["${PFILTER_ID2}"] ]]; then
+		if [[ -v PF["${PFILTER_ID}"] ]] ; then
 			bp_msg 3 "    PFILTER-ID found"
 			bp_msg 3 "    Serialized PFILTER supplied"
 		else
@@ -438,7 +450,6 @@ bp_validate_pfilter() {
 
 	# remove PFILTER_ID
 	[[ -v PF["${PFILTER_ID}"] ]] && unset "PF[${PFILTER_ID}]"
-	[[ -v PF["${PFILTER_ID2}"] ]] && unset "PF[${PFILTER_ID2}]"
 
 	# load PFILTER with:
 	#   key name validation

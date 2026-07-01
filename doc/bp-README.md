@@ -152,7 +152,7 @@ Example:
 - Options sequence is insensitive for params in OP-ZONE (`watershed`) or the whole CML (`islands`)
 - When the same parameter supplied multiple times, the latter wins; when the same parameter name used with different types, parsing fails
 - If a boolean parameter is supplied as both a standalone boolean and a member of a LIGA-style flag, the boolean setting takes precedence
-- BosParse supports prefix-matching on Harnesses name and enum values in all Harnesses scope, e.g. `~r=j` -> `~run=json`
+- BosParse supports prefix-matching on Harnesses name and enum values in all Harnesses scope, e.g. `~r=e` -> `~run=eval`
 - Prefix-matching on user parameters needs `PFILTER` support, see BosParse-Reference-Manual.md#Prefix-Matching
 - Parameters like `-flag=true` or `-flag=false` are parsed as boolean, not string
 
@@ -241,38 +241,38 @@ For details about BosParse like parsing-aid symbols and customization, see `BosP
 
 All parser harnesses, their LIDs, types, defaults, and tiers:
 
-| Key         | LID   | Type   | Default          | Level     |
-| ----------- | ----- | ------ | ---------------- | --------- |
-| `style`     | `~~~` | enum   | `watershed`      | global    |
-| `zs`        | `~~~` | resym  | `--`             | global    |
-| `glid`      | `~~~` | resym  | `~~~`            | global    |
-| `plid`      | `~~~` | resym  | `~~`             | global    |
-| `slid`      | `~~~` | resym  | `~`              | global    |
-| `ulid`      | `~~~` | resym  | `-`              | global    |
-| `os`        | `~~`  | resym  | `=`              | prior     |
-| `tt`        | `~~`  | resym  | `+`              | prior     |
-| `tf`        | `~~`  | resym  | `-`              | prior     |
-| `td`        | `~~`  | bool   | `true`           | prior     |
-| `run`       | `~`   | enum   | `auto`           | spec      |
-| `json`      | `~`   | bool   | `false`          | spec      |
-| `dvo`       | `~`   | bool   | `false`          | spec      |
-| `pf`        | `~`   | string |                  | spec      |
-| `rup`       | `~`   | bool   | `true`           | spec      |
-| `afd`       | `~`   | bool   | `true`           | spec      |
-| `pme`       | `~`   | bool   | `true`           | spec      |
-| `oan`       | `~`   | string |                  | spec      |
-| `pan`       | `~`   | string | `BP_Positionals` | spec      |
-| `Banner`    | `~`   | bool   | `false`          | spec      |
-| `Defaults`  | `~`   | bool   | `false`          | spec      |
-| `Help`      | `~`   | bool   | `false`          | spec      |
-| `Resymbols` | `~`   | bool   | `false`          | spec      |
-| `Version`   | `~`   | bool   | `false`          | spec      |
-| `quiet`     | all   | bool   | `true`           | all tiers |
-| `standard`  | all   | bool   | `false`          | all tiers |
-| `extra`     | all   | bool   | `false`          | all tiers |
-| `debug`     | all   | bool   | `false`          | all tiers |
-| `trace`     | all   | bool   | `false`          | all tiers |
-| `config`    | all   | bool   | `false`          | all tiers |
+| Key         | NAME                   | LID   | Type   | Default          | Level     |
+| ----------- | ---------------------- | ----- | ------ | ---------------- | --------- |
+| `style`     | CML style              | `~~~` | enum   | `watershed`      | global    |
+| `zs`        | ZONE-SEP               | `~~~` | resym  | `--`             | global    |
+| `glid`      | Global LID             | `~~~` | resym  | `~~~`            | global    |
+| `plid`      | Prior LID              | `~~~` | resym  | `~~`             | global    |
+| `slid`      | Spec LID               | `~~~` | resym  | `~`              | global    |
+| `ulid`      | User-Param LID         | `~~~` | resym  | `-`              | global    |
+| `os`        | OA-SEP                 | `~~`  | resym  | `=`              | prior     |
+| `tt`        | TAG-TRUE               | `~~`  | resym  | `+`              | prior     |
+| `tf`        | TAG-FALSE              | `~~`  | resym  | `-`              | prior     |
+| `td`        | TAG-DEFAULT            | `~~`  | bool   | `true`           | prior     |
+| `run`       | RUN-MODE               | `~`   | enum   | `auto`           | spec      |
+| `json`      | OUPUT-JSON             | `~`   | bool   | `false`          | spec      |
+| `dvo`       | DISABLE VAR OUTPUT     | `~`   | bool   | `false`          | spec      |
+| `pf`        | PFILTER                | `~`   | string |                  | spec      |
+| `rup`       | RESTRICT UNKNOWNS      | `~`   | bool   | `true`           | spec      |
+| `afd`       | APPLY FILTER DEFAULT   | `~`   | bool   | `true`           | spec      |
+| `pme`       | PREFIX-MATCHING ENABLE | `~`   | bool   | `true`           | spec      |
+| `oan`       | OPTIONS ARRAY NAME     | `~`   | string |                  | spec      |
+| `pan`       | POSITIONALS ARRAY NAME | `~`   | string | `BP_Positionals` | spec      |
+| `Banner`    | SHOW BANNER            | `~`   | bool   | `false`          | spec      |
+| `Defaults`  | SHOW DEFAULT           | `~`   | bool   | `false`          | spec      |
+| `Help`      | SHOW HELP              | `~`   | bool   | `false`          | spec      |
+| `Resymbols` | SYMBOLS                | `~`   | bool   | `false`          | spec      |
+| `Version`   | SHOW VERSION           | `~`   | bool   | `false`          | spec      |
+| `quiet`     | VERBOSE 0              | all   | bool   | `true`           | all tiers |
+| `standard`  | VERBOSE 1              | all   | bool   | `false`          | all tiers |
+| `extra`     | VERBOSE 2              | all   | bool   | `false`          | all tiers |
+| `debug`     | VERBOSE 3              | all   | bool   | `false`          | all tiers |
+| `trace`     | VERBOSE 4              | all   | bool   | `false`          | all tiers |
+| `config`    | SHOW CURRENT CONFIGS   | all   | bool   | `false`          | all tiers |
 
 - **Global** (`~~~`): CML style, LIDs, zone separator, verbosity
 - **Prior** (`~~`): trailing tags, OA separator, verbosity

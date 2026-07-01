@@ -93,6 +93,7 @@ bp_validate_option_args() {
 	enum)
 		# this branch must in front of "bool" branch in case EMF & EMl usage
 		# split enum string safely into array, handling escapes
+		# pf_data not empty ensured by pfilter integration test
 		local pf_data_orig="${pf_data}" # may useful for error msg
 		local enum_list=()
 		bp_extract_enum_list "${pf_data}" enum_list
@@ -229,7 +230,8 @@ bp_validate_mcg_types() {
 
 # bp_validate_required_groups: ensure all members of Required MCGs are supplied or have defaults
 bp_validate_required_groups() {
-	local -n groups=$1 filter_rg=$2 opts=$3
+	local lid_rg=$1
+	local -n groups=$2 filter_rg=$3 opts=$4
 
 	local mcg mem def_type def_data def_mcg
 	local mem_mcgs
@@ -245,7 +247,7 @@ bp_validate_required_groups() {
 
 		# find members in the same mcg
 		for mem in "${!filter_rg[@]}"; do
-			bp_extract_filter_schema "${lid}" "${filter_rg[${mem}]}" def_type def_data mem_mcg
+			bp_extract_filter_schema "${lid_rg}" "${filter_rg[${mem}]}" def_type def_data mem_mcg
 			readarray -d "${CONFIGS[es]}" -t mem_mcgs <<<"${mem_mcg}"
 			mem_mcgs[-1]="${mem_mcgs[-1]%$'\n'}"
 			for mcg_entry in "${mem_mcgs[@]}"; do
@@ -262,7 +264,7 @@ bp_validate_required_groups() {
 				bp_msg -3 "      " "- member '${mem}@${mcg}' supplied"
 				continue
 			else
-				bp_extract_filter_schema "${lid}" "${filter_rg[${mem}]}" def_type def_data def_mcg
+				bp_extract_filter_schema "${lid_rg}" "${filter_rg[${mem}]}" def_type def_data def_mcg
 				if [[ -n ${def_data} ]]; then
 					bp_msg -3 "      " "- member '${mem}@${mcg}' fulfill with default"
 					opts["${mem}"]="${def_data}"
@@ -420,7 +422,7 @@ bp_validate_option_mcgs() {
 	bp_validate_mcg_types mcg_list
 
 	# validate requirement mcg for user parameters only
-	bp_validate_required_groups mcg_list filter_vom options_vom
+	bp_validate_required_groups "${lid}" mcg_list filter_vom options_vom
 
 	# build MCG membership map
 	declare -A mcg_members_map=()
@@ -442,7 +444,6 @@ bp_validate_option_mcgs() {
 	# classify members for each MCG
 	for mcg in "${mcg_list[@]}"; do
 		# skip r/R (required — handled by bp_validate_required_groups) and non-MCG names
-		# skip r/R (required — handled by validate_required_groups) and non-MCG names
 		[[ ${mcg:0:1} == [rR] ]] && continue
 
 		readarray -d "${CONFIGS[es]}" -t mcg_members <<<"${mcg_members_map[${mcg}]#|}"

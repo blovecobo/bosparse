@@ -32,4 +32,7 @@
 #   - bash, version 4.4+
 #   - jq, if output json(capture-mode) or serialized-pfilter passed
 
+# change log:
+#   - enhanced 'key-value' pair serialize approch, support empty value and values contain spaces by escape
+#   - emproved error message content
 set -euo pipefail

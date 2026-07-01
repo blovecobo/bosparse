@@ -144,7 +144,7 @@ bp_service_priors() {
 	[[ ${CONFIGS[config]} == false ]] || bp_show_configs
 
 	bp_msg -4 "  OP-ZONE:" " '${o_zone[*]}'"
-	bp_msg -4 "  PP-ZONE:" " '${p_zone[*]}'"
+	# bp_msg -4 "  PP-ZONE:" " '${p_zone[*]}'"
 }
 
 # service tier: parse spec-level (~) tokens, apply spec settings, handle directives
@@ -173,7 +173,7 @@ bp_service_specs() {
 	[[ ${CONFIGS[config]} == false ]] || bp_show_configs
 
 	bp_msg -4 "  OP-ZONE:" " '${o_zone[*]}'"
-	bp_msg -4 "  PP-ZONE:" " '${p_zone[*]}'"
+	# bp_msg -4 "  PP-ZONE:" " '${p_zone[*]}'"
 }
 
 # service tier: parse user-level (-) tokens, validate against PFILTER

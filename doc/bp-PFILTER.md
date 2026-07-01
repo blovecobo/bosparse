@@ -16,11 +16,11 @@ Use `PFILTER` when you want:
 
 ### 1. Define `PFILTER`
 
-BosParse uses an associative array called `PFILTER` to define parameters. Every `PFILTER` must include a `PARAM-FILTER` identifier entry:
+BosParse uses an associative array called `PFILTER` to define parameters. Every `PFILTER` must include a `PARAM_FILTER` identifier entry:
 
 ```bash
 declare -A PFILTER=(
-  ["PARAM-FILTER"]="PFILTER is a bad idea"
+  ["PARAM_FILTER"]="PFILTER is a bad idea"
   ["help"]="bool:false:"
   ["mode"]="enum:fast|safe|debug:"
   ["output"]="string:/tmp/result.txt:"
@@ -124,7 +124,7 @@ BosParse parses Options, validates values against `PFILTER`, and then assigns va
 
 ```bash
 declare -A PFILTER=(
-  ["PARAM-FILTER"]=""
+  ["PARAM_FILTER"]=""
   ["help"]="bool:false:"
   ["username"]="string:guest:"
   ["color"]="enum:red|green|blue:"
@@ -207,14 +207,14 @@ Example:
 
 ```bash
 declare -A PFILTER=(
-  ["PARAM-FILTER"]="escape"
+  ["PARAM_FILTER"]="escape"
   ["punctuation"]="enum:,|.|;|\\:|\\||\\\\|?:"
 )
 ```
 
 ## Troubleshooting
 
-- Missing `PARAM-FILTER` makes `PFILTER` invalid
+- Missing `PARAM_FILTER` makes `PFILTER` invalid
 - Unknown Option errors might mean `~rup` enabled but the Option is not defined in `PFILTER`
 - Ambiguous prefix errors mean the prefix matches more than one parameter
 - Enum validation errors mean the value is not in the allowed list

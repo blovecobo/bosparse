@@ -22,8 +22,8 @@ bp_set_configs() {
 	local key=$1 value=$2
 
 	if [[ ! -v HARNESSES["${key}"] ]]; then
-		local pros_tag[0]="Invalid CONFIGS setting, wrong config name: '$key'"
-		bp_exit_with_msg 3 pros_tag
+		local pros_tag[0]="Invalid CONFIGS setting, wrong config name: '${key}'"
+		bp_exit_with_msg 4 pros_tag
 	fi
 
 	# validate settings
@@ -45,14 +45,15 @@ bp_set_configs() {
 	fi
 
 	# check BASH_VARS
-	local var
-	for var in "${BASH_VARS[@]}"; do
-		bp_validate_variable_name "harness" var true && continue
-		local pros_tag[0]="Harness"
-		pros_tag[1]="${var}='${value}'"
-		pros_tag[2]="the value should be a valid BASH variable name."
-		bp_exit_with_msg 27 pros_tag
-	done
+	if bp_is_array_member "${key}" "${BASH_VARS}"; then
+		# key in blacklist, validate value
+		if ! bp_validate_variable_name "harness" value true; then
+			local pros_tag[0]="Harness"
+			pros_tag[1]="${key}='${value}'"
+			pros_tag[2]="the value should be a valid BASH variable name."
+			bp_exit_with_msg 27 pros_tag
+		fi
+	fi
 	# update CONFIGS
 	CONFIGS["${key}"]="${value}"
 	# sync llid when ulid changes; sync plid when slid changes
@@ -214,7 +215,7 @@ bp_apply_setup() {
 	field_len=$(bp_max_array_member_length "${!setup_bas[@]}")
 	for ps in "${!setup_bas[@]}"; do
 		bp_msg 4 "      $(printf "\e[0;2m%${field_len}s - '%s'\n" "${ps}" "${setup_bas[${ps}]}")" >&2
-		bp_set_configs "${ps}" "${setup_bas[${ps}]}" "${setup_bas[${ps}]}"
+		bp_set_configs "${ps}" "${setup_bas[${ps}]}"
 	done
 	bosparse_update_mutables
 }
@@ -262,8 +263,7 @@ bp_apply_filter_default() {
 			;;
 		enum)
 			# set with first enum as default value
-			default_enum=${pf_data%%"${CONFIGS[es]}"*}
-			opt_afd["${param}"]="${default_enum}"
+			opt_afd["${param}"]="${pf_data%%"${CONFIGS[es]}"*}"
 			;;
 		*) # this will not happen since integrity checking already done in bp_validate_pfilter
 			;;
@@ -315,8 +315,8 @@ bp_substitute_exceptions() {
 
 	local except_char
 	for except_char in "${!VN_EXCEPTIONS[@]}"; do
-		var_name=${test_name//"${except_char}"/"${VN_EXCEPTIONS[${except_char}]}"}
+		test_name=${test_name//"${except_char}"/"${VN_EXCEPTIONS[${except_char}]}"}
 	done
-	var_name="${first}${var_name}${last}"
+	var_name="${first}${test_name}${last}"
 	bp_msg -3 "      " "- substitution: ${orig} -> ${var_name}"
 }

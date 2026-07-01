@@ -15,6 +15,7 @@
 # create groups of immutables from HARNESSES
 bosparse_immutables() {
 	bp_derive_harness_entries_by_field "immutable" "imm" IMMUTABLES
+	# DONFIGS value should be a validate shell variable name if the key in BASH_VARS
 	bp_derive_harness_entries_by_field "cluster" "bash_variable" BASH_VARS
 	bp_derive_harness_entries_by_field "cluster" "lid" LID_NAMES
 	bp_derive_harness_entries_by_field "cluster" "tag" TAG_NAMES
@@ -74,7 +75,8 @@ bosparse_emit_output() {
 bosparse_validate_input() {
 	if [[ $# -eq 0 || "$*" == '--' || "$*" == "${CONFIGS[zs]}" ]]; then
 		verbose=1
-		bp_exit_with_msg 2
+		local pros_tag[0]=""
+		bp_exit_with_msg 2 pros_tag
 	fi
 }
 

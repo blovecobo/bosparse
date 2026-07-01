@@ -67,7 +67,7 @@ bp_definitions() {
 	CONSTANTS_ref=(
 		["BANNER"]="Parsed by BosParse"
 		# ["NO_PFILTER"]="no_param_filter"
-		["PFILTER_ID"]="PARAM_FILTER" # 'PARAM-FILTER' accepted
+		["PFILTER_ID"]="PARAM_FILTER" # 'PARAM_FILTER' accepted so far
 
 		["OAN"]="BP_Options"
 		# ["SAN"]="BP_Strings"
@@ -133,7 +133,7 @@ bp_definitions() {
 
 		# -- PFILTER related (spec level) --
 		["pf"]="string::D-pfilter:spec:::"
-		["pf_id"]="string:::spec::PARAM-FILTER:"
+		["pf_id"]="string:::spec::PARAM_FILTER:"
 		["rup"]="bool::d-pfilter:spec::true:"
 		["afd"]="bool::d-pfilter:spec::true:"
 		["pme"]="bool::d-pfilter:spec::true:"
@@ -273,7 +273,8 @@ bp_definitions() {
 		["0"]="Parsing succeeded."
 		["1"]="Parsing failed."
 		["2"]="No parameter supplied."
-		["3"]="\${pros_tag[0]}"
+		["3"]="Unknow error"
+		["4"]="\${pros_tag[0]}"
 
 		# system
 		["10"]="'\${pros_tag[0]}' required but not available."
@@ -302,11 +303,14 @@ bp_definitions() {
 		["27"]="Invalid \${pros_tag[0]} \${pros_tag[1]}, \${pros_tag[2]}"
 		["28"]="Invalid Prior setting '\${pros_tag[0]}' when using 'islands' style CML."
 
+		# escape symbol
+		["29"]="Cannot escape symbol, \${pros_tag[0]}"
+
 		# Validate PFILTER
 		["30"]="Specs '~rup' requires a 'PFILTER'(by ~pf) but not supplied."
-		["31"]="Invalid PFILTER: \${pros_tag[0]}"
+		["31"]="Invalid PFILTER: '\${pros_tag[0]}'"
 		["32"]="Invalid PFILTER key name '\${pros_tag[0]}' in PFILTER, it should be a valid shell variable name."
-		["33"]="Invalid PFILTER entry type '\${pros_tag[0]}', it should be one of '\${pros_tag[1]}'"
+		["33"]="Invalid PFILTER entry '\${pros_tag[0]}' type '\${pros_tag[1]}', it should be one of '\${pros_tag[2]}'"
 		["34"]="Invalid PFILTER entry '\${pros_tag[0]}': default value '\${pros_tag[2]}' mismatch the type '\${pros_tag[1]}'"
 		["35"]="Invalid PFILTER enum entry \${pros_tag[0]}: missing enum values."
 		["36"]="MCG member(s) '\${pros_tag[0]}' in '\${pros_tag[1]}' depends on the D-member but not found in PFILTER."

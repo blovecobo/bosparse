@@ -12,6 +12,37 @@
 #   bp_prefix_matching()    — exact then prefix then postfix matching
 # --------------------------------------------------------------------------------
 
+# extract harnesses from CML(for Globals) or OP-ZONE(for Priors & Specs)
+_bp_extract_options_harnesses() {
+	local lid_eoh=$1
+	local -n oz_eoh=$2 strs_eoh=$3 bls_eoh=$4 opts_eoh=$5
+
+	if [[ ${lid_eoh} == "${CONFIGS[glid]}" ]] ||
+		[[ ${lid_eoh} == "${CONFIGS[slid]}" ]] ||
+		[[ ${lid_eoh} == "${CONFIGS[plid]}" ]]; then
+		local i
+		for i in "${!oz_eoh[@]}"; do
+			bp_with_lid "${oz_eoh[i]}" "${lid_eoh}" || continue
+			# skip solitary LIDS (e.g. standalone '~~' zone separator colliding with PLID)
+			[[ ${#oz_eoh[i]} -gt ${#lid_eoh} ]] || continue
+
+			# bp_msg -3 "    " "- token: ${oz_eoh[i]}"
+			opts_eoh+=("${oz_eoh[i]}")
+
+			if [[ ${oz_eoh[i]#"${lid_eoh}"} == *${CONFIGS[os]}* ]]; then
+				strs_eoh+=("${oz_eoh[i]}")
+				bp_msg -3 "    " "- string token:  ${oz_eoh[i]}"
+			else
+				bls_eoh+=("${oz_eoh[i]}")
+				bp_msg -3 "    " "- boolean token: ${oz_eoh[i]}"
+			fi
+		done
+		return 0
+	else
+		return 1
+	fi
+}
+
 # iterate CML tokens, classify each via bp_check_param_type, sort into buckets
 # $1 — lid to match against
 # $2 — nameref: option-zone array (tokens to classify)
@@ -30,23 +61,26 @@ bp_extract_options() {
 
 	bp_msg -2 "  Extract Options '${lid}': " "${oz_eo[*]}"
 
+	# process globals & priors; specs?
+	_bp_extract_options_harnesses "${lid}" oz_eo strings_eo bools_eo options_eo && return 0
+
+	# process user-params
 	local i arg_consumed=false
 	for i in "${!oz_eo[@]}"; do
 
-		# process globals & priors; specs?
-		if [[ ${lid} == "${CONFIGS[glid]}" || ${lid} == "${CONFIGS[plid]}" ]]; then
-			# filter out params not match current lid
-			bp_with_lid "${oz_eo[i]}" "${lid}" || continue
-			# skip solitary LIDS (e.g. standalone '~~' zone separator colliding with PLID)
-			[[ ${#oz_eo[i]} -gt ${#lid} ]] || continue
-
-			bp_msg -3 "    " "- token: ${oz_eo[i]}"
-			options_eo+=("${oz_eo[i]}")
-			[[ ${oz_eo[i]} =~ ${CONFIGS[os]} ]] &&
-				strings_eo+=("${oz_eo[i]}") ||
-				bools_eo+=("${oz_eo[i]}")
-			continue
-		fi
+		# if [[ ${lid} == "${CONFIGS[glid]}" || ${lid} == "${CONFIGS[plid]}" ]]; then
+		# 	# filter out params not match current lid
+		# 	bp_with_lid "${oz_eo[i]}" "${lid}" || continue
+		# 	# skip solitary LIDS (e.g. standalone '~~' zone separator colliding with PLID)
+		# 	[[ ${#oz_eo[i]} -gt ${#lid} ]] || continue
+		#
+		# 	bp_msg -3 "    " "- token: ${oz_eo[i]}"
+		# 	options_eo+=("${oz_eo[i]}")
+		# 	[[ ${oz_eo[i]} =~ ${CONFIGS[os]} ]] &&
+		# 		strings_eo+=("${oz_eo[i]}") ||
+		# 		bools_eo+=("${oz_eo[i]}")
+		# 	continue
+		# fi
 
 		local curr_param next_param
 		local extracted_param="" param_type
@@ -89,7 +123,7 @@ bp_extract_options() {
 			;;
 		*)
 			local pros_tag="unexpected param_type '${param_type}' from bp_check_param_type."
-			bp_exit_with_msg 3 pros_tag
+			bp_exit_with_msg 4 pros_tag
 			;;
 		esac
 		options_eo+=("${extracted_param}")
@@ -343,6 +377,7 @@ bp_prefix_matching() {
 
 	declare -a matched=()
 
+	((${#haystack[@]} > 0)) || return 1
 	[[ -n ${needle} ]] || return 1
 
 	# build regex-safe pattern from needle
@@ -370,7 +405,7 @@ bp_prefix_matching() {
 			[[ ${pk} =~ ${needle_regex}$ ]] && matched+=("${pk}")
 		else
 			pros_tag[0]="Wrong options '${match_method}' when calling 'prefix-matching()', 'prefix(default)|postfix' available."
-			bp_exit_with_msg 3
+			bp_exit_with_msg 4
 		fi
 	done
 

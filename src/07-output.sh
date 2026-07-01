@@ -71,7 +71,7 @@ bp_output_source_arrays() {
 	local -n OPTS_OUTPUT=$1 POS_OUTPUT=$2
 	bp_msg 3 "    Output parameter arrays"
 
-	local key
+	local key tmp
 
 	# output options
 	tmp="${CONFIGS["oan"]}"
@@ -326,7 +326,7 @@ bp_direct_commands() {
 		echo "${CONSTS["VERSION"]}"
 	elif [[ "${CONFIGS["Resymbols"]}" == true ]]; then
 		# show resyms
-		echo "Available resyms}: ${RESYMS[*]}"
+		echo "Available resyms: ${RESYMS[*]}"
 	elif [[ "${CONFIGS["Defaults"]}" == true ]]; then
 		# bp_show_configs
 		bp_show_configs
