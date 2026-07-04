@@ -7,6 +7,7 @@
 #   bosparse_immutables()           -- create IMMUTABLES/BASH_VARS/LID_NAMES/TAG_NAMES
 #   bosparse_update_mutables()      -- refresh LIDS/TAGS from CONFIGS
 #   bosparse_require_bash_version() -- verify bash >= 4.4
+#   bosparse_detect_run_mode()      -- auto-detect source vs eval vs capture
 #   bosparse_emit_output()          -- dispatch to source/eval/capture output handler
 #   bosparse_validate_input()       -- reject empty input, lone '--', or lone ZN_SEP
 #   bosparse_finalize()             -- mark parsing complete (disables exit trace)
@@ -15,7 +16,7 @@
 # create groups of immutables from HARNESSES
 bosparse_immutables() {
 	bp_derive_harness_entries_by_field "immutable" "imm" IMMUTABLES
-	# DONFIGS value should be a validate shell variable name if the key in BASH_VARS
+	# CONFIGS value should be a validate shell variable name if the cluster contains BASH_VARS
 	bp_derive_harness_entries_by_field "cluster" "bash_variable" BASH_VARS
 	bp_derive_harness_entries_by_field "cluster" "lid" LID_NAMES
 	bp_derive_harness_entries_by_field "cluster" "tag" TAG_NAMES
@@ -31,7 +32,6 @@ bosparse_update_mutables() {
 	for item in "${TAG_NAMES[@]}"; do
 		TAGS["${item}"]="${CONFIGS[${item}]}"
 	done
-	# bp_show_array BASH_VARS
 }
 
 # require a minimum Bash version and exit plainly if not available
@@ -44,15 +44,38 @@ bosparse_require_bash_version() {
 	fi
 }
 
+# run-mode detection
+# detect the run-mode when 'auto' set in CONFIGS
+bosparse_detect_run_mode() {
+	local script_name=$1
+
+	local run_mode=""
+	declare -A config_run_mode=()
+
+	if [[ ${script_name} != $(basename "$0") ]]; then
+		bp_msg 3 "  Sourced, output option parameters as variables."
+		run_mode="source"
+	else
+		# not source, assert with '~json'
+		if [[ ${CONFIGS["json"]} == true ]]; then
+			bp_msg 3 "  Not sourced, use run-mode 'capture' as 'json' specified."
+			run_mode="capture"
+		else
+			bp_msg 3 "  Not sourced, use run-mode 'eval' as default"
+			run_mode="eval"
+		fi
+	fi
+	bp_set_configs 'run' "${run_mode}"
+}
+
 # dispatch parsed results to the appropriate output handler
 # $1 — run mode: "source" (shell vars+arrays), "eval" (key=value), "capture" (JSON)
 # $2 — nameref: options associative array
 # $3 — nameref: positionals indexed array
 bosparse_emit_output() {
-	local RUN_MODE=$1
-	local -n OPTS_EMIT=$2 POS_EMIT=$3
+	local -n OPTS_EMIT=$1 POS_EMIT=$2
 
-	case ${RUN_MODE} in
+	case ${CONFIGS["run"]} in
 	source)
 		bp_msg 2 "  Output as variables and arrays"
 		bp_output_source_variables OPTS_EMIT
@@ -133,8 +156,8 @@ bosparse() {
 	bp_msg 1 "${BP_PARSING_STAGE}"
 
 	declare -A CONSTS HARNESSES CONFIGS EXIT_MSG
-	declare -A VN_EXCEPTIONS PAS_EXCLUSION SYMNAMES MCG_TYPES DEBUG_CMDS
-	declare -a HRNS_FLDS PFE_TYPES RESYMS
+	declare -A VN_EXCEPTIONS PAS_EXCLUSIONS SYMNAMES MCG_TYPES DEBUG_CMDS
+	declare -a HRNS_FLDS PFE_TYPES RESYMS REGEX_METAS
 
 	bp_definitions \
 		CONSTS \
@@ -142,7 +165,7 @@ bosparse() {
 		CONFIGS \
 		EXIT_MSG \
 		VN_EXCEPTIONS \
-		PAS_EXCLUSION \
+		PAS_EXCLUSIONS \
 		SYMNAMES \
 		MCG_TYPES \
 		DEBUG_CMDS \
@@ -152,14 +175,14 @@ bosparse() {
 		REGEX_METAS
 
 	local IMMUTABLES=() BASH_VARS=()
-	local LID_NAMES TAG_NAMES
+	local LID_NAMES=() TAG_NAMES=()
 	declare -A LIDS=() TAGS=()
 	bosparse_immutables
 	bosparse_update_mutables
 
 	# used as read-only globals:
 	declare -r CONSTS HARNESSES EXIT_MSG VN_EXCEPTIONS \
-		PAS_EXCLUSION SYMNAMES MCG_TYPES DEBUG_CMDS HRNS_FLDS \
+		PAS_EXCLUSIONS SYMNAMES MCG_TYPES DEBUG_CMDS HRNS_FLDS \
 		PFE_TYPES RESYMS REGEX_METAS IMMUTABLES
 
 	# used as mutable globals:
@@ -180,22 +203,24 @@ bosparse() {
 
 	bosparse_validate_input "$@"
 
-	declare -a O_ZONE=() P_ZONE=()
+	# create entry fields caches: FILTER_CACHE
+	declare -A FILTER_CACHE=()
+
+	declare -a op_zone=() pp_zone=()
 
 	BP_PARSING_STAGE="Mission service"
 
-	bp_service_globals O_ZONE P_ZONE CML
-	bp_service_priors O_ZONE
-	bp_service_specs O_ZONE
+	bp_service_globals op_zone pp_zone CML
+	bp_service_priors op_zone
+	bp_service_specs op_zone
 
-	declare -A OPTS_RESULT=()
-	bp_service_users O_ZONE OPTS_RESULT
+	declare -A options_parsed=()
+	bp_service_users op_zone options_parsed
 
 	bp_msg 1 "Output parsing result"
-	local RUN_MODE="${CONFIGS[run]}"
-	[[ ${RUN_MODE} == 'auto' ]] && bp_infer_run_mode RUN_MODE "${bosparse_script_name}"
+	[[ ${CONFIGS["run"]} == 'auto' ]] && bosparse_detect_run_mode "${bosparse_script_name}"
 
-	bosparse_emit_output "${RUN_MODE}" OPTS_RESULT P_ZONE
+	bosparse_emit_output options_parsed pp_zone
 
 	bosparse_finalize
 }

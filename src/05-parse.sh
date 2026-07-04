@@ -1,6 +1,7 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2206
 # Module 05-parse: Core parsing logic
+#   bp_extract_harness_tokens() -- iterate harnesses from CML
 #   bp_extract_options()    — iterate CML tokens, classify via bp_check_param_type()
 #   bp_extract_watershed()   — split CML at ZN_SEP (--) into op_zone / pp_zone
 #   bp_extract_islands()     — split CML by LID presence (options vs positionals)
@@ -13,28 +14,28 @@
 # --------------------------------------------------------------------------------
 
 # extract harnesses from CML(for Globals) or OP-ZONE(for Priors & Specs)
-_bp_extract_options_harnesses() {
-	local lid_eoh=$1
-	local -n oz_eoh=$2 strs_eoh=$3 bls_eoh=$4 opts_eoh=$5
+bp_extract_harness_tokens() {
+	local lid=$1
+	local -n tokens=$2 _strs=$3 _bls=$4 _opts=$5
 
-	if [[ ${lid_eoh} == "${CONFIGS[glid]}" ]] ||
-		[[ ${lid_eoh} == "${CONFIGS[slid]}" ]] ||
-		[[ ${lid_eoh} == "${CONFIGS[plid]}" ]]; then
+	if [[ ${lid} == "${CONFIGS[glid]}" ]] ||
+		[[ ${lid} == "${CONFIGS[slid]}" ]] ||
+		[[ ${lid} == "${CONFIGS[plid]}" ]]; then
 		local i
-		for i in "${!oz_eoh[@]}"; do
-			bp_with_lid "${oz_eoh[i]}" "${lid_eoh}" || continue
+		for i in "${!tokens[@]}"; do
+			bp_with_lid "${tokens[i]}" "${lid}" || continue
 			# skip solitary LIDS (e.g. standalone '~~' zone separator colliding with PLID)
-			[[ ${#oz_eoh[i]} -gt ${#lid_eoh} ]] || continue
+			[[ ${#tokens[i]} -gt ${#lid} ]] || continue
 
-			# bp_msg -3 "    " "- token: ${oz_eoh[i]}"
-			opts_eoh+=("${oz_eoh[i]}")
+			# bp_msg -3 "    " "- token: ${tokens[i]}"
+			_opts+=("${tokens[i]}")
 
-			if [[ ${oz_eoh[i]#"${lid_eoh}"} == *${CONFIGS[os]}* ]]; then
-				strs_eoh+=("${oz_eoh[i]}")
-				bp_msg -3 "    " "- string token:  ${oz_eoh[i]}"
+			if [[ ${tokens[i]#"${lid}"} == *${CONFIGS[os]}* ]]; then
+				_strs+=("${tokens[i]}")
+				bp_msg -3 "    " "- string token:  ${tokens[i]}"
 			else
-				bls_eoh+=("${oz_eoh[i]}")
-				bp_msg -3 "    " "- boolean token: ${oz_eoh[i]}"
+				_bls+=("${tokens[i]}")
+				bp_msg -3 "    " "- boolean token: ${tokens[i]}"
 			fi
 		done
 		return 0
@@ -61,8 +62,8 @@ bp_extract_options() {
 
 	bp_msg -2 "  Extract Options '${lid}': " "${oz_eo[*]}"
 
-	# process globals & priors; specs?
-	_bp_extract_options_harnesses "${lid}" oz_eo strings_eo bools_eo options_eo && return 0
+	# process globals, priors and specs
+	bp_extract_harness_tokens "${lid}" oz_eo strings_eo bools_eo options_eo && return 0
 
 	# process user-params
 	local i arg_consumed=false
@@ -92,7 +93,7 @@ bp_extract_options() {
 		fi
 
 		curr_param="${oz_eo[i]}"
-		next_param="${oz_eo[$((i + 1))]:-}" || next_param=""
+		next_param="${oz_eo[$((i + 1))]:-}"
 
 		bp_msg -3 "    current/next: " "${curr_param}  ${next_param:--}"
 
@@ -256,33 +257,33 @@ bp_parse_ligas() {
 	local lid=$1
 	local -n params=$2 options_pl=$3
 
-	local liga liga_name btag bname b_nlen start
+	local liga liga_name liga_tag bool_name bool_name_len start
 
 	for liga in "${params[@]}"; do
 		bp_with_lid "${liga}" "${lid}" || continue
-		liga=${liga#"${lid}"}                   # strip lid
-		btag=$(bp_parse_bool_tag "${liga}")     # parse tag
-		liga=${liga%["${TAGS[tt]}${TAGS[tf]}"]} # strip trailing-tag
-		b_nlen=${liga%%[^[:digit:]]*}           # strip param length
-		[[ -n ${b_nlen} ]] || b_nlen=1          # default param length
-		liga_name=${liga#"${b_nlen}"}           # param name
-		if ((${#liga_name} % b_nlen)); then
+		liga=${liga#"${lid}"}                        # strip lid
+		liga_tag=$(bp_parse_bool_tag "${liga}")      # parse tag
+		liga=${liga%["${TAGS[tt]}${TAGS[tf]}"]}      # strip trailing-tag
+		bool_name_len=${liga%%[^[:digit:]]*}         # strip param length
+		[[ -n ${bool_name_len} ]] || bool_name_len=1 # default param length
+		liga_name=${liga#"${bool_name_len}"}         # param name
+		if ((${#liga_name} % bool_name_len)); then
 			local pros_tag[0]="${lid}${liga}"
 			pros_tag[1]="${liga_name}"
-			pros_tag[2]="${b_nlen}"
+			pros_tag[2]="${bool_name_len}"
 			bp_exit_with_msg 25 pros_tag
 		fi
-		for ((start = 0; start < ${#liga_name}; start += b_nlen)); do
-			bname="${liga_name:start:b_nlen}"
-			bp_substitute_exceptions bname
-			if ! bp_validate_variable_name "bool-name in LIGA" bname true; then
-				local pros_tag[0]="${bname}"
+		for ((start = 0; start < ${#liga_name}; start += bool_name_len)); do
+			bool_name="${liga_name:start:bool_name_len}"
+			bp_substitute_exceptions bool_name
+			if ! bp_validate_variable_name "bool-name in LIGA" bool_name true; then
+				local pros_tag[0]="${bool_name}"
 				pros_tag[1]="${lid}${liga}"
 				bp_exit_with_msg 24 pros_tag
 			fi
-			options_pl["${bname}"]="${btag}"
+			options_pl["${bool_name}"]="${liga_tag}"
 		done
-		bp_msg -4 "    " "- liga ${liga} == '${btag}'"
+		bp_msg -4 "    " "- liga ${liga} == '${liga_tag}'"
 	done
 }
 
@@ -296,15 +297,15 @@ bp_parse_bools() {
 	local -n params=$2
 	local -n options_pb=$3
 
-	local bl bname btag
+	local bl param_name bool_tag
 	for bl in "${params[@]}"; do
-		bname=${bl#"${lid}"} # strip lid
-		btag=$(bp_parse_bool_tag "${bname}")
-		bname=${bname%["${TAGS[tt]}${TAGS[tf]}"]}
-		bp_substitute_exceptions bname
-		bp_validate_variable_name "bool param name" bname
-		options_pb["${bname}"]="${btag}"
-		bp_msg -4 "    " "- bool ${bname} = '${btag}'"
+		param_name=${bl#"${lid}"}                           # strip lid
+		bool_tag=$(bp_parse_bool_tag "${param_name}")       # parse tag
+		param_name=${param_name%["${TAGS[tt]}${TAGS[tf]}"]} # extract name
+		bp_substitute_exceptions param_name
+		bp_validate_variable_name "bool param name" param_name
+		options_pb["${param_name}"]="${bool_tag}"
+		bp_msg -4 "    " "- bool ${param_name} = '${bool_tag}'"
 	done
 }
 
@@ -317,16 +318,16 @@ bp_parse_strings() {
 	local lid=$1
 	local -n params=$2 options_ps=$3
 
-	local str sname arg
+	local str str_name arg
 	for str in "${params[@]}"; do
-		sname=${str#"${lid}"}             # strip lid
-		sname=${sname%%"${CONFIGS[os]}"*} # extract name
-		arg="${str#"${lid}${sname}"}"     # strip <lid><name>
-		arg="${arg#"${CONFIGS[os]}"}"     # extract arg
-		bp_substitute_exceptions sname
-		bp_validate_variable_name "string param name" sname
-		options_ps["${sname}"]="${arg}"
-		bp_msg -4 "    " "- string  ${sname} = '${arg}'"
+		str_name=${str#"${lid}"}                # strip lid
+		str_name=${str_name%%"${CONFIGS[os]}"*} # extract name
+		arg="${str#"${lid}${str_name}"}"        # strip <lid><name>
+		arg="${arg#"${CONFIGS[os]}"}"           # extract arg
+		bp_substitute_exceptions str_name
+		bp_validate_variable_name "string param name" str_name
+		options_ps["${str_name}"]="${arg}"
+		bp_msg -4 "    " "- string  ${str_name} = '${arg}'"
 	done
 	return 0
 }
@@ -343,7 +344,7 @@ bp_parse_options() {
 	local -n strings_po=$2 bools_po=$3 ligas_po=$4
 	local -n options_po=$5
 
-	bp_msg -3 "  Parse options '${lid}': " "${strings_po[*]:--} | ${bools_po[*]:--} | ${ligas_eo[*]:--}"
+	bp_msg -3 "  Parse options '${lid}': " "${strings_po[*]:--} | ${bools_po[*]:--} | ${ligas_po[*]:--}"
 	# only user-params support ligas
 	[[ ${lid} == "${CONFIGS[ulid]}" ]] &&
 		bp_parse_ligas "${lid}${lid}" ligas_po options_po
@@ -383,7 +384,7 @@ bp_prefix_matching() {
 	# build regex-safe pattern from needle
 	needle_regex="${needle}"
 	# escape regex metacharacters (backslash first to avoid double-escaping)
-	for re_char in "${REGEX_METACHARS[@]}"; do
+	for re_char in "${REGEX_METAS[@]}"; do
 		needle_regex="${needle_regex//"${re_char}"/\\"${re_char}"}"
 	done
 

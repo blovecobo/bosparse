@@ -1,17 +1,20 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2153,SC2154,SC2015
 # Module 06-validate: Parameter validation against PFILTER and MCG rules
+#   bp_validate_variable_name()      — validate & normalize a shell variable name
+#
 #   bp_validate_option_name()        — match param name against filter (exact/prefix/multi)
 #   bp_validate_option_args()        — validate value per type (bool/string/enum/resym)
+#
 #   bp_get_all_mcgs()                — collect all MCG names from PFILTER entries
-#   bp_validate_mcg_types()          — ensure MCG names start with valid type prefixes
-#   bp_validate_required_groups()    — enforce required MCG members are supplied
 #   bp_build_mcg_membership_map()    — invert PFILTER: MCG name to member list
+#   bp_validate_mcg_types()          — ensure MCG names start with valid type prefixes
+#   bp_validate_mcg_name()           — validate MCG name (hyphens allowed, not at edges)
+#
+#   bp_validate_required_groups()    — enforce required MCG members are supplied
 #   bp_validate_dependence_groups()  — d-member supplied requires D-member supplied
 #   bp_validate_master_groups()      — M/m MCG rules
 #   bp_validate_option_mcgs()        — orchestrate all MCG validation by type
-#   bp_validate_mcg_name()           — validate MCG name (hyphens allowed, not at edges)
-#   bp_validate_variable_name()      — validate & normalize a shell variable name
 # --------------------------------------------------------------------------------
 
 # match a parameter name against PFILTER keys using exact or prefix matching
@@ -26,39 +29,111 @@ bp_validate_option_name() {
 	local -n param_ref=$1 filter_ref=$2
 	local lid=$3 ptitle=$4
 
-	bp_msg -3 "    Option name: " "${param_ref}"
+	bp_msg -3 "    Option name: " "${param_ref} <- ${filter_ref[*]}"
 
-	local matched_names rtn=0
-	if [[ ${lid} == "${CONFIGS[ulid]}" && ${CONFIGS["pme"]} != true ]]; then
-		# no prefix-matching for user parameters when pme unset
-		bp_is_array_member "${param_ref}" filter_ref && return 0
-		return 1
+	local matched_names="${param_ref}" rtn=0
+
+	# try matching by lid/rup/pme
+	if [[ ${lid} == "${CONFIGS[ulid]}" ]]; then
+		# user-params
+		if [[ ${CONFIGS[rup]} == true ]]; then
+			# reject unknowns, try matching
+			if [[ ${CONFIGS["pme"]} == true ]]; then
+				# use prefix-matching
+				matched_names=$(bp_prefix_matching "${param_ref}" filter_ref "prefix") || rtn=$?
+			else
+				# use exact-mathing
+				bp_is_array_member "${param_ref}" filter_ref || rtn=1
+			fi
+		else
+			# unknowns allowed, always 'matched'(rtn=0 kept)
+			:
+		fi
 	else
-		# when prefix/postfix matching enabled
+		# for harnesses: always ~rup/~pme
 		matched_names=$(bp_prefix_matching "${param_ref}" filter_ref "prefix") || rtn=$?
 	fi
 
 	if ((rtn == 0)); then
-		bp_msg -4 "    - name: " "${param_ref} -> ${matched_names}"
+		bp_msg -3 "    - name: " "${param_ref} -> ${matched_names}"
 		param_ref="${matched_names}"
+		return 0
+	elif [[ ${CONFIGS[rup]} == false ]]; then
+		# not matched, but permitted as '~rup'
+		bp_msg -3 "    - name: " "${param_ref} -> permitted by '~rup-'"
 		return 0
 	else
 		local pros_tag[0]="${ptitle:-Parameter}"
 		pros_tag[1]="${lid}${param_ref}"
 		case ${rtn} in
-		1) if [[ ${lid} == "${CONFIGS[ulid]}" ]]; then
-			bp_exit_with_msg 53 pros_tag
-		else
-			bp_exit_with_msg 54 pros_tag
-		fi ;;
-		2)
+		1) # non-matched
+			if [[ ${lid} == "${CONFIGS[ulid]}" ]]; then
+				bp_exit_with_msg 53 pros_tag
+			else
+				bp_exit_with_msg 54 pros_tag
+			fi
+			;;
+		2) # mutiple matched
 			pros_tag[2]="${matched_names// /|}"
+			pros_tag[2]="${pros_tag[2]%/|}"
 			bp_exit_with_msg 56 pros_tag
 			;;
 		*) ;;
 		esac
 	fi
 	return 0
+}
+
+# validate enum type args
+#   - EML/EMF
+#   - validate arg against data field of filter(prefix-matching if needed)
+bp_validate_option_args_enums() {
+	local -n _arg=$1
+	local _lid=$2 _param=$3 _param_cmp=$4 _data=$5
+
+	local _data_orig="${_data}" # may use in error msg
+	local enum_list=()
+	# split enum string safely into array, handling escapes
+	bp_extract_enum_list "${_data}" enum_list
+	# restore pf_data in case used in error mssage
+	_data="${_data_orig}"
+	# EMF and EML by value (false/true)
+	if [[ ${_arg} == false ]]; then
+		_arg="${enum_list[0]}" # EMF
+		return 0
+	elif [[ ${arg_ref} == true ]]; then
+		_arg="${enum_list[-1]}" # EML
+		return 0
+	else
+		# try prefix-matching
+		local pfm_names rtn=0
+		local pros_tag[0]="${_param}"
+		pfm_names=$(bp_prefix_matching "${_arg}" enum_list) || rtn=$?
+		case ${rtn} in
+		0)
+			# exactly or prefixly matched, assign result with the exact name
+			_arg="${pfm_names}"
+			;;
+		1)
+			# not matched
+			pros_tag[1]="${_lid}${_param}='${_arg}'"
+			pros_tag[2]="${_data}"
+			bp_exit_with_msg 50 pros_tag
+			;;
+		2)
+			# multiple matched
+			pros_tag[0]="enum value of"
+			if [[ -z ${_arg} ]]; then
+				pros_tag[1]="${_lid}${_param}"
+			else
+				pros_tag[1]="${_lid}${_param}=${_arg}"
+			fi
+			pros_tag[2]="${pfm_names[*]// /\|}"
+			bp_exit_with_msg 56 pros_tag
+			;;
+		*) ;;
+		esac
+	fi
 }
 
 # validate a parameter's value against its declared PFILTER type
@@ -75,65 +150,66 @@ bp_validate_option_name() {
 # enum: prefix-matching against enum list; exits 50 (no match) or 56 (multi-match)
 # bool: must be "true" or "false"; exits 51
 # string: must not be "true" or "false"; exits 51
-# resym: must be all-resym-char (digits stripped before check); uses pf_data for
-#        length constraint and exclusion chars; exits 51/52 on violation
+# resym: must be all-resym-char; uses field data for length constraint; exits 51/52 on violation
 bp_validate_option_args() {
-	local lid=$1 ptitle=$2
+	local lid=$1 title=$2
 	local param=$3 param_cmp=$4
 	local -n arg_ref=$5
-	local pf_type=$6 pf_data=$7 pf_mcg=$8
+	local ent_type=$6 ent_data=$7 ent_mcg=$8
 
-	local pros_tag[0]="${ptitle}"
+	local pros_tag[0]="${title}"
 
 	bp_msg -3 "    Option arg: " "${arg_ref}"
 	[[ ${verbose} -ge 4 ]] &&
 		printf "      \e[33marg:  \e[0;2m%-6s | type - %-6s | mcg - %-12s | data - %s\e[0m\n" \
-			"${arg_ref}" "${pf_type}" "${pf_mcg:--}" "${pf_data:--}" >&2
-	case ${pf_type} in
+			"${arg_ref}" "${ent_type}" "${ent_mcg:--}" "${ent_data:--}" >&2
+	case ${ent_type} in
 	enum)
 		# this branch must in front of "bool" branch in case EMF & EMl usage
-		# split enum string safely into array, handling escapes
-		# pf_data not empty ensured by pfilter integration test
-		local pf_data_orig="${pf_data}" # may useful for error msg
-		local enum_list=()
-		bp_extract_enum_list "${pf_data}" enum_list
-		# restore pf_data in case used in error mssage
-		pf_data="${pf_data_orig}"
-		# EMF and EML by value (false/true)
-		if [[ ${arg_ref} == false ]]; then
-			arg_ref="${enum_list[0]}"
-			return 0
-		elif [[ ${arg_ref} == true ]]; then
-			arg_ref="${enum_list[-1]}"
-			return 0
-		fi
-		# try prefix-matching
-		local pfm_names rtn=0
-		pfm_names=$(bp_prefix_matching "${arg_ref}" enum_list) || rtn=$?
-		case ${rtn} in
-		0)
-			# exactly or prefixly matched, assign result with the exact name
-			arg_ref="${pfm_names}"
-			;;
-		1)
-			# not matched
-			pros_tag[1]="${lid}${param}='${arg_ref}'"
-			pros_tag[2]="${pf_data}"
-			bp_exit_with_msg 50 pros_tag
-			;;
-		2)
-			# multiple matched
-			pros_tag[0]="enum value of"
-			if [[ -z ${arg_ref} ]]; then
-				pros_tag[1]="${lid}${param}"
-			else
-				pros_tag[1]="${lid}${param}=${arg_ref}"
-			fi
-			pros_tag[2]="${pfm_names[*]// / \| }"
-			bp_exit_with_msg 56 pros_tag
-			;;
-		*) ;;
-		esac
+		# ent_data not empty ensured by pfilter validation
+		bp_validate_option_args_enums arg_ref "${lid}" "${param}" "${param_cmp}" "${ent_data}"
+		# local ent_data_orig="${ent_data}" # may use in error msg
+		# local enum_list=()
+		# # split enum string safely into array, handling escapes
+		# bp_extract_enum_list "${ent_data}" enum_list
+		# # restore ent_data in case used in error mssage
+		# ent_data="${ent_data_orig}"
+		# # EMF and EML by value (false/true)
+		# if [[ ${arg_ref} == false ]]; then
+		# 	arg_ref="${enum_list[0]}" # EMF
+		# 	return 0
+		# elif [[ ${arg_ref} == true ]]; then
+		# 	arg_ref="${enum_list[-1]}" # EML
+		# 	return 0
+		# else
+		# 	# try prefix-matching
+		# 	local pfm_names rtn=0
+		# 	pfm_names=$(bp_prefix_matching "${arg_ref}" enum_list) || rtn=$?
+		# 	case ${rtn} in
+		# 	0)
+		# 		# exactly or prefixly matched, assign result with the exact name
+		# 		arg_ref="${pfm_names}"
+		# 		;;
+		# 	1)
+		# 		# not matched
+		# 		pros_tag[1]="${lid}${param}='${arg_ref}'"
+		# 		pros_tag[2]="${ent_data}"
+		# 		bp_exit_with_msg 50 pros_tag
+		# 		;;
+		# 	2)
+		# 		# multiple matched
+		# 		pros_tag[0]="enum value of"
+		# 		if [[ -z ${arg_ref} ]]; then
+		# 			pros_tag[1]="${lid}${param}"
+		# 		else
+		# 			pros_tag[1]="${lid}${param}=${arg_ref}"
+		# 		fi
+		# 		pros_tag[2]="${pfm_names[*]// /\|}"
+		# 		bp_exit_with_msg 56 pros_tag
+		# 		;;
+		# 	*) ;;
+		# 	esac
+		# fi
 		;;
 	bool)
 		# validate type
@@ -151,28 +227,41 @@ bp_validate_option_args() {
 		fi
 		;;
 	resym)
-		# if consist of resyms
-		bp_is_in_resyms "${arg_ref//[0-9]/}" || { # remove length before testing resyms
-			pros_tag[1]="${param}='${arg_ref}'"
-			pros_tag[2]="a RESYM or RESYMs but got '${arg_ref}'"
-			bp_exit_with_msg 51 pros_tag
-		}
-		# validate length of resym if specified in pf_data, e.g. "resym:3-_" means a parameter
-		# with length of 3 and cannot contains '-' and '_' (sequence not matter)
-		local resym_len=${pf_data//[^[:digit:]]/}
+		local resym_len=${ent_data}
+		# check length
 		[[ -n ${resym_len} ]] || resym_len=1
-		if [[ ${#arg_ref} -ne ${resym_len} ]]; then
+		if ((${#arg_ref} != resym_len)); then
 			pros_tag[1]="${param}='${arg_ref}'"
-			pros_tag[2]="mismatch length, value length should be '${resym_len}' instead of '${#arg_ref}'"
+			pros_tag[2]="mismatch length, the length should be '${resym_len}' instead of '${#arg_ref}'"
 			bp_exit_with_msg 52 pros_tag
 		fi
-		# check excluded resyms
-		local exclude_resym="${pf_data//[0-9]/}"
-		if [[ ${arg_ref} =~ [${exclude_resym}] ]]; then
-			pros_tag[1]="${param}='${arg_ref}'"
-			pros_tag[2]="contains resym(s) not permitted: '${exclude_resym}'"
-			bp_exit_with_msg 52 pros_tag
+		# mono-resyms validation
+		if ((resym_len > 0)); then
+			# should consist of identical resym
+			bp_is_in_resyms "${arg_ref}" || {
+				pros_tag[1]="${param}='${arg_ref}'"
+				pros_tag[2]="a RESYM or RESYMs but got '${arg_ref}'"
+				bp_exit_with_msg 51 pros_tag
+			}
+		else
+			# negtive length means consist of different resyms
+			for ((i = 0; i < resym_len; i++)); do
+				bp_is_in_resyms "${arg_ref:${i}:1}" && continue
+				pros_tag[1]="${param}='${arg_ref}'"
+				pros_tag[2]="in the following letters: '${RESYMS[*]// /|}'"
+				bp_exit_with_msg 52 pros_tag
+			done
+
 		fi
+		# # leave exclusion validation to 'bp_update_configs()'
+		# # check excluded resyms
+		# if [[ -v PAS_EXCLUSIONS["${param_cmp}"] ]]; then
+		# 	if [[ ${PAS_EXCLUSIONS["${param_cmp}"]} =~ ${arg_ref:0:1} ]]; then
+		# 		pros_tag[1]="${param}='${arg_ref}'"
+		# 		pros_tag[2]="contains resym(s) not permitted: '${PAS_EXCLUSIONS["${param_cmp}"]}'"
+		# 		bp_exit_with_msg 52 pros_tag
+		# 	fi
+		# fi
 		;;
 	*) # will not happen, shellcheck keep warning without default branch of case block
 		;;
@@ -189,7 +278,7 @@ bp_get_all_mcgs() {
 	local ELM_SEP="${CONFIGS[es]}"
 
 	for mem in "${!filter[@]}"; do
-		bp_extract_filter_schema "${lid}" "${filter[${mem}]}" dummy dummy mcg
+		bp_extract_filter_entry "${lid}" "${filter[${mem}]}" dummy dummy mcg
 		if [[ -n ${mcg} ]]; then
 			bp_escape_symbol mcg "${ELM_SEP}"
 			# a param might belongs to multiple groups separated by ELM_SEP
@@ -247,11 +336,11 @@ bp_validate_required_groups() {
 
 		# find members in the same mcg
 		for mem in "${!filter_rg[@]}"; do
-			bp_extract_filter_schema "${lid_rg}" "${filter_rg[${mem}]}" def_type def_data mem_mcg
+			bp_extract_filter_entry "${lid_rg}" "${filter_rg[${mem}]}" def_type def_data mem_mcg
 			readarray -d "${CONFIGS[es]}" -t mem_mcgs <<<"${mem_mcg}"
 			mem_mcgs[-1]="${mem_mcgs[-1]%$'\n'}"
 			for mcg_entry in "${mem_mcgs[@]}"; do
-				if [[ "${mcg}" =~ ^${mcg_entry,,} ]]; then
+				if [[ "${mcg,,}" =~ ^${mcg_entry,,} ]]; then
 					mcg_mems+=("${mem}")
 					break
 				fi
@@ -264,10 +353,11 @@ bp_validate_required_groups() {
 				bp_msg -3 "      " "- member '${mem}@${mcg}' supplied"
 				continue
 			else
-				bp_extract_filter_schema "${lid_rg}" "${filter_rg[${mem}]}" def_type def_data def_mcg
+				bp_extract_filter_entry "${lid_rg}" "${filter_rg[${mem}]}" def_type def_data def_mcg
 				if [[ -n ${def_data} ]]; then
 					bp_msg -3 "      " "- member '${mem}@${mcg}' fulfill with default"
-					opts["${mem}"]="${def_data}"
+					# opts["${mem}"]="${def_data%%"${CONFIGS[fs]}"}"
+					opts["${mem}"]="${def_data%%"${CONFIGS[es]}"}"
 				else
 					bp_msg -3 "      " "- member '${mem}@${mcg}' not available"
 					local pros_tag[0]="${mcg}"
@@ -290,14 +380,14 @@ bp_build_mcg_membership_map() {
 	local -a mem_mcg_names ELM_SEP="${CONFIGS[es]}"
 
 	for mem in "${!filter_bmm[@]}"; do
-		bp_extract_filter_schema "${lid}" "${filter_bmm[${mem}]}" def_type def_data def_mcg
+		bp_extract_filter_entry "${lid}" "${filter_bmm[${mem}]}" def_type def_data def_mcg
 		[[ -n ${def_mcg} ]] || continue
-		bp_escape_symbol def_mcg "${ELM_SEP}" "regress"
+		# bp_escape_symbol def_mcg "${ELM_SEP}" "regress" # ensure shell variable before
 		readarray -d "${ELM_SEP}" -t mem_mcg_names <<<"${def_mcg}"
 		mem_mcg_names[-1]="${mem_mcg_names[-1]%$'\n'}"
-		for mcg_name in "${!mem_mcg_names[@]}"; do
-			bp_escape_symbol mem_mcg_names["${mcg_name}"] "${ELM_SEP}" "regress"
-		done
+		# for mcg_name in "${!mem_mcg_names[@]}"; do
+		# 	bp_escape_symbol mem_mcg_names["${mcg_name}"] "${ELM_SEP}" "regress"
+		# done
 		for mcg_name in "${mem_mcg_names[@]}"; do
 			mcg_mems["${mcg_name}"]+="|${mem}"
 		done
@@ -306,42 +396,42 @@ bp_build_mcg_membership_map() {
 
 # validate dependence groups: any d-member(s) supplied requires D-member(s) supplied
 bp_validate_dependence_groups() {
-	local -n _dc_supplied=$1 _dc_unsupplied=$2 _dl_supplied=$3 _dl_unsupplied=$4
+	local -n _dep_cap_supplied=$1 _dep_cap_unsupplied=$2 _dep_low_supplied=$3 _dep_low_unsupplied=$4
 	local lid=$5
 
 	local cap_mcg d_member
 	local -a d_members
-	local D_groups=("${!_dc_supplied[@]}" "${!_dc_unsupplied[@]}")
+	local D_groups=("${!_dep_cap_supplied[@]}" "${!_dep_cap_unsupplied[@]}")
 	local IFS="${CONFIGS[es]}"
 
 	for cap_mcg in "${D_groups[@]}"; do
-		[[ -n ${_dc_supplied["${cap_mcg}"]:-} ]] &&
-			bp_msg -3 "      " "- member '${_dc_supplied[${cap_mcg}]}'@${cap_mcg} supplied"
-		[[ -n ${_dc_unsupplied["${cap_mcg}"]:-} ]] &&
-			bp_msg -3 "      " "- member '${_dc_unsupplied[${cap_mcg}]}'@${cap_mcg} un-supplied"
+		[[ -n ${_dep_cap_supplied["${cap_mcg}"]:-} ]] &&
+			bp_msg -3 "      " "- member '${_dep_cap_supplied[${cap_mcg}]}'@${cap_mcg} supplied"
+		[[ -n ${_dep_cap_unsupplied["${cap_mcg}"]:-} ]] &&
+			bp_msg -3 "      " "- member '${_dep_cap_unsupplied[${cap_mcg}]}'@${cap_mcg} un-supplied"
 
-		[[ -n ${_dl_unsupplied[${cap_mcg,}]:-} ]] && {
-			read -ra d_members <<<"${_dl_unsupplied[${cap_mcg,}]#\|}"
+		[[ -n ${_dep_low_unsupplied[${cap_mcg,}]:-} ]] && {
+			read -ra d_members <<<"${_dep_low_unsupplied[${cap_mcg,}]#\|}"
 			for d_member in "${d_members[@]}"; do
 				bp_msg -3 "      " "- member '${d_member}'@${cap_mcg,} un-supplied\e[0m"
 			done
 		}
 
-		if [[ -n ${_dl_supplied[${cap_mcg,}]:-} ]]; then
-			read -ra d_members <<<"${_dl_supplied[${cap_mcg,}]#\|}"
+		if [[ -n ${_dep_low_supplied[${cap_mcg,}]:-} ]]; then
+			read -ra d_members <<<"${_dep_low_supplied[${cap_mcg,}]#\|}"
 			for d_member in "${d_members[@]}"; do
 				bp_msg -3 "      " "- member '${d_member}'@${cap_mcg,} supplied"
 			done
-			if [[ -n ${_dc_supplied["${cap_mcg}"]:-} ]]; then
+			if [[ -n ${_dep_cap_supplied["${cap_mcg}"]:-} ]]; then
 				bp_msg 3 "     - MCG ${cap_mcg,}: PASSED"
 			else
 				bp_msg 3 "      - MCG ${cap_mcg,}: FAILED"
 				local pros_tag
 				case ${lid} in
-				"${CONFIGS[glid]}") pros_tag[0]="Global '${_dc_unsupplied[${cap_mcg}]}'" ;;
-				"${CONFIGS[plid]}") pros_tag[0]="Prior '${_dc_unsupplied[${cap_mcg}]}'" ;;
-				"${CONFIGS[slid]}") pros_tag[0]="Spec '${_dc_unsupplied[${cap_mcg}]}'" ;;
-				*) pros_tag[0]="Parameter '${_dc_unsupplied[${cap_mcg}]}'" ;;
+				"${CONFIGS[glid]}") pros_tag[0]="Global '${_dep_cap_unsupplied[${cap_mcg}]}'" ;;
+				"${CONFIGS[plid]}") pros_tag[0]="Prior '${_dep_cap_unsupplied[${cap_mcg}]}'" ;;
+				"${CONFIGS[slid]}") pros_tag[0]="Spec '${_dep_cap_unsupplied[${cap_mcg}]}'" ;;
+				*) pros_tag[0]="Parameter '${_dep_cap_unsupplied[${cap_mcg}]}'" ;;
 				esac
 				pros_tag[1]="${d_members[*]}"
 				pros_tag[2]="${cap_mcg,}"
@@ -359,47 +449,47 @@ bp_validate_dependence_groups() {
 #   3 if one M-member supplied: assign supplied M-member's name to m-member
 #   4 fails for others
 bp_validate_master_groups() {
-	local -n _mc_members=$1 _mc_count=$2
-	local -n _ml_supplied=$3 _ml_unsupplied=$4
-	local -n _mc_supplied=$5 _mc_unsupplied=$6
+	local -n _mst_cap_members=$1 _mst_cap_count=$2
+	local -n _mst_low_supplied=$3 _mst_low_unsupplied=$4
+	local -n _mst_cap_supplied=$5 _mst_cap_unsupplied=$6
 	local -n options_vmg=${7}
 
 	local mcg
 
-	for mcg in "${!_mc_members[@]}"; do
+	for mcg in "${!_mst_cap_members[@]}"; do
 		# m-member supply not allowed
-		if [[ ${#_ml_supplied["${mcg,}"]} -ne 0 ]]; then
-			bp_msg -3 "      " "- member '${_ml_supplied[${mcg,}]#\|}'@${mcg,} supplied\e[0m"
+		if [[ ${#_mst_low_supplied["${mcg,}"]} -ne 0 ]]; then
+			bp_msg -3 "      " "- member '${_mst_low_supplied[${mcg,}]#\|}'@${mcg,} supplied\e[0m"
 			bp_msg 3 "      - MCG ${mcg}: FAILED"
-			local pros_tag[0]="${_ml_supplied[${mcg,}]}"
-			pros_tag[1]="${_mc_members[${mcg}]#|}"
+			local pros_tag[0]="${_mst_low_supplied[${mcg,}]}"
+			pros_tag[1]="${_mst_cap_members[${mcg}]#|}"
 			pros_tag[2]="${mcg,}"
 			bp_exit_with_msg 47 pros_tag
 		fi
 
-		if [[ ${_mc_count["${mcg}"]:-0} -eq 0 ]]; then
+		if [[ ${_mst_cap_count["${mcg}"]:-0} -eq 0 ]]; then
 			# no M-members supplied
-			bp_msg -3 "      " "- member '${_mc_members[${mcg}]#\|}'@${mcg} un-supplied\e[0m"
-			[[ -v options_vmg["${_ml_unsupplied[${mcg,}]}"] ]] &&
-				unset "options_vmg[${_ml_unsupplied[${mcg,}]}]"
+			bp_msg -3 "      " "- member '${_mst_cap_members[${mcg}]#\|}'@${mcg} un-supplied\e[0m"
+			[[ -v options_vmg["${_mst_low_unsupplied[${mcg,}]}"] ]] &&
+				unset "options_vmg[${_mst_low_unsupplied[${mcg,}]}]"
 		else
 			# show status of M-members
-			[[ -z ${_mc_unsupplied["${mcg}"]:-} ]] ||
-				bp_msg -3 "      " "- member '${_mc_unsupplied[${mcg}]#\|}'@${mcg} un-supplied\e[0m"
-			bp_msg -3 "      " "- member '${_mc_supplied[${mcg}]#\|}'@${mcg} supplied\e[0m"
+			[[ -z ${_mst_cap_unsupplied["${mcg}"]:-} ]] ||
+				bp_msg -3 "      " "- member '${_mst_cap_unsupplied[${mcg}]#\|}'@${mcg} un-supplied\e[0m"
+			bp_msg -3 "      " "- member '${_mst_cap_supplied[${mcg}]#\|}'@${mcg} supplied\e[0m"
 
-			if [[ ${_mc_count["${mcg}"]} -ne 1 ]]; then
+			if [[ ${_mst_cap_count["${mcg}"]} -ne 1 ]]; then
 				# multiple M-members supplied
 				bp_msg 3 "      - MCG ${mcg}: Failed"
-				local pros_tag[0]="${_mc_supplied[${mcg}]#\|}"
-				pros_tag[1]="${_mc_members[${mcg}]#|}"
+				local pros_tag[0]="${_mst_cap_supplied[${mcg}]#\|}"
+				pros_tag[1]="${_mst_cap_members[${mcg}]#|}"
 				bp_exit_with_msg 45 pros_tag
 			fi
 
 			# only one M-member supplied
-			[[ -v options_vmg["${_ml_unsupplied[${mcg,}]}"] ]] &&
-				unset "options_vmg[${_ml_unsupplied[${mcg,}]}]"
-			options_vmg["${_ml_unsupplied[${mcg,}]}"]="${_mc_supplied[${mcg}]#\|}"
+			[[ -v options_vmg["${_mst_low_unsupplied[${mcg,}]}"] ]] &&
+				unset "options_vmg[${_mst_low_unsupplied[${mcg,}]}]"
+			options_vmg["${_mst_low_unsupplied[${mcg,}]}"]="${_mst_cap_supplied[${mcg}]#\|}"
 		fi
 		bp_msg 3 "    - MCG ${mcg}: Passed"
 	done
@@ -415,11 +505,13 @@ bp_validate_option_mcgs() {
 	bp_msg 2 "  MCG validation"
 
 	# collect and validate MCG names
-	declare -A mc_groups=()
-	bp_get_all_mcgs "${lid}" filter_vom mc_groups
-	local -a mcg_list=("${!mc_groups[@]}")
+	declare -A mst_cap_groups=()
+	bp_get_all_mcgs "${lid}" filter_vom mst_cap_groups
+	local -a mcg_list=("${!mst_cap_groups[@]}")
 	bp_msg -3 "    MCG names: " "${mcg_list[*]}"
-	bp_validate_mcg_types mcg_list
+
+	# mcg names validated in 'bp_validate_pfilter_mcgs'
+	# bp_validate_mcg_types mcg_list
 
 	# validate requirement mcg for user parameters only
 	bp_validate_required_groups "${lid}" mcg_list filter_vom options_vom
@@ -429,11 +521,11 @@ bp_validate_option_mcgs() {
 	bp_build_mcg_membership_map "${lid}" filter_vom mcg_members_map
 
 	# accumulator arrays populated during member classification
-	declare -A dl_supplied=() dl_unsupplied=()
-	declare -A dc_supplied=() dc_unsupplied=()
+	declare -A dep_low_supplied=() dep_low_unsupplied=()
+	declare -A dep_cap_supplied=() dep_cap_unsupplied=()
 	declare -a eg_supplied=()
-	declare -A ml_supplied=() ml_unsupplied=() ml_types=() ml_members=() ml_values=()
-	declare -A mc_supplied=() mc_unsupplied=() mc_members=() mc_count=()
+	declare -A mst_low_supplied=() mst_low_unsupplied=() mst_low_types=() mst_low_members=() mst_low_values=()
+	declare -A mst_cap_supplied=() mst_cap_unsupplied=() mst_cap_members=() mst_cap_count=()
 	declare -A ug_values=()
 	declare -a ug_supplied=()
 
@@ -453,19 +545,19 @@ bp_validate_option_mcgs() {
 		ug_supplied=()
 
 		for member in "${mcg_members[@]}"; do
-			bp_extract_filter_schema "${lid}" "${filter_vom[${member}]}" def_type def_data def_mcg
+			bp_extract_filter_entry "${lid}" "${filter_vom[${member}]}" def_type def_data def_mcg
 			case ${mcg:0:1} in
 			d)
 				if [[ -v options_vom["${member}"] ]]; then
-					dl_supplied["${mcg}"]="${dl_supplied["${mcg}"]:-}|${member}"
+					dep_low_supplied["${mcg}"]="${dep_low_supplied["${mcg}"]:-}|${member}"
 				else
-					dl_unsupplied["${mcg}"]="${dl_unsupplied["${mcg}"]:-}|${member}"
+					dep_low_unsupplied["${mcg}"]="${dep_low_unsupplied["${mcg}"]:-}|${member}"
 				fi
 				;;
 			D)
 				[[ -v options_vom["${member}"] ]] &&
-					dc_supplied["${mcg}"]="${member}" ||
-					dc_unsupplied["${mcg}"]="${member}"
+					dep_cap_supplied["${mcg}"]="${member}" ||
+					dep_cap_unsupplied["${mcg}"]="${member}"
 				;;
 			e)
 				if [[ -v options_vom["${member}"] ]]; then
@@ -476,20 +568,20 @@ bp_validate_option_mcgs() {
 				fi
 				;;
 			m)
-				ml_members["${mcg}"]="${ml_members[${mcg}]:-}|${member}"
-				ml_types["${mcg}"]="${def_type}"
-				ml_values["${mcg}"]="${def_data}"
+				mst_low_members["${mcg}"]="${mst_low_members[${mcg}]:-}|${member}"
+				mst_low_types["${mcg}"]="${def_type}"
+				mst_low_values["${mcg}"]="${def_data}"
 				[[ -v options_vom["${member}"] ]] &&
-					ml_supplied["${mcg}"]="${member}" ||
-					ml_unsupplied["${mcg}"]="${member}"
+					mst_low_supplied["${mcg}"]="${member}" ||
+					mst_low_unsupplied["${mcg}"]="${member}"
 				;;
 			M)
-				mc_members["${mcg}"]="${mc_members[${mcg}]:-}|${member}"
+				mst_cap_members["${mcg}"]="${mst_cap_members[${mcg}]:-}|${member}"
 				if [[ -v options_vom["${member}"] ]]; then
-					mc_supplied["${mcg}"]="${mc_supplied[${mcg}]:-}|${member}"
-					((mc_count["${mcg}"] += 1))
+					mst_cap_supplied["${mcg}"]="${mst_cap_supplied[${mcg}]:-}|${member}"
+					((mst_cap_count["${mcg}"] += 1))
 				else
-					mc_unsupplied["${mcg}"]="${mc_unsupplied[${mcg}]:-}|${member}"
+					mst_cap_unsupplied["${mcg}"]="${mst_cap_unsupplied[${mcg}]:-}|${member}"
 				fi
 				;;
 			u)
@@ -539,12 +631,12 @@ bp_validate_option_mcgs() {
 		[[ ${mcg:0:1} == [eu] ]] && bp_msg 3 "      - MCG ${mcg}: PASSED"
 	done
 
-	bp_validate_dependence_groups dc_supplied dc_unsupplied dl_supplied dl_unsupplied "${lid}"
+	bp_validate_dependence_groups dep_cap_supplied dep_cap_unsupplied dep_low_supplied dep_low_unsupplied "${lid}"
 
 	bp_validate_master_groups \
-		mc_members mc_count \
-		ml_supplied ml_unsupplied \
-		mc_supplied mc_unsupplied \
+		mst_cap_members mst_cap_count \
+		mst_low_supplied mst_low_unsupplied \
+		mst_cap_supplied mst_cap_unsupplied \
 		options_vom
 
 	return 0

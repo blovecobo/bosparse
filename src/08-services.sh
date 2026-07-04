@@ -19,61 +19,65 @@
 # workflow: extract_options → parse_options → validate names & args → MCG checks
 bp_parse_tier() {
 	local lid=$1 tier=$2
-	local -n FILTER=$3 OPTIONS_tier=$4 OP_ZONE=$5
+	local -n filter_tier=$3 options_tier=$4 op_zone_tier=$5
 
 	declare -a strs=() bls=() ligas=() opts=()
 	declare -A OPTS_parsed=()
 
-	local index filter_keys=() arg arg_ori
-	filter_keys=("${!FILTER[@]}")
+	bp_extract_options "${lid}" op_zone_tier strs bls ligas opts
 
-	bp_extract_options "${lid}" OP_ZONE strs bls ligas opts
-
-	# remove parsed options from CML
-	for index in "${!OP_ZONE[@]}"; do
-		bp_is_array_member "${OP_ZONE[index]}" opts || continue
-		bp_msg -3 "    - stripped from CML: " "${OP_ZONE[index]}"
-		unset 'OP_ZONE[index]'
+	# remove extracted options from CML
+	local index param_cmp
+	for index in "${!op_zone_tier[@]}"; do
+		bp_is_array_member "${op_zone_tier[index]}" opts || continue
+		bp_msg -3 "    - stripped from CML: " "${op_zone_tier[index]}"
+		unset 'op_zone_tier[index]'
 	done
-	OP_ZONE=("${OP_ZONE[@]}")
+	op_zone_tier=("${op_zone_tier[@]}")
 
 	# parse options
 	if ((${#opts[@]} > 0)); then
 		bp_parse_options "${lid}" strs bls ligas OPTS_parsed
 
 		# validate options
+		local filter_keys=() arg arg_ori
+		filter_keys=("${!filter_tier[@]}")
 		bp_msg -2 "  Validate options " "${lid}"
 		for param in "${!OPTS_parsed[@]}"; do
 			param_cmp="${param}"
 
 			# ~afd check on user-params only; always true for globals/priors/specs
-			if ((${#FILTER[@]} == 0)); then
+			if ((${#filter_tier[@]} == 0)); then
 				# no filter, validate option names against bash variable naming conventions
 				bp_substitute_exceptions param_cmp
 				bp_validate_variable_name "${tier}" param_cmp
 				bp_msg -3 "      " "- variable name: ${param} -> ${param_cmp}"
-				OPTIONS_tier["${param_cmp}"]="${OPTS_parsed[${param}]}"
+				options_tier["${param_cmp}"]="${OPTS_parsed[${param}]}"
 			else
-				# validate against filter
+				# validate name against filter
 				bp_validate_option_name param_cmp filter_keys "${lid}" "${tier}"
 				bp_msg -3 "      " "- variable name: ${param} -> ${param_cmp}"
 
-				bp_extract_filter_schema "${lid}" "${FILTER[${param_cmp}]}" \
-					ent_type ent_data ent_mcg
-				bp_msg -3 "      " "- filter schema: ${FILTER[${param_cmp}]} -> ${ent_type} | ${ent_data:--} | ${ent_mcg:--}"
-				# OPTS_parsed[${param}]: param_cmp may differ to param
-				arg="${OPTS_parsed[${param}]}"
-				arg_ori="${arg}"
-				bp_validate_option_args "${lid}" "${tier}" "${param}" "${param_cmp}" \
-					arg "${ent_type}" "${ent_data}" "${ent_mcg}"
-				bp_msg -3 "      " "- ${arg_ori} -> ${arg}"
-				OPTIONS_tier["${param_cmp}"]="${arg}"
-				# bp_validate_option_mcgs "${lid}" FILTER OPTIONS_tier
+				# validate arg
+				if [[ ${CONFIGS[rup]} == true || ${lid} != "${CONFIGS["ulid"]}" ]]; then
+					local pf_type pf_data pf_mcg_name
+					bp_extract_filter_entry "${lid}" "${filter_tier[${param_cmp}]}" \
+						pf_type pf_data pf_mcg_name
+					bp_msg -3 "      " "- filter entry: ${filter_tier[${param_cmp}]} -> ${pf_type} | ${pf_data:--} | ${pf_mcg_name:--}"
+					# OPTS_parsed[${param}]: param_cmp may differ to param
+					arg="${OPTS_parsed[${param}]}"
+					arg_ori="${arg}"
+					bp_validate_option_args "${lid}" "${tier}" "${param}" "${param_cmp}" \
+						arg "${pf_type}" "${pf_data}" "${pf_mcg_name}"
+					bp_msg -3 "      " "- ${arg_ori} -> ${arg}"
+					options_tier["${param_cmp}"]="${arg}"
+				fi
 			fi
 		done
-		((${#filter_keys[@]} == 0)) || bp_validate_option_mcgs "${lid}" FILTER OPTIONS_tier
-		else
-			bp_msg -2 "    " "no ${tier} options"
+		# validate options against MCG rules of filter
+		((${#filter_keys[@]} == 0)) || bp_validate_option_mcgs "${lid}" filter_tier options_tier
+	else
+		bp_msg -2 "    " "no ${tier} options"
 	fi
 }
 
@@ -84,67 +88,66 @@ bp_parse_tier() {
 # builds filter from HARNESSES entries with level "global"; runs bp_parse_tier;
 # applies parsed settings to CONFIGS; detects watershed vs islands; extracts zones
 bp_service_globals() {
-	local -n o_zone=$1 p_zone=$2
+	local -n option_zone=$1 positional_zone=$2
 	local -n CML_ref=$3
 
 	bp_msg 1 "Service Tier: Globals"
-	declare -A OPTIONS=() # parsed options with completed keynames
+	declare -A global_options=() # parsed options with completed keynames
 
 	# build Globals filter
-	declare -A globals=()
+	declare -A global_filter=()
 	local keys=() key fields=()
 	bp_derive_harness_entries_by_field "levels" "global" keys
 	for key in "${keys[@]}"; do
 		bp_derive_harness_entry_fields "${key}" fields "type" "type-arg" "mcg"
-		globals["${key}"]="$(bp_join_array_members fields)"
+		global_filter["${key}"]="$(bp_join_array_members fields)"
 	done
 
-	bp_parse_tier "${CONFIGS[glid]}" "Global" globals OPTIONS CML_ref
+	bp_parse_tier "${CONFIGS[glid]}" "Global" global_filter global_options CML_ref
 
-	bp_apply_setup OPTIONS
+	bp_update_configs global_options
 	bp_update_verbose
 
 	# extract zone
-	CML_STYLE="${CONFIGS["style"]}"
-	bp_msg 3 "  CML style: ${CML_STYLE}"
-	if [[ ${CML_STYLE} == "watershed" ]]; then
+	cml_style="${CONFIGS["style"]}"
+	bp_msg 3 "  CML style: ${cml_style}"
+	if [[ ${cml_style} == "watershed" ]]; then
 		bp_msg 2 "  Extract Watershed-style CML"
-		bp_extract_zones_watershed o_zone p_zone "${CML_ref[@]}"
+		bp_extract_zones_watershed option_zone positional_zone "${CML_ref[@]}"
 	else
 		bp_msg 2 "  Extract Islands-style CML"
-		bp_extract_zones_islands o_zone p_zone "${CML_ref[@]}"
+		bp_extract_zones_islands option_zone positional_zone "${CML_ref[@]}"
 	fi
-	bp_msg -3 "    OP-ZONE:" " '${o_zone[*]}'"
-	bp_msg -3 "    PP-ZONE:" " '${p_zone[*]}'"
+	bp_msg -3 "    OP-ZONE:" " '${option_zone[*]}'"
+	bp_msg -3 "    PP-ZONE:" " '${positional_zone[*]}'"
 }
 
 # service tier: parse prior-level (~~) tokens, apply prior settings
 # $1 — nameref to option-zone tokens (modified in-place)
 # builds filter from HARNESSES entries with level "prior"; runs bp_parse_tier
 bp_service_priors() {
-	local -n o_zone=$1
+	local -n option_zone=$1
 
 	bp_msg 1 "Service Tier: Priors"
 	# build prior filter
-	declare -A priors=()
+	declare -A prior_filter=()
 	local keys=() key fields=()
 	bp_derive_harness_entries_by_field "levels" "prior" keys
 	for key in "${keys[@]}"; do
 		bp_derive_harness_entry_fields "${key}" fields "type" "type-arg" "mcg"
-		priors["${key}"]="$(bp_join_array_members fields)"
+		prior_filter["${key}"]="$(bp_join_array_members fields)"
 	done
 
-	declare -A OPTIONS=()
-	bp_parse_tier "${CONFIGS[plid]}" "Prior" priors OPTIONS o_zone
+	declare -A prior_options=()
+	bp_parse_tier "${CONFIGS[plid]}" "Prior" prior_filter prior_options option_zone
 
-	bp_apply_setup OPTIONS
+	bp_update_configs prior_options
 	bp_update_verbose
 
 	# shaw_array CONFIGS
 	[[ ${CONFIGS[config]} == false ]] || bp_show_configs
 
-	bp_msg -4 "  OP-ZONE:" " '${o_zone[*]}'"
-	# bp_msg -4 "  PP-ZONE:" " '${p_zone[*]}'"
+	bp_msg -4 "  OP-ZONE:" " '${option_zone[*]}'"
 }
 
 # service tier: parse spec-level (~) tokens, apply spec settings, handle directives
@@ -152,37 +155,36 @@ bp_service_priors() {
 # builds filter from HARNESSES entries with level "spec"; runs bp_parse_tier;
 # handles direct commands (Help/Banner/Version/Resymbols/Defaults)
 bp_service_specs() {
-	local -n o_zone=$1
+	local -n option_zone=$1
 
 	bp_msg 1 "Service Tier: Specs"
-	declare -A specs=()
+	declare -A spec_filter=()
 	local keys=() key fields=()
 	bp_derive_harness_entries_by_field "levels" "spec" keys
 	for key in "${keys[@]}"; do
 		bp_derive_harness_entry_fields "${key}" fields "type" "type-arg" "mcg"
-		specs["${key}"]="$(bp_join_array_members fields)"
+		spec_filter["${key}"]="$(bp_join_array_members fields)"
 	done
 
-	declare -A OPTIONS=()
-	bp_parse_tier "${CONFIGS[slid]}" "Specs" specs OPTIONS o_zone
+	declare -A spec_options=()
+	bp_parse_tier "${CONFIGS[slid]}" "Specs" spec_filter spec_options option_zone
 
-	bp_apply_setup OPTIONS
+	bp_update_configs spec_options
 	bp_direct_commands
 	bp_update_verbose
 
 	[[ ${CONFIGS[config]} == false ]] || bp_show_configs
 
-	bp_msg -4 "  OP-ZONE:" " '${o_zone[*]}'"
-	# bp_msg -4 "  PP-ZONE:" " '${p_zone[*]}'"
+	bp_msg -4 "  OP-ZONE:" " '${option_zone[*]}'"
 }
 
 # service tier: parse user-level (-) tokens, validate against PFILTER
 # $1 — nameref to option-zone tokens (modified in-place)
 # $2 — nameref: receives validated {name: value} options
-# loads PFILTER from CONFIGS["pf"] (if set); runs bp_parse_tier;
+# populate PFILTER from CONFIGS["pf"] (if set); runs bp_parse_tier;
 # applies PFILTER defaults to un-supplied params if ~afd is set
 bp_service_users() {
-	local -n o_zone=$1 opts_su=$2
+	local -n option_zone=$1 user_options=$2
 
 	bp_msg 1 "Service Tier: USERS"
 
@@ -202,11 +204,12 @@ bp_service_users() {
 		bp_msg 4 "  No PFILTER"
 		declare -A PFILTER=()
 	fi
-	bp_parse_tier "${CONFIGS[ulid]}" "User-params" PFILTER opts_su o_zone
-	# bp_show_array opts_su
+	bp_parse_tier "${CONFIGS[ulid]}" "User-params" PFILTER user_options option_zone
 
-	if ((${#PFILTER[@]} != 0)) && [[ ${CONFIGS[afd]} == true ]]; then
-		bp_apply_filter_default opts_su PFILTER
+	if ((${#PFILTER[@]} != 0)) &&
+		[[ ${CONFIGS[afd]} == true ]] &&
+		[[ ${CONFIGS[rup]} == true ]]; then
+		bp_apply_filter_default user_options PFILTER
 	else
 		return 0
 	fi

@@ -33,6 +33,8 @@
 #   - jq, if output json(capture-mode) or serialized-pfilter passed
 
 # change log:
-#   - enhanced 'key-value' pair serialize approch, support empty value and values contain spaces by escape
-#   - emproved error message content
+#   - removed redundant validation on filter-mcg-names
+#   - enhanced bp_validate_option_name
+#   - clean some un-used codes
+#   - fixed exclusion resyms validation
 set -euo pipefail

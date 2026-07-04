@@ -1,56 +1,17 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2153,SC2154
 # Module 07-output: Default assignment and result output
-#   bp_assign_user_param_defaults() — assign PFILTER defaults to un-supplied params
-#   bp_output_source_variables()    — export bool/string params as shell variables (source mode)
-#   bp_output_source_arrays()       — create named result arrays (source mode)
-#   bp_output_eval()                — emit variable assignment statements (eval mode)
-#   bp_output_json()                — emit JSON object (capture mode, requires jq)
-#   bp_infer_run_mode()             — auto-detect source vs eval vs capture
-#   bp_show_help()                  — display online help text
-#   bp_direct_commands()            — execute directive SPECS (Help, Banner, Version, …)
+#   bp_output_source_variables()  — export bool/string params as shell variables (source mode)
+#   bp_output_source_arrays()     — create named result arrays (source mode)
+#   bp_output_eval()              — emit variable assignment statements (eval mode)
+#   bp_output_json()              — emit JSON object (capture mode, requires jq)
+#   bp_show_help()                — display online help text
+#   bp_direct_commands()          — execute directive SPECS (Help, Banner, Version, …)
 # --------------------------------------------------------------------------------
-
-# assign PFILTER default value to an un-supplied parameter
-bp_assign_user_param_defaults() {
-	local param=$1 pf_type=$2 pf_data=$3 pf_mcg=$4
-	local default_enum
-
-	[[ ${verbose} -ge 4 ]] && printf "    \e[2;33m%-12s - %6s | %14s | %-10s | %s\e[0m\n" \
-		"${param}" "${pf_type}" "${pf_data:--}" "${pf_mcg:--}" "default" >&2
-	case "${pf_type}" in
-	bool | string)
-		if [[ -n ${pf_data} ]]; then
-			# default value specified in PFILTER
-			BP_OPTIONS["${param}"]="${pf_data}"
-			if [[ ${pf_type} == "bool" ]]; then
-				BP_BOOLS["${param}"]="${pf_data}"
-			else
-				BP_STRINGS["${param}"]="${pf_data}"
-			fi
-		else # not supplied && no default value, parsing failed
-			local pros_tag[0]="${param}"
-			bp_exit_with_msg 55 pros_tag
-		fi
-		;;
-	enum)
-		# set with first enum as default value
-		default_enum=${pf_data%%'|'*}
-		BP_OPTIONS["${param}"]="${default_enum}"
-		# enum type is treated as string in BP_OPTIONS(true|false should be set as Booleans)
-		BP_STRINGS["${param}"]="${default_enum}"
-		;;
-	*) # this will not happen since integrity checking already done in bp_validate_pfilter
-		;;
-	esac
-	[[ ${verbose} -ge 3 ]] && printf "    \e[2m%-12s - %6s | %14s | %-10s | \e[0;2m%s\e[0m\n" \
-		"${param}" "${pf_type}" "${BP_OPTIONS[${param}]:--}" "${pf_mcg}" "assigned" >&2
-	return 0
-}
 
 # create variables for option parameters as parsing result
 bp_output_source_variables() {
-	local -n VARS=$1
+	local -n options_emit=$1
 	if [[ ${CONFIGS["dvo"]} == true ]]; then
 		[[ -n ${CONFIGS["oan"]} ]] || bp_set_configs 'oan' "${CONSTS[OAN]}"
 		bp_msg 3 "    Output variables disabled"
@@ -61,39 +22,45 @@ bp_output_source_variables() {
 
 	# output all variables
 	local var
-	for var in "${!VARS[@]}"; do
-		declare -g "${var}"="${VARS["${var}"]}"
-		bp_msg -3 "      ${var} = " "${VARS["${var}"]}"
+	for var in "${!options_emit[@]}"; do
+		declare -g "${var}"="${options_emit["${var}"]}"
+		bp_msg -3 "      ${var} = " "${options_emit["${var}"]}"
 	done
 }
 
 bp_output_source_arrays() {
-	local -n OPTS_OUTPUT=$1 POS_OUTPUT=$2
+	local -n options_emit=$1 positionals_emit=$2
 	bp_msg 3 "    Output parameter arrays"
 
-	local key tmp
-
 	# output options
-	tmp="${CONFIGS["oan"]}"
-	if [[ -n ${tmp} ]]; then
-		bp_msg 3 "      Options to array '${tmp}'"
-		declare -Ag "${tmp}"
-		declare -n -g "OPT_arr=${tmp}"
-		for key in "${!OPTS_OUTPUT[@]}"; do
-			OPT_arr["${key}"]="${OPTS_OUTPUT[${key}]}"
-			bp_msg 3 "      - ${key} - ${OPT_arr[${key}]}"
+	local key oan
+	oan="${CONFIGS["oan"]}"
+	if [[ -n ${oan} ]]; then
+		bp_msg 3 "      Options to array '${oan}'"
+		declare -Ag "${oan}"
+		declare -n "option_emit=${oan}" 
+		for key in "${!options_emit[@]}"; do
+			option_emit["${key}"]="${options_emit[${key}]}"
+			bp_msg 3 "      - ${key} - ${options_emit[${key}]}"
 		done
+	else
+		bp_msg 3 "      " "  no options"
 	fi
 
 	# output positionals
-	tmp="${CONFIGS["pan"]}"
-	bp_msg 3 "      Positionals to array '${tmp}'"
-	declare -Ag "${tmp}"
-	declare -ng "POS_arr=${tmp}"
-	for key in "${!POS_OUTPUT[@]}"; do
-		POS_arr["${key}"]="${POS_OUTPUT[${key}]}"
-		bp_msg 3 "      - ${key} - ${POS_arr[${key}]}"
-	done
+	local pan
+	pan="${CONFIGS["pan"]}"
+	bp_msg 3 "      Positionals to array '${pan}'"
+	if ((${#positionals_emit[@]} > 0)); then
+		declare -Ag "${pan}"
+		declare -n "positional_emit=${pan}"
+		for key in "${!positionals_emit[@]}"; do
+			positional_emit["${key}"]="${positionals_emit[${key}]}"
+			bp_msg 3 "      - ${key} - ${positionals_emit[${key}]}"
+		done
+	else
+		bp_msg 3 "      " "  no positionals"
+	fi
 }
 
 # output parsing result as variable assignment statements, for run-mode eval
@@ -101,34 +68,33 @@ bp_output_source_arrays() {
 # but variable names and PFILTER-derived config keys must still be trusted.
 # Prefer capture-mode JSON parsing for untrusted input or external callers.
 bp_output_eval() {
-	local -n OPTS_OUTPUT=$1 POS_OUTPUT=$2
+	local -n options_emit=$1 positionals_emit=$2
 
 	bp_msg 3 "    Output variables"
 	local index prefix
 
 	# output option parameters as var
 	bp_msg 3 "      - Options to variables"
-	if ((${#OPTS_OUTPUT[@]} > 0)); then
-		for index in "${!OPTS_OUTPUT[@]}"; do
-			echo "${index}=$(printf %q "${OPTS_OUTPUT[${index}]}")"
-			# bp_msg 3 "    - ${index} - ${OPTS_OUTPUT[${index}]}"
+	if ((${#options_emit[@]} > 0)); then
+		for index in "${!options_emit[@]}"; do
+			echo "${index}=$(printf %q "${options_emit[${index}]}")"
+			bp_msg 3 "    - ${index} - ${options_emit[${index}]}"
 		done
 	else
-		bp_msg -3 "        " "No Positionals"
+		bp_msg -3 "        " "no options"
 	fi
 
 	# variable name prefix
 	bp_msg 3 "      - Positional to variables"
-	if ((${#POS_OUTPUT[@]} > 0)); then
+	if ((${#positionals_emit[@]} > 0)); then
 		prefix="${CONFIGS["pan"]}"
-
 		# output positionals as var with prefix
-		for index in "${!POS_OUTPUT[@]}"; do
-			echo "${prefix}_${index}=$(printf %q "${POS_OUTPUT[${index}]}")"
-			# bp_msg 3 "    - ${index} - ${POS_OUTPUT[${index}]}"
+		for index in "${!positionals_emit[@]}"; do
+			echo "${prefix}_${index}=$(printf %q "${positionals_emit[${index}]}")"
+			bp_msg 3 "    - ${index} - ${positionals_emit[${index}]}"
 		done
 	else
-		bp_msg -3 "        " "No Positionals"
+		bp_msg -3 "        " "no positionals"
 	fi
 }
 
@@ -189,28 +155,6 @@ bp_output_json() {
 		expr+=" + {(\$k${idx}): []}"
 	fi
 	jq -n -c "${jq_args[@]}" "${expr}"
-}
-
-# Run-mode detection --------------------------------------------------------------
-bp_infer_run_mode() {
-	local -n run_mode=$1
-	local script_name=$2
-
-	# as '~run' or '~mode' specified, autodetect
-	if [[ ${script_name} != $(basename "$0") ]]; then
-		bp_msg 3 "  Sourced, output option parameters as variables."
-		run_mode="source"
-	else
-		# not source, assert with '~json'
-		if [[ ${CONFIGS["json"]} == true ]]; then
-			bp_msg 3 "  Not sourced, use run-mode 'capture' as 'json' specified."
-			run_mode="capture"
-		else
-			bp_msg 3 "  Not sourced, use run-mode 'eval' as default"
-			run_mode="eval"
-		fi
-	fi
-	bp_set_configs 'run' "${run_mode}"
 }
 
 # display comprehensive online help for BosParse

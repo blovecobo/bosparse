@@ -11,7 +11,7 @@
 #   CONFIGS       — runtime config values derived from HARNESSES defaults + post-overrides
 #   EXIT_MSG      — exit code to message mapping (developer variants at +100)
 #   VN_EXCEPTIONS — hyphen-to-underscore mapping for bash variable names
-#   PAS_EXCLUSION — forbidden characters for certain config keys
+#   PAS_EXCLUSIONS — forbidden characters for certain config keys
 #   SYMNAMES      — human-readable names for escapable special characters
 #   MCG_TYPES     — mutual-correlate group type prefixes (d/D/e/m/M/r/u)
 #   DEBUG_CMDS    — debug command indicators (__quiet, __trace, etc.)
@@ -40,14 +40,14 @@ bp_definitions() {
 	local -n CONFIGS_ref=$3
 	local -n EXIT_MSG_ref=$4
 	local -n VN_EXCEPTIONS_ref=$5
-	local -n PAS_EXCLUSION_ref=$6
+	local -n PAS_EXCLUSIONS_ref=$6
 	local -n SYMNAMES_ref=$7
 	local -n MCG_TYPES_ref=$8
 	local -n DEBUG_CMDS_ref=$9
 	local -n HRNS_FLDS_ref=${10}
 	local -n PFE_TYPES_ref=${11}
 	local -n RESYMS_ref=${12}
-	local -n REGEX_METACHARS_ref=${13}
+	local -n REGEX_METAS_ref=${13}
 
 	local ESC_PFX="_bp_${BASHPID}_${RANDOM}_"
 
@@ -61,7 +61,7 @@ bp_definitions() {
 	RESYMS_ref=('~' '-' '=' '_' '+' '%' '@' '!')
 
 	# -- Regex metacharacters for prefix-matching escaping --
-	REGEX_METACHARS_ref=('\\' '.' '[' ']' '(' ')' '{' '}' '^' '$' '*' '+' '?' '|')
+	REGEX_METAS_ref=('\\' '.' '[' ']' '(' ')' '{' '}' '^' '$' '*' '+' '?' '|')
 
 	# -- TRUE CONSTANTS — never mutated at runtime --
 	CONSTANTS_ref=(
@@ -223,7 +223,7 @@ bp_definitions() {
 		["trace"]="trace"
 	)
 
-	PAS_EXCLUSION_ref=(
+	PAS_EXCLUSIONS_ref=(
 		["os"]="-_"
 		["tt"]="="
 		["tf"]="="
@@ -273,7 +273,7 @@ bp_definitions() {
 		["0"]="Parsing succeeded."
 		["1"]="Parsing failed."
 		["2"]="No parameter supplied."
-		["3"]="Unknow error"
+		["3"]="Unknown error"
 		["4"]="\${pros_tag[0]}"
 
 		# system
@@ -353,7 +353,7 @@ bp_definitions() {
 		["153"]="Specs '~rup' requires all parameters matching 'PFILTER' but '\${pros_tag[1]}' didn't."
 
 		["54"]="Unknown \${pros_tag[0]} '\${pros_tag[1]}'"
-		["154"]="Invalid \${pros_tag[0]} '\${pros_tag[1]}', cannot match any \${pros_tag[1]}s."
+		["154"]="Invalid \${pros_tag[0]} '\${pros_tag[1]}', cannot match any of \${pros_tag[0]}."
 
 		["55"]="Missing parameter '\${pros_tag[0]}'"
 		["155"]="Un-supplied parameter '\${pros_tag[0]}' requires a default value by '~afd'"
@@ -367,7 +367,7 @@ bp_definitions() {
 		["158"]="PFILTER entry name '\${pros_tag[1]}' conflict with parameter name '\${pros_tag[0]}' after exception substitution."
 
 		["70"]="Parameter '\${pros_tag[1]}' is required but not supplied."
-		["170"]="Parameter '\${pros_tag[1]}' in Required MCG '\${pros_tag[0]} without default value and not supplied."
+		["170"]="Parameter '\${pros_tag[1]}' in Required MCG '\${pros_tag[0]}' without default value and not supplied."
 	)
 }
 
@@ -487,7 +487,7 @@ bp_derive_context_group() {
 			if (($# >= 3)); then
 				__out["${key}"]="${CONFIGS[${key}]}"
 			else
-				printf '%s=%s\n' "${key}" "${CONFIGS[$key]}"
+				printf '%s=%s\n' "${key}" "${CONFIGS[${key}]}"
 			fi
 			break
 		done

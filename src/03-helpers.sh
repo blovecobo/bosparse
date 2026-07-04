@@ -4,7 +4,7 @@
 #   bp_update_verbose()        — manage output verbosity levels (0-4)
 #   bp_is_in_resyms()          — check if a string consists entirely of reserved symbols
 #   bp_check_param_type()      — classify a CML token (bool/string/liga/arg) by context
-#   bp_apply_setup()           — merge parsed options into CONFIGS
+#   bp_update_configs()        — merge parsed options into CONFIGS
 #   bp_apply_filter_default()  — assign PFILTER defaults to un-supplied parameters
 #   bp_show_configs()          — display current CONFIGS
 #   bp_substitute_exceptions() — replace hyphens with underscores in variable names
@@ -16,7 +16,7 @@
 # validates:
 #   - key exists in HARNESSES (else exit 3)
 #   - key is not in IMMUTABLES (else exit 27)
-#   - value does not contain chars listed in PAS_EXCLUSION for this key (else exit 27)
+#   - value does not contain chars listed in PAS_EXCLUSIONS for this key (else exit 27)
 # side effects: when ulid changes, llid is doubled; when slid changes, plid is doubled
 bp_set_configs() {
 	local key=$1 value=$2
@@ -34,12 +34,17 @@ bp_set_configs() {
 		pros_tag[2]="and cannot be changed."
 		bp_exit_with_msg 27 pros_tag
 	fi
-	# check PAS_EXCLUSION
-	if [[ -v PAS_EXCLUSION["${key}"] ]]; then
-		if [[ ${value} =~ [${PAS_EXCLUSION[${key}]}] ]]; then
+	# check PAS_EXCLUSIONS
+	# for resyms type:
+	#   - should match length (done in bp_validate_option_args())
+	#   - consist of resyms  (done in bp_validate_option_args())
+	#   - not contains resyms in PAS_EXCLUSIONS
+	if [[ -v PAS_EXCLUSIONS["${key}"] ]] && [[ -n "${PAS_EXCLUSIONS[${key}]}" ]]; then
+		local stripped_value="${value//[${PAS_EXCLUSIONS[${key}]}]/}"
+		if ((${#stripped_value} != "${#value}")); then
 			local pros_tag[0]="Prior setting:"
 			pros_tag[1]="'${CONFIGS[plid]}${key}=${value}'"
-			pros_tag[2]="${PAS_EXCLUSION[${key}]}"
+			pros_tag[2]="contains resyms not allowed: '${PAS_EXCLUSIONS[${key}]}'"
 			bp_exit_with_msg 27 pros_tag
 		fi
 	fi
@@ -200,22 +205,22 @@ bp_check_param_type() {
 # apply parsed Harness options (Globals/Priors/Specs) to CONFIGS
 # $1 — nameref to associative array of {key: value} pairs from the tier
 # calls bp_set_configs for each entry, then refreshes LIDS/TAGS via bosparse_update_mutables
-bp_apply_setup() {
-	local -n setup_bas=$1
+bp_update_configs() {
+	local -n options_ref=$1
 
 	local ps field_len
 
 	bp_msg 3 "  Apply settings"
-	if [[ ${#setup_bas[@]} -eq 0 ]]; then
+	if [[ ${#options_ref[@]} -eq 0 ]]; then
 		bp_msg -3 "    " "no new setup"
 		return 0
 	fi
 	# bp_msg 4 "    ${title} settings applied:" >&2
 	# apply settings to CONFIGS
-	field_len=$(bp_max_array_member_length "${!setup_bas[@]}")
-	for ps in "${!setup_bas[@]}"; do
-		bp_msg 4 "      $(printf "\e[0;2m%${field_len}s - '%s'\n" "${ps}" "${setup_bas[${ps}]}")" >&2
-		bp_set_configs "${ps}" "${setup_bas[${ps}]}"
+	field_len=$(bp_max_array_member_length "${!options_ref[@]}")
+	for ps in "${!options_ref[@]}"; do
+		bp_msg 4 "      $(printf "\e[0;2m%${field_len}s - '%s'\n" "${ps}" "${options_ref[${ps}]}")" >&2
+		bp_set_configs "${ps}" "${options_ref[${ps}]}"
 	done
 	bosparse_update_mutables
 }
@@ -235,7 +240,7 @@ bp_apply_filter_default() {
 	[[ ${verbose} -ge 3 ]] && printf "    \e[4;33m${prn_pattern}\e[0m\n" \
 		"param" "status" "type" "data" "mcg" >&2
 	for param in "${!filter_afd[@]}"; do
-		bp_extract_filter_schema "${CONFIGS[ulid]}" "${filter_afd[${param}]}" pf_type pf_data pf_mcg
+		bp_extract_filter_entry "${CONFIGS[ulid]}" "${filter_afd[${param}]}" pf_type pf_data pf_mcg
 		# skip mcg members
 		[[ -z ${pf_mcg} ]] || {
 			[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
@@ -319,4 +324,45 @@ bp_substitute_exceptions() {
 	done
 	var_name="${first}${test_name}${last}"
 	bp_msg -3 "      " "- substitution: ${orig} -> ${var_name}"
+}
+
+# functions for filter/enum cache
+#   - bp_read_filter_cache filter
+#   - bp_write_filter_cache filter
+#   - bp_clear_filter_cache
+
+# use the cached data if hitted
+# return code:
+#   - 0: hitted, cached data passed back
+#   - 1: not hitted, nothing changed
+# filter format:
+#   - key
+#   - key_type
+#   - key_data
+#   _ key_mcg
+bp_read_filter_cache() {
+	local key=$1
+	local -n _pfe_type=$2 _pfe_data=$3 _pfe_mcg=$4
+
+	if [[ -v FILTER_CACHE[${key}] ]]; then
+		# matched, populate pass-back array
+		_pfe_type="${FILTER_CACHE[${key}_type]}"
+		_pfe_data="${FILTER_CACHE[${key}_data]}"
+		_pfe_mcg="${FILTER_CACHE[${key}_mcg]}"
+		return 0
+	else
+		return 1
+	fi
+}
+
+# populate FILTER_CACHE with data passed in
+bp_write_filter_cache() {
+	local key=$1
+	shift
+	local flt_wfc=("$@")
+
+	FILTER_CACHE["${key}"]=true                 # use to check
+	FILTER_CACHE["${key}_type"]="${flt_wfc[0]}" # type field
+	FILTER_CACHE["${key}_data"]="${flt_wfc[1]}" # data fields
+	FILTER_CACHE["${key}_mcg"]="${flt_wfc[2]}"  # mcg field
 }

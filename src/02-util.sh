@@ -86,7 +86,7 @@ bp_escape_symbol() {
 		str_escp="${str_escp//\\"${symbol}"/"${symbol}"}"
 	else
 		# unknow escape mode
-		pros_tag[0]="invalid escape mode '${esc_mode}', available operations: 'mark|substitute|restore|regress|remove"
+		pros_tag[0]="invalid escape operation '${esc_mode}', available operations: 'mark|substitute|restore|regress|remove'"
 		bp_exit_with_msg 29 pros_tag
 	fi
 }
@@ -122,11 +122,11 @@ bp_count_substr() {
 # $2: symbol as separator, colon by default
 # output result via stdout
 bp_join_array_members() {
-	local -n _arr_ref=$1
+	local -n _in_arr=$1
 	local sym=${2:-:}
 
 	local result="" item
-	for item in "${_arr_ref[@]}"; do
+	for item in "${_in_arr[@]}"; do
 		if [[ -n "${result}" ]]; then
 			result+="${sym}"
 		fi
@@ -278,7 +278,7 @@ bp_exit_with_msg() {
 			additional_msg="${additional_msg//\$\{pros_tag\[${index}\]\}/${pt_ref[index]}}"
 		done
 	else
-		# now pros_tag passed, use 'unknown error'
+		# no pros_tag passed, use 'unknown error'
 		exit_code_orig="${exit_code}"
 		exit_code=3 # error code for unknow error
 		msg="${EXIT_MSG[${exit_code}]} (${exit_code_orig})."
