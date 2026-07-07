@@ -6,59 +6,61 @@
 
 - Source mode
 
-```bash
-#!/usr/bin/env bash
-source ./bosparse
-bosparse "$@"
+  ```bash
+  #!/usr/bin/env bash
+  source ./bosparse
+  bosparse "$@"
 
-echo "name=$name"
-echo "verbose=$verbose"
-echo "first positional=${BP_Positionals[0]}"
-```
+  echo "name=$name"
+  echo "verbose=$verbose"
+  echo "first positional=${BP_Positionals[0]}"
+  ```
 
-Run it:
+  Run it:
 
-```bash
-./script.sh -name=alice -verbose+ -- file1.txt file2.txt
-```
+  ```bash
+  ./script.sh -name=alice -verbose+ -- file1.txt file2.txt
+  ```
 
 - Eval mode
 
-```bash
-#!/usr/bin/env bash
-eval "$(./bosparse "$@")"
-echo "name=$name"
-```
+  ```bash
+  #!/usr/bin/env bash
+  eval "$(./bosparse "$@")"
+  echo "name=$name"
+  ```
 
-> Note: `eval` mode executes generated shell assignments. Only use it when the invocation and parameter names are trusted. For details and mitigations, see the Reference Manual: [Eval Mode Security](./BosParse-Reference-Manual.md).
+  > Note: `eval` mode executes generated shell assignments. Only use it when the invocation and parameter names are trusted. For details and mitigations, see the Reference Manual: [Eval Mode Security](./BosParse-Reference-Manual.md).
 
-Run it:
+  Run it:
 
-```bash
-./script.sh -name alice -- data.txt
-```
+  ```bash
+  ./script.sh -name alice -- data.txt
+  ```
 
 - Capture mode (JSON output)
 
-```bash
-json=$(./bosparse ~json "$@")
-name=$(capture_json_extract "$json" '.name // ""')
-echo "name=${name}"
-```
+  ```bash
+  #!/usr/bin/env bash
+  result=$(./bosparse ~json "$@")
+  echo "$result" | jq '.'
+  ```
 
-This uses the new helper `capture_json_extract` to read values safely from capture-mode JSON output.
+  Run it:
 
-```bash
-#!/usr/bin/env bash
-result=$(./bosparse ~json "$@")
-echo "$result" | jq '.'
-```
+  ```bash
+  ./script.sh -name=alice -active+ -- file1.txt
+  ```
 
-Run it:
+  or,
 
-```bash
-./script.sh -name=alice -active+ -- file1.txt
-```
+  ```bash
+  json=$(./bosparse ~json "$@")
+  name=$(capture_json_extract "$json" '.name // ""')
+  echo "name=${name}"
+  ```
+
+  This uses the new helper `capture_json_extract` to read values safely from capture-mode JSON output.
 
 ## Command Line Structure
 
@@ -72,14 +74,14 @@ BosParse supports two main styles of command line structures: `watershed` and `i
 - `OP-ZONE`: Options and parser settings
 - `PP-ZONE`: Positional values
 - `ZN-SEP`: zone separator(`--` by default) that distinguishes Options from Positionals
-- `OPTIONS`: Options parameters that set variables
+- `OPTIONS`: Option parameters that set variables
 - `POSITIONALS`: values that become Positional parameters
 
 The main difference between the two styles is how they handle the separation of Options and Positionals:
 
 - `watershed` style(default) uses `ZN-SEP` to separate Options and Positionals, while `islands` style allows intermixing Options and Positionals.
 - In `watershed` style, Options must come before `ZN-SEP`, and Positionals must come after.
-- `islands` style, Options and Positionals may be mixed in any order, but Options must use `OA-SEP` ( `=` by default) to separate name and value. In `watershed` style, space-separated option values are also allowed.
+- `islands` style, Options and Positionals may be mixed in any order, but Options must use `OV-SEP` ( `=` by default) to separate name and value. In `watershed` style, space-separated option values are also allowed.
 
 ## Supported Parameters
 
@@ -95,7 +97,7 @@ The main difference between the two styles is how they handle the separation of 
 Example:
 
 ```bash
-./script.sh -username=john -quiet- -output /tmp/out.txt -- file.txt
+./bosparse -username=john -quiet- -output /tmp/out.txt -- file.txt
 ```
 
 ### Positional parameters
@@ -103,13 +105,13 @@ Example:
 In `watershed` style CML, everything after `ZN-SEP (-- by default)` becomes Positional values in the `BP_Positionals` array:
 
 ```bash
-./script.sh -name=bob -- one two three
+./bosparse -name=bob -- one two three
 ```
 
 In `islands` style CML, Positionals can be interspersed with Options:
 
 ```bash
-./script.sh -name=bob one two -verbose+ three
+./bosparse -name=bob one two -verbose+ three
 ```
 
 ### LIGA-style flags
@@ -117,8 +119,8 @@ In `islands` style CML, Positionals can be interspersed with Options:
 Ligatures compress boolean flags:
 
 ```bash
-./script.sh --abcd --
-./script.sh --2abcdef --
+./bosparse --abcd --
+./bosparse --2abcdef --
 ```
 
 This sets `a=true`, `b=true`, `c=true`, `d=true`, or `ab=true`, `cd=true`, `ef=true`.
@@ -132,7 +134,7 @@ They do not set variables directly but affect the parsing process and output for
 ### Common settings
 
 - `~~~style`: command line structure style, `watershed`(default) or `islands`
-- `~~os`: separator for option names and args, `=` by default
+- `~~os`: separator for option names and values, `=` by default
 - `~~tt` and `~~tf`: trailing tags for booleans, `+`/`-` by default
 - `~json`: produce JSON output
 - `~run`: run-mode setting, `auto` (default), `source`, `eval`, `capture`
@@ -144,7 +146,7 @@ They do not set variables directly but affect the parsing process and output for
 Example:
 
 ```bash
-./script.sh ~run=capture -name=alice -active+ -- file.txt | jq .
+./bosparse ~run=capture -name=alice -active+ -- file.txt | jq .
 ```
 
 ## Important Features
@@ -152,7 +154,7 @@ Example:
 - Options sequence is insensitive for params in OP-ZONE (`watershed`) or the whole CML (`islands`)
 - When the same parameter supplied multiple times, the latter wins; when the same parameter name used with different types, parsing fails
 - If a boolean parameter is supplied as both a standalone boolean and a member of a LIGA-style flag, the boolean setting takes precedence
-- BosParse supports prefix-matching on Harnesses name and enum values in all Harnesses scope, e.g. `~r=e` -> `~run=eval`
+- BosParse supports prefix-matching on Harnesses name and enum values in Harnesses tier scope, e.g. `~r=e` -> `~run=eval`
 - Prefix-matching on user parameters needs `PFILTER` support, see BosParse-Reference-Manual.md#Prefix-Matching
 - Parameters like `-flag=true` or `-flag=false` are parsed as boolean, not string
 
@@ -209,24 +211,20 @@ Result:
 ### Capture / JSON mode
 
 ```bash
-./bosparse ~json -name=alice -active+ -- file1.txt | jq .
+./bosparse ~json -name=alice -active+ -- file1.txt
 ```
 
 output:
 
 ```json
-{
-  "name": "alice",
-  "active": true,
-  "BP_Positionals": ["file1.txt"]
-}
+{"active":true,"name":"alice","BP_Positionals":["file1.txt"]}
 ```
 
 ## Best Practices
 
 - Always use `ZN-SEP` to separate Options and Positional arguments for `watershed` style CML
 - `islands` style CML allows intermixing Options and Positionals, `ZN-SEP` not required but permitted
-- `OA-SEP` must be used to separate Option name and value in `islands` style CML, while `space(s)` as `OA-SEP` is allowed in `watershed` style CML
+- `OV-SEP` must be used to separate Option name and value in `islands` style CML, while `space(s)` as seperator is allowed in `watershed` style CML
 - Quote values with spaces or special characters
 - Use clear, consistent Option names
 - Use `~json` for machine-readable output
@@ -241,41 +239,41 @@ For details about BosParse like parsing-aid symbols and customization, see `BosP
 
 All parser harnesses, their LIDs, types, defaults, and tiers:
 
-| Key         | NAME                   | LID   | Type   | Default          | Level     |
+| Key | Name | LID | Type | Default | Tier |
 | ----------- | ---------------------- | ----- | ------ | ---------------- | --------- |
-| `style`     | CML style              | `~~~` | enum   | `watershed`      | global    |
-| `zs`        | ZONE-SEP               | `~~~` | resym  | `--`             | global    |
-| `glid`      | Global LID             | `~~~` | resym  | `~~~`            | global    |
-| `plid`      | Prior LID              | `~~~` | resym  | `~~`             | global    |
-| `slid`      | Spec LID               | `~~~` | resym  | `~`              | global    |
-| `ulid`      | User-Param LID         | `~~~` | resym  | `-`              | global    |
-| `os`        | OA-SEP                 | `~~`  | resym  | `=`              | prior     |
-| `tt`        | TAG-TRUE               | `~~`  | resym  | `+`              | prior     |
-| `tf`        | TAG-FALSE              | `~~`  | resym  | `-`              | prior     |
-| `td`        | TAG-DEFAULT            | `~~`  | bool   | `true`           | prior     |
-| `run`       | RUN-MODE               | `~`   | enum   | `auto`           | spec      |
-| `json`      | OUPUT-JSON             | `~`   | bool   | `false`          | spec      |
-| `dvo`       | DISABLE VAR OUTPUT     | `~`   | bool   | `false`          | spec      |
-| `pf`        | PFILTER                | `~`   | string |                  | spec      |
-| `rup`       | RESTRICT UNKNOWNS      | `~`   | bool   | `true`           | spec      |
-| `afd`       | APPLY FILTER DEFAULT   | `~`   | bool   | `true`           | spec      |
-| `pme`       | PREFIX-MATCHING ENABLE | `~`   | bool   | `true`           | spec      |
-| `oan`       | OPTIONS ARRAY NAME     | `~`   | string |                  | spec      |
-| `pan`       | POSITIONALS ARRAY NAME | `~`   | string | `BP_Positionals` | spec      |
-| `Banner`    | SHOW BANNER            | `~`   | bool   | `false`          | spec      |
-| `Defaults`  | SHOW DEFAULT           | `~`   | bool   | `false`          | spec      |
-| `Help`      | SHOW HELP              | `~`   | bool   | `false`          | spec      |
-| `Resymbols` | SYMBOLS                | `~`   | bool   | `false`          | spec      |
-| `Version`   | SHOW VERSION           | `~`   | bool   | `false`          | spec      |
-| `quiet`     | VERBOSE 0              | all   | bool   | `true`           | all tiers |
-| `standard`  | VERBOSE 1              | all   | bool   | `false`          | all tiers |
-| `extra`     | VERBOSE 2              | all   | bool   | `false`          | all tiers |
-| `debug`     | VERBOSE 3              | all   | bool   | `false`          | all tiers |
-| `trace`     | VERBOSE 4              | all   | bool   | `false`          | all tiers |
-| `config`    | SHOW CURRENT CONFIGS   | all   | bool   | `false`          | all tiers |
+| `style` | CML style | `~~~` | enum | `watershed` | global |
+| `zs` | ZONE-SEP | `~~~` | resym | `--` | global |
+| `glid` | Global LID | `~~~` | resym | `~~~` | global |
+| `plid` | Prior LID | `~~~` | resym | `~~` | global |
+| `slid` | Spec LID | `~~~` | resym | `~` | global |
+| `ulid` | User-Param LID | `~~~` | resym | `-` | global |
+| `os` | OV-SEP | `~~` | resym | `=` | prior |
+| `tt` | TAG-TRUE | `~~` | resym | `+` | prior |
+| `tf` | TAG-FALSE | `~~` | resym | `-` | prior |
+| `td` | TAG-DEFAULT | `~~` | bool | `true` | prior |
+| `run` | RUN-MODE | `~` | enum | `auto` | spec |
+| `json` | OUPUT-JSON | `~` | bool | `false` | spec |
+| `dvo` | DISABLE VAR OUTPUT | `~` | bool | `false` | spec |
+| `pf` | PFILTER | `~` | string | | spec |
+| `rup` | RESTRICT UNKNOWNS | `~` | bool | `true` | spec |
+| `afd` | APPLY FILTER DEFAULT | `~` | bool | `true` | spec |
+| `pme` | PREFIX-MATCHING ENABLE | `~` | bool | `true` | spec |
+| `Eoan` | OPTIONS ARRAY NAME | `~` | string | | spec |
+| `pan` | POSITIONALS ARRAY NAME | `~` | string | `BP_Positionals` | spec |
+| `Banner` | SHOW BANNER | `~` | bool | `false` | spec |
+| `Defaults` | SHOW DEFAULT | `~` | bool | `false` | spec |
+| `Help` | SHOW HELP | `~` | bool | `false` | spec |
+| `Resymbols` | SYMBOLS | `~` | bool | `false` | spec |
+| `Version` | SHOW VERSION | `~` | bool | `false` | spec |
+| `quiet` | VERBOSE 0 | all | bool | `true` | all tiers |
+| `standard` | VERBOSE 1 | all | bool | `false` | all tiers |
+| `extra` | VERBOSE 2 | all | bool | `false` | all tiers |
+| `debug` | VERBOSE 3 | all | bool | `false` | all tiers |
+| `trace` | VERBOSE 4 | all | bool | `false` | all tiers |
+| `config` | SHOW CURRENT CONFIGS | all | bool | `false` | all tiers |
 
 - **Global** (`~~~`): CML style, LIDs, zone separator, verbosity
-- **Prior** (`~~`): trailing tags, OA separator, verbosity
+- **Prior** (`~~`): trailing tags, OV separator, verbosity
 - **Spec** (`~`): run mode, PFILTER, output arrays, directives, verbosity
 - **Verbosity**: `quiet` (0), `standard` (1), `extra` (2), `debug` (3), `trace` (4)
 - **MCG validation order**: required → exclusion/uniqueness → dependency → master

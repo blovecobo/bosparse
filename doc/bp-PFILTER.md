@@ -9,7 +9,7 @@ Use `PFILTER` when you want:
 - strict validation for Option values
 - default values for missing parameters
 - unambiguous prefix matching for Option names and enum values
-- exact control over unknown Options
+- exact control over undefined Options
 - parameter relationships such as exclusion, dependency, uniqueness and master
 
 ## Quick Start
@@ -30,7 +30,7 @@ declare -A PFILTER=(
 
 ### 2. Pass `PFILTER` to BosParse
 
-There are three ways to pass `PFILTER` to bosparse:
+There are four ways to pass `PFILTER` to bosparse:
 
 1. `PFILTER` name reference, for `source mode` only:
 
@@ -44,6 +44,12 @@ There are three ways to pass `PFILTER` to bosparse:
    ```bash
    pfilter=$(serialize-pfilter PFILTER)
    eval "$(./bosparse ~pf="${pfilter}" "$@")"
+   ```
+
+1. Element streams for all `run-modes`:
+
+   ```bash
+   ~pf="key1=value1 key2=value2 ..."
    ```
 
 1. By `key-value` pairs, for all `run-modes`:
@@ -93,7 +99,7 @@ BosParse parses Options, validates values against `PFILTER`, and then assigns va
 ```
 
 - Accepts any string value
-- If missing and `~afd` enabled, BosParse assigns the default
+- If missing and `~afd` enabled, BosParse assigns the default(in `data` field)
 
 ### enum
 
@@ -103,7 +109,7 @@ BosParse parses Options, validates values against `PFILTER`, and then assigns va
 ```
 
 - Accepts values listed in `data`
-- Supports prefix matching for enum values
+- Supports prefix matching for enum values if `~pme` set
 - The first listed value becomes the default when `~afd` enabled and no value supplied
 
 ### Notes
@@ -113,10 +119,10 @@ BosParse parses Options, validates values against `PFILTER`, and then assigns va
 
 ## `PFILTER` Control Harnesses
 
-- `~pf`: pass `PFILTER` via name reference, serialized JSON string or `key-value` pairs from `PFILTER`
+- `~pf`: pass `PFILTER` via name reference, serialized JSON string, element stream or `key-value` pairs from `PFILTER`
 - `~rup` (default: true): restrict unknown parameters, causing parsing to fail if an option parameter is not defined in `PFILTER`
 - `~afd` (default: true): apply `PFILTER` defaults for un-grouped parameters
-- `~pme` (default: true): enable prefix matching for user parameter names; disable with `~pme-`
+- `~pme` (default: true): enable prefix matching for user parameter names; disable with `~pme-`for exact matching
 
 ## Prefix Matching
 
@@ -189,9 +195,9 @@ Parameters must receive different values.
 Default value assignment can affect validation results, so order matters:
 
 1. **Required rules** — check all `r`-group members are supplied or have defaults (assign defaults first)
-2. **Exclusion / Uniqueness rules** — check `e`-group has at most one member; check `u`-group members have distinct values
-3. **Dependency rules** — check `d`-members require their `D`-member
-4. **Master rules** — check `m`/`M`-group: assign M-member name to m-member; error on multiple M-members
+1. **Exclusion / Uniqueness rules** — check `e`-group has at most one member; check `u`-group members have distinct values
+1. **Dependency rules** — check `d`-members require their `D`-member
+1. **Master rules** — check `m`/`M`-group: assign M-member name to m-member; error on multiple M-members supplying; m-member supplying not allowed
 
 ## Escaping `PFILTER` Characters
 

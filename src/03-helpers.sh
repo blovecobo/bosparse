@@ -1,20 +1,23 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2154
 # Module 03-helpers: Helper functions for parsing workflow
-#   bp_update_verbose()        — manage output verbosity levels (0-4)
-#   bp_is_in_resyms()          — check if a string consists entirely of reserved symbols
-#   bp_check_param_type()      — classify a CML token (bool/string/liga/arg) by context
-#   bp_update_configs()        — merge parsed options into CONFIGS
-#   bp_apply_filter_default()  — assign PFILTER defaults to un-supplied parameters
-#   bp_show_configs()          — display current CONFIGS
-#   bp_substitute_exceptions() — replace hyphens with underscores in variable names
+#   bp_update_verbose()           - manage output verbosity levels (0-4)
+#   bp_is_in_resyms()             - check if a string consists entirely of reserved symbols
+#   bp_set_configs()              - set single CONFIGS entry if imm/vn-excl/value check passed
+#   bp_update_configs()           - merge parsed options into CONFIGS
+#   bp_apply_filter_default()     - assign PFILTER defaults to un-supplied parameters
+#   bp_extract_filter_entry()     - split "type:data:mcg" entry into components
+#   bp_show_configs()             - display current CONFIGS
+#   bp_read_filter_entry_cache()  - read extracted entry data from cache; return 1 if not hit
+#   bp_write_filter_entry_cache() - write extracted entry data to cache
+#   bp_substitute_variable_name_exceptions() - replace hyphens with underscores in variable names
 # --------------------------------------------------------------------------------
 
 # set a CONFIGS key to a value after validation
-# $1 — config key (must exist in HARNESSES)
-# $2 — value to set
+# $1 - config key (must exist in HARNESSES)
+# $2 - value to set
 # validates:
-#   - key exists in HARNESSES (else exit 3)
+#   - key exists in HARNESSES (else exit 4)
 #   - key is not in IMMUTABLES (else exit 27)
 #   - value does not contain chars listed in PAS_EXCLUSIONS for this key (else exit 27)
 # side effects: when ulid changes, llid is doubled; when slid changes, plid is doubled
@@ -26,18 +29,18 @@ bp_set_configs() {
 		bp_exit_with_msg 4 pros_tag
 	fi
 
-	# validate settings
-	# check IMMUTABLES
+	# validate setting
+	# check IMMUTABLES: set not allowed if the key in IMMUTABLES
 	if bp_is_array_member "${key}" IMMUTABLES; then
 		local pros_tag[0]="harness setting"
 		pros_tag[1]="'${key}' is immutable"
 		pros_tag[2]="and cannot be changed."
 		bp_exit_with_msg 27 pros_tag
 	fi
-	# check PAS_EXCLUSIONS
+	# check PAS_EXCLUSIONS: exclusion resym not allowed in value
 	# for resyms type:
-	#   - should match length (done in bp_validate_option_args())
-	#   - consist of resyms  (done in bp_validate_option_args())
+	#   - should match length (done in bp_validate_option_values())
+	#   - consist of resyms  (done in bp_validate_option_values())
 	#   - not contains resyms in PAS_EXCLUSIONS
 	if [[ -v PAS_EXCLUSIONS["${key}"] ]] && [[ -n "${PAS_EXCLUSIONS[${key}]}" ]]; then
 		local stripped_value="${value//[${PAS_EXCLUSIONS[${key}]}]/}"
@@ -49,7 +52,7 @@ bp_set_configs() {
 		fi
 	fi
 
-	# check BASH_VARS
+	# check BASH_VARS: value must be valid shell variable
 	if bp_is_array_member "${key}" "${BASH_VARS}"; then
 		# key in blacklist, validate value
 		if ! bp_validate_variable_name "harness" value true; then
@@ -61,7 +64,7 @@ bp_set_configs() {
 	fi
 	# update CONFIGS
 	CONFIGS["${key}"]="${value}"
-	# sync llid when ulid changes; sync plid when slid changes
+	# sync llid when ulid changed; sync plid when slid changed
 	[[ ${key} != "ulid" ]] || CONFIGS["llid"]="${value}${value}"
 	[[ ${key} != "slid" ]] || CONFIGS["plid"]="${value}${value}"
 }
@@ -102,7 +105,7 @@ bp_update_verbose() {
 
 # check if a string consists entirely of ONE repeated reserved symbol
 # e.g. "~~~" (all ~) returns 0; "~-" (mixed) returns 1
-# $1 — string to check
+# $1 - string to check
 # globals: reads RESYMS array
 # returns: 0 if param is all-one-resym, 1 otherwise
 bp_is_in_resyms() {
@@ -114,96 +117,8 @@ bp_is_in_resyms() {
 	return 1
 }
 
-# classify a CML token by its LID prefix, OA_SEP presence, and next token
-# $1 — current LID to match against
-# $2 — current token
-# $3 — next token (may be empty)
-# $4 — nameref: receives the extracted/modified parameter name
-# return codes:
-#   0: arg (no lid match, caller must handle)
-#   1: liga (uliga: lid+lid prefix, e.g. --flag)
-#   2: bool (lid prefix, no arg consumed; includes OA_SEP=true/false)
-#   3: bool (lid prefix, consumes next token as true/false)
-#   4: string (OA_SEP present, arg is non-boolean)
-#   5: string (lid prefix, consumes next token as value)
-#   6: alter-lid match, no consume
-#   7: alter-lid match, consume next token
-bp_check_param_type() {
-	local lid=$1 current=$2 next=$3
-	local -n param_ref=$4
-
-	local param_name arg
-
-	local oa_sep="${CONFIGS[os]}"
-	local tag_true=${CONFIGS[tt]}
-	local tag_false=${CONFIGS[tf]}
-
-	bp_msg -4 "    param: " "$*"
-
-	param_ref="${current}"
-
-	if bp_with_lid "${current}" "${lid}${lid}"; then
-		# '--current' like, uliga
-		return 1
-	elif bp_with_lid "${current}" "${lid}"; then
-		# '-current ' like, with lid
-		if [[ "${current}" == ${lid}*${oa_sep}* ]]; then
-			# '-current=arg' like, depends on arg
-			param_name=${current#"${lid}"}         # remove lid in case 'lid==OA_SEP'
-			param_name=${param_name%%"${oa_sep}"*} # %% in case arg contains OA_SEP
-			arg=${current#*"${oa_sep}"}            # extract arg
-			if [[ ${arg} == true ]]; then
-				# '-currnt=true' like, a bool
-				param_ref="${lid}${param_name}${tag_true}"
-				return 2
-			elif [[ ${arg} == false ]]; then
-				# '-current=false' like, a bool
-				param_ref="${lid}${param_name}${tag_false}"
-				return 2
-			else
-				# '-current="right now"' like, a string
-				return 4
-			fi
-		elif bp_with_lid "${next}" || [[ -z "${next}" ]]; then
-			# '-current -next' like, or no next(reach the end), a bool
-			return 2
-		else
-			# '-current next' like, next is an arg
-			param_name=${current#"${lid}"}
-			if [[ ${next} == true ]]; then
-				# '-current true' like, a bool(next is a boolean value)
-				param_ref="${param_name}${tag_true}"
-				return 3
-			elif [[ ${next} == false ]]; then
-				# '-current false' like, a bool(next is a boolean value)
-				param_ref="${param_name}${tag_false}"
-				return 3
-			else
-				# '-current "year of 1984"' like, a string(next is not a boolean value)
-				param_ref="${current}${oa_sep}${next}"
-				return 5
-			fi
-		fi
-	elif bp_with_lid "${current}"; then
-		# '<alter-lid>current ' like, match other lids(include ligas)
-		if bp_with_lid "${next}" || [[ -z "${next}" ]]; then
-			# '<alter-lid>current <lid>next' like
-			# or '<alter-lid>current --' like, not consume an arg
-			return 6
-		else
-			# '<lid>current next' like, will consume an arg
-			# when 'current == *${OA_SEP}*' like, or
-			#      'current == -param-' like, might be an input error
-			# leave it to alter-lid parsing to handle
-			return 7
-		fi
-	else # without any lid, an arg; leave it to further parsing
-		return 0
-	fi
-}
-
 # apply parsed Harness options (Globals/Priors/Specs) to CONFIGS
-# $1 — nameref to associative array of {key: value} pairs from the tier
+# $1 - nameref to associative array of {key: value} pairs from the tier
 # calls bp_set_configs for each entry, then refreshes LIDS/TAGS via bosparse_update_mutables
 bp_update_configs() {
 	local -n options_ref=$1
@@ -215,66 +130,109 @@ bp_update_configs() {
 		bp_msg -3 "    " "no new setup"
 		return 0
 	fi
-	# bp_msg 4 "    ${title} settings applied:" >&2
 	# apply settings to CONFIGS
 	field_len=$(bp_max_array_member_length "${!options_ref[@]}")
 	for ps in "${!options_ref[@]}"; do
-		bp_msg 4 "      $(printf "\e[0;2m%${field_len}s - '%s'\n" "${ps}" "${options_ref[${ps}]}")" >&2
 		bp_set_configs "${ps}" "${options_ref[${ps}]}"
+		bp_msg 3 "      $(printf "\e[0;2m%${field_len}s - '%s'\n" "${ps}" "${options_ref[${ps}]}")" >&2
 	done
 	bosparse_update_mutables
 }
 
-# assign PFILTER default values to parameters not supplied by the user
-# $1 — nameref to user-supplied options (modified in-place for missing params)
-# $2 — nameref to PFILTER entries {key: "type:data:mcg"}
-# skips MCG members; fails with exit 55 if a non-MCG param has no default
-# enum defaults use the first element of the enum list
-bp_apply_filter_default() {
-	local -n opt_afd=$1 filter_afd=$2
+# split a PFILTER entry "type:data:mcg" into its three component fields
+# $1 - lid context (determines whether to regress symbols after split)
+# $2 - entry string (e.g. "bool:true:eg_t")
+# $3 - nameref: receives the type field
+# $4 - nameref: receives the data field
+# $5 - nameref: receives the mcg field
+# backslashes and field separators within data are escaped before IFS split,
+# then regressed for ulid entries; other lid levels skip regression
+bp_extract_filter_entry() {
+	local lid=$1 entry=$2
+	local -n _type=$3 _data=$4 _mcg_name=$5
 
-	local pf_type pf_data pf_mcg
+	local FLD_SEP="${CONFIGS[fs]}"
+
+	local cache_key="${lid}${FLD_SEP}${entry}"
+
+	# try cache
+	bp_read_filter_entry_cache "${cache_key}" _type _data _mcg_name && return 0
+
+	# escape backslashes before FLD-SEPs, to prevent `\\:` being misinterpreted as `\:`
+	bp_escape_symbol entry "\\"
+	bp_escape_symbol entry "${FLD_SEP}"
+
+	local OLD_IFS=${IFS}
+	local IFS="${FLD_SEP}"
+	read -r _type _data _mcg_name <<<"${entry}"
+	IFS="${OLD_IFS}"
+
+	# regress escaped symbols; no need for Harnesses
+	if [[ ${lid} == "${CONFIGS[ulid]}" ]]; then
+		bp_escape_symbol _type "${FLD_SEP}" "regress"
+		bp_escape_symbol _data "${FLD_SEP}" "regress"
+		bp_escape_symbol _mcg_name "${FLD_SEP}" "regress"
+		bp_escape_symbol _type "\\" "regress"
+		bp_escape_symbol _data "\\" "regress"
+		bp_escape_symbol _mcg_name "\\" "regress"
+	fi
+
+	# cache result
+	bp_write_filter_entry_cache "${cache_key}" "${_type}" "${_data}" "${_mcg_name}"
+	return 0
+}
+
+# assign PFILTER default values to parameters not supplied by the user
+# $1 - nameref to user-supplied options (modified in-place for missing params)
+# $2 - nameref to PFILTER entries {key: "type:data:mcg"}
+# skips MCG members; fails with exit 55 if a non-MCG param has no default when ~afd(default setting)
+# enum defaults use the first element of the enum list
+# ensure '~afd' before calling(no '~afd' check inside function)
+bp_apply_filter_default() {
+	local -n _options=$1 _pfilter=$2
+
+	local fe_type fe_data fe_mcg
 
 	bp_msg 3 "  Assign PFILTER default values if not supplied"
 	local prn_pattern='%15s - %12s | %8s | %14s | %-10s'
 	[[ ${verbose} -ge 3 ]] && printf "    \e[4;33m${prn_pattern}\e[0m\n" \
-		"param" "status" "type" "data" "mcg" >&2
-	for param in "${!filter_afd[@]}"; do
-		bp_extract_filter_entry "${CONFIGS[ulid]}" "${filter_afd[${param}]}" pf_type pf_data pf_mcg
+		"param" "status" "type" "data" "mcg-name" >&2
+	for param in "${!_pfilter[@]}"; do
+		bp_extract_filter_entry "${CONFIGS[ulid]}" "${_pfilter[${param}]}" fe_type fe_data fe_mcg
 		# skip mcg members
-		[[ -z ${pf_mcg} ]] || {
+		[[ -z ${fe_mcg} ]] || {
 			[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
-				"${param}" "MCG member" "${pf_type}" "${pf_data:--}" "${pf_mcg:--}" >&2
+				"${param}" "MCG member" "${fe_type}" "${fe_data:--}" "${fe_mcg:--}" >&2
 			continue
 		}
 		# skip supplied ones
-		[[ -v opt_afd["${param}"] ]] && {
+		[[ -v _options["${param}"] ]] && {
 			[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
-				"${param}" "supplied" "${pf_type}" "${pf_data:--}" "${pf_mcg:--}" >&2
+				"${param}" "supplied" "${fe_type}" "${fe_data:--}" "${fe_mcg:--}" >&2
 			continue
 		}
 		# no default value, failed
-		if [[ -z "${pf_data}" ]]; then
+		if [[ -z "${fe_data}" ]]; then
 			local pros_tag[0]="${param}"
 			bp_exit_with_msg 55 pros_tag
 		fi
 
 		# assigning defaults
 		[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
-			"${param}" "default" "${pf_type}" "${pf_data:--}" "${pf_mcg:--}" >&2
-		case "${pf_type}" in
+			"${param}" "default" "${fe_type}" "${fe_data:--}" "${fe_mcg:--}" >&2
+		case "${fe_type}" in
 		bool | string)
-			opt_afd["${param}"]="${pf_data}"
+			_options["${param}"]="${fe_data}"
 			;;
 		enum)
 			# set with first enum as default value
-			opt_afd["${param}"]="${pf_data%%"${CONFIGS[es]}"*}"
+			_options["${param}"]="${fe_data%%"${CONFIGS[es]}"*}"
 			;;
 		*) # this will not happen since integrity checking already done in bp_validate_pfilter
 			;;
 		esac
 		[[ ${verbose} -ge 3 ]] && printf "    \e[2m${prn_pattern}\e[0;2m%s\e[0m\n" \
-			"${param}" "assigned" "${pf_type}" "${opt_afd[${param}]:--}" "${pf_mcg}" >&2
+			"${param}" "assigned" "${fe_type}" "${_options[${param}]:--}" "${fe_mcg}" >&2
 	done
 	return 0
 }
@@ -287,6 +245,7 @@ bp_show_configs() {
 	[[ ${CONFIGS["run"]} == "capture" ]] && output_as_json=true
 
 	if [[ ${CONFIGS["Defaults"]} == true ]]; then
+		# respond to directive calling
 		if [[ ${output_as_json} == true ]]; then
 			bp_validate_jq
 			bp_serialize_pfilter CONFIGS | jq
@@ -294,6 +253,7 @@ bp_show_configs() {
 			bp_show_array CONFIGS 2>&1 | sort -n
 		fi
 	else
+		# for debugging
 		local key
 		for key in "${!CONFIGS[@]}"; do
 			printf '%s=%q\n' "${key}" "${CONFIGS[${key}]}"
@@ -302,11 +262,11 @@ bp_show_configs() {
 }
 
 # replace exception characters in a variable name per VN_EXCEPTIONS map
-# $1 — nameref: variable name to modify (modified in-place)
+# $1 - nameref: variable name to modify (modified in-place)
 # currently replaces hyphens with underscores, e.g. "my-param" → "my_param"
-# first and last characters are never substituted (preserves LID/tag boundaries)
+# first and last characters are never substituted (exceptions at both ends disallowed)
 # no-op when string length <= 2
-bp_substitute_exceptions() {
+bp_substitute_variable_name_exceptions() {
 	local -n var_name=${1:-}
 
 	((${#var_name} > 2)) || {
@@ -326,43 +286,36 @@ bp_substitute_exceptions() {
 	bp_msg -3 "      " "- substitution: ${orig} -> ${var_name}"
 }
 
-# functions for filter/enum cache
-#   - bp_read_filter_cache filter
-#   - bp_write_filter_cache filter
-#   - bp_clear_filter_cache
-
 # use the cached data if hitted
 # return code:
 #   - 0: hitted, cached data passed back
 #   - 1: not hitted, nothing changed
 # filter format:
-#   - key
-#   - key_type
-#   - key_data
-#   _ key_mcg
-bp_read_filter_cache() {
+#   - ${key}
+#   - ${key}_type
+#   - ${key}_data
+#   - ${key}_mcg
+bp_read_filter_entry_cache() {
 	local key=$1
-	local -n _pfe_type=$2 _pfe_data=$3 _pfe_mcg=$4
-
-	if [[ -v FILTER_CACHE[${key}] ]]; then
-		# matched, populate pass-back array
-		_pfe_type="${FILTER_CACHE[${key}_type]}"
-		_pfe_data="${FILTER_CACHE[${key}_data]}"
-		_pfe_mcg="${FILTER_CACHE[${key}_mcg]}"
+	if [[ -v FILTER_ENTRY_CACHE[${key}] ]]; then
+		local -n fe_type=$2 fe_data=$3 fe_mcg=$4
+		fe_type="${FILTER_ENTRY_CACHE[${key}_type]}"
+		fe_data="${FILTER_ENTRY_CACHE[${key}_data]}"
+		fe_mcg="${FILTER_ENTRY_CACHE[${key}_mcg]}"
 		return 0
 	else
 		return 1
 	fi
 }
 
-# populate FILTER_CACHE with data passed in
-bp_write_filter_cache() {
+# populate FILTER_ENTRY_CACHE with data passed in
+bp_write_filter_entry_cache() {
 	local key=$1
 	shift
-	local flt_wfc=("$@")
 
-	FILTER_CACHE["${key}"]=true                 # use to check
-	FILTER_CACHE["${key}_type"]="${flt_wfc[0]}" # type field
-	FILTER_CACHE["${key}_data"]="${flt_wfc[1]}" # data fields
-	FILTER_CACHE["${key}_mcg"]="${flt_wfc[2]}"  # mcg field
+	local entry_fields=("$@")
+	FILTER_ENTRY_CACHE["${key}"]=true                      # use to check
+	FILTER_ENTRY_CACHE["${key}_type"]="${entry_fields[0]}" # type field
+	FILTER_ENTRY_CACHE["${key}_data"]="${entry_fields[1]}" # data fields
+	FILTER_ENTRY_CACHE["${key}_mcg"]="${entry_fields[2]}"  # mcg field
 }

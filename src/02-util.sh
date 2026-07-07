@@ -10,29 +10,29 @@
 #   jq availability validation (bp_validate_jq)
 # --------------------------------------------------------------------------------
 
-# bp_trace: show call stack during debugging
+# bp_trace: show calv stack during debugging
 bp_trace() {
 	local start=${1:-0} compact=${2:-false}
 
-	local ll ln_levels
+	local lv levels
 	local fn=("${FUNCNAME[@]}")
 
 	if [[ ${compact} == true ]]; then
-		local compact_info="" ln_levels=$((start + 2))
-		for ((ll = start; ll < ln_levels; ll += 1)); do
-			compact_info+=$(printf ' <= %s(%s)' "${fn[ll]}" "${BASH_LINENO[ll]}")
+		local compact_info="" levels=$((start + 2))
+		for ((lv = start; lv < levels; lv += 1)); do
+			compact_info+=$(printf ' <= %s(%s)' "${fn[lv]}" "${BASH_LINENO[lv]}")
 		done
 		printf '\e[2m%s\e[0m\n' "${compact_info%}" >&2
 	else
 		local fld_len
 
-		ln_levels="${#BASH_LINENO[@]}"
-		[[ ${#fn[@]} -gt "${ln_levels}" ]] || ln_levels="${#fn[@]}"
+		levels="${#BASH_LINENO[@]}"
+		[[ ${#fn[@]} -gt "${levels}" ]] || levels="${#fn[@]}"
 
 		fld_len=$(bp_max_array_member_length "${fn[@]}")
 		echo "------- trace ---------" >&2
-		for ((ll = start; ll < ln_levels; ll += 1)); do
-			printf "%${fld_len}s - %s\n" "${fn[ll]}" "${BASH_LINENO[ll]}" >&2
+		for ((lv = start; lv < levels; lv += 1)); do
+			printf "%${fld_len}s - %s\n" "${fn[lv]}" "${BASH_LINENO[lv]}" >&2
 		done
 	fi
 }
@@ -49,21 +49,22 @@ echo2() { printf '%s\n' "$*" >&2; }
 #   mark: symbol -> symbol-with-mark
 #           : -> \:
 #   substitute: symbol-with-escape-mark -> symbol-name-pattern(default)
-#           \: -> <ESC_PFX><SYMBOLNAME>__
+#           \: -> <ESC_PFX><SYMBOLNAME>
 #   restore: symbol-name-pattern -> symbol-with-escape-mark
-#           <ESC_PFX><SYMBOLNAME>__ -> \:
+#           <ESC_PFX><SYMBOLNAME> -> \:
 #   regress: symbol-name-pattern -> symbol
-#           <ESC_PFX><SYMBOLNAME>__ -> :
+#           <ESC_PFX><SYMBOLNAME> -> :
 #   remove: symbol-with-escape-mark -> symbol
 #           \: -> :
 # globals relied:
 #   - CONFIGS (key 'ep' for esc_pfx)
 #   - SYMNAMES
 bp_escape_symbol() {
-	local -n str_escp=$1
+	local -n _target_str=$1
 	local symbol=$2
 	local esc_mode=${3:-substitute}
 
+	local esc_modes=("mark" "substitute" "restore" "regress" "remove")
 	local esc_pfx="${CONFIGS[ep]}"
 
 	declare syms pros_tag
@@ -75,15 +76,15 @@ bp_escape_symbol() {
 	fi
 
 	if [[ ${esc_mode} == "mark" ]]; then
-		str_escp="${str_escp//"${symbol}"/\\"${symbol}"}"
+		_target_str="${_target_str//"${symbol}"/\\"${symbol}"}"
 	elif [[ ${esc_mode} == "substitute" ]]; then
-		str_escp="${str_escp//\\"${symbol}"/"${esc_pfx}""${SYMNAMES[${symbol}]}"}"
+		_target_str="${_target_str//\\"${symbol}"/"${esc_pfx}""${SYMNAMES[${symbol}]}"}"
 	elif [[ ${esc_mode} == "restore" ]]; then
-		str_escp="${str_escp//"${esc_pfx}""${SYMNAMES[${symbol}]}"/\\"${symbol}"}"
+		_target_str="${_target_str//"${esc_pfx}""${SYMNAMES[${symbol}]}"/\\"${symbol}"}"
 	elif [[ ${esc_mode} == "regress" ]]; then
-		str_escp="${str_escp//"${esc_pfx}""${SYMNAMES[${symbol}]}"/"${symbol}"}"
+		_target_str="${_target_str//"${esc_pfx}""${SYMNAMES[${symbol}]}"/"${symbol}"}"
 	elif [[ ${esc_mode} == "remove" ]]; then
-		str_escp="${str_escp//\\"${symbol}"/"${symbol}"}"
+		_target_str="${_target_str//\\"${symbol}"/"${symbol}"}"
 	else
 		# unknow escape mode
 		pros_tag[0]="invalid escape operation '${esc_mode}', available operations: 'mark|substitute|restore|regress|remove'"
@@ -135,33 +136,6 @@ bp_join_array_members() {
 	echo "${result}"
 }
 
-# split a string with a custom separator(colon by default) and put into array
-# IFS modification limited in the function
-# $1: sting to split
-# $2: array nameref to pass back result
-# $3: sym as separator, colon by default
-# Note:
-#   1. no global 'IFS' save-and-restore operation
-#   2. this function can be substituted by:
-#     readarray -d "${sym}" -t _array <<<"${string}"
-#     _array[-1]="${_array[-1]%$'\n'}"
-#   3. this function is useful when 'readarray(mapfile)' is not available
-bp_split_string_into_array() {
-	local string=$1
-	local -n _array=$2
-	local sym=${3:-:}
-
-	if [[ -n "${string}" ]]; then
-		local IFS="${sym}"
-		read -r -a _array <<<"${string}"
-	else
-		# When string is empty, read -r -a _array <<<"" produces a single empty
-		# element, not an empty array. Callers expecting empty results would get
-		# [""] instead.
-		_array=()
-	fi
-}
-
 # calculate max length among array members without external tools('wc'.. )
 # usage:
 #   bp_max_array_member_length "${sample[@]}"
@@ -183,8 +157,8 @@ bp_validate_jq() {
 }
 
 # find the first key in an associative array whose value matches $1
-# $1 — value to search for (literal string comparison)
-# $2 — nameref to associative array
+# $1 - value to search for (literal string comparison)
+# $2 - nameref to associative array
 # stdout: the matching key
 # returns: 0 if found, 1 if not found
 bp_key_of_array_member() {
@@ -202,8 +176,8 @@ bp_key_of_array_member() {
 }
 
 # check if a string is a member of an indexed array
-# $1 — string to find
-# $2 — nameref to indexed array (optional: silently returns 1 if omitted)
+# $1 - string to find
+# $2 - nameref to indexed array (optional: silently returns 1 if omitted)
 # returns: 0 if found, 1 if not found
 bp_is_array_member() {
 	local str=$1
@@ -222,9 +196,9 @@ bp_is_array_member() {
 }
 
 # conditional colored message to stderr, filtered by verbosity level
-# $1 — msg_level: required verbosity level (negative = one-line mode)
-# $2 — title (colored yellow)
-# $3 — content (dimmed, shown below title or inline if msg_level < 0)
+# $1 - msg_level: required verbosity level (negative = one-line mode)
+# $2 - title (colored yellow)
+# $3 - content (dimmed, shown below title or inline if msg_level < 0)
 # prints only when $verbose >= abs($msg_level); no-op when verbose < 1
 bp_msg() {
 	local msg_level=${1:-0} title=${2:-} content=${3:-}
@@ -254,9 +228,9 @@ bp_msg() {
 }
 
 # bp_exit_with_msg: exit with code and contextual error message
-# $1 — exit code (uses +100 developer-message variant when verbose >= 3)
-# $2 — optional nameref to pros_tag array for {pros_tag[n]} substitution
-# $3 — optional additional message text (also gets pros_tag substitution)
+# $1 - exit code (uses +100 developer-message variant when verbose >= 3)
+# $2 - optional nameref to pros_tag array for {pros_tag[n]} substitution
+# $3 - optional additional message text (also gets pros_tag substitution)
 # globals: EXIT_MSG, verbose
 # always exits; does not return
 bp_exit_with_msg() {
@@ -292,8 +266,8 @@ bp_exit_with_msg() {
 }
 
 # check whether a parameter starts with a given LID (or any known LID)
-# $1 — param to test
-# $2 — lid string (optional: when empty, tests against all entries in LIDS array)
+# $1 - param to test
+# $2 - lid string (optional: when empty, tests against all entries in LIDS array)
 # matching rules:
 #   - exact param == lid → match (solitary LID)
 #   - param starts with lid AND is longer AND next char != lid[0] → match
@@ -313,7 +287,7 @@ bp_with_lid() {
 			${param:lid_len:1} != "${lid:0:1}" ]] &&
 			return 0
 	else
-		# try all lids(include ligas) - note: user ligatures only, no tier ligatures
+		# try all lids(include ligas) - note: user ligatures only, no harness ligatures
 		local lid
 		for lid in "${LIDS[@]}"; do
 			lid_len="${#lid}"

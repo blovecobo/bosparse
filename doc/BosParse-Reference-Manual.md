@@ -2,7 +2,7 @@
 
 ## Overview
 
-BosParse is a powerful tool designed to parse command-line arguments in a flexible and efficient manner. This manual outlines the architecture, workflow, and implementation details of BosParse to guide developers in understanding and using it effectively.
+BosParse is a powerful tool designed to parse command-line arguments in a flexible and efficient manner. This manual outlines the workflow, and implementation details of BosParse to guide developers in understanding and using it effectively.
 
 For a quick start guide, see `bp-README.md`. For PFILTER-specific documentation, see `bp-PFILTER.md`.
 
@@ -36,9 +36,9 @@ For a quick start guide, see `bp-README.md`. For PFILTER-specific documentation,
 - **`GLID`**: lid for Globals, `~~~`, customize not allowed
 - **`LID`**: Leading identifier, used to distinguish Option types
 - **`LIGA`**: ligature style user parameter, used to pass multiple boolean Options with one parameter
-- **`islands`**: one of command line structure styles with intermixing Options and Positionals, `OA-SEP` is required; `ZONE-SEP` not required; another style is `watershed`
+- **`islands`**: one of command line structure styles with intermixing Options and Positionals, `OV-SEP` is required; `ZONE-SEP` not required; another style is `watershed`
 - **`MCG`**: Mutual Correlation Group, a group of parameters with mutual correlation rules; MCGs defined in `PFILTER` and validated after parsing
-- **`OA-SEP`**: separator between Option name and its value
+- **`OV-SEP`**: separator between Option name and its value
 - **`OP-ZONE`**: the part of CML before `ZN-SEP` that contains Options in `watershed` style CML
 - **`Options`**: parsable parameters with a LID, including Globals, Priors, Specs, User Options and LIGAs; different LIDs used to distinguish different types of Options
 - **`PAS`**: Parsing-Aid-Symbols, e.g. LIDs, SEPs, PAS consist of RESYMS
@@ -57,7 +57,7 @@ For a quick start guide, see `bp-README.md`. For PFILTER-specific documentation,
 - **`TF`**: for boolean flags, trailing tag for `false`, set by `~~tf`
 - **`TT`**: for boolean flags, trailing tag for `true`, set by `~~tt`
 - **`ULID`**: LID for User Options, `-` by default, customize by `~~~ulid`
-- **`watershed`**: command line structure style with a clear separator between Options and Positionals; supports space(s) as OA-SEP, while `ZN-SEP` is required to separate Options and Positionals
+- **`watershed`**: command line structure style with a clear separator between Options and Positionals; supports space(s) as OV-SEP, while `ZN-SEP` is required to separate Options and Positionals
 - **`ZN-SEP`**: separator between Options and Positionals in `watershed` style CML
 - **`ESC_PFX`**: random-per-session marker (`_bp_${BASHPID}_${RANDOM}_`) used by the escaping system to avoid collision with user data
 - **`capture_json_extract`**: helper function to extract values from capture mode JSON output
@@ -81,7 +81,7 @@ For `watershed` style CML, a `ZN-SEP` is always recommended even if only one Zon
 
 `watershed` style is more suitable for complex CML with many parameters, especially when there are many Positional parameters which may cause ambiguity if `ZN-SEP` not provided.
 
-`islands` style CML is a flexible way for input, every parameter is self-contained and the CML is order independent; `ZN-SEP` is welcome but not required. The only limitation is, spaces never allowed to use as `OA-SEP` to avoid ambiguity
+`islands` style CML is a flexible way for input, every parameter is self-contained and the CML is order independent; `ZN-SEP` is welcome but not required. The only limitation is, spaces never allowed to use as `OV-SEP` to avoid ambiguity
 
 Command lines with same context but in different styles will get the same parsing result.
 
@@ -102,10 +102,6 @@ Compare the command line and script in different style:
   ```bash
   # 'island' style command line, no parameter sequence requirements
   ./script.sh Spock -species="Vulcan/Human hybrid" -rank="Captain"
-  ```
-
-  ```
-
   ```
 
 - `islands` style:
@@ -151,7 +147,7 @@ Where:
 - Data field and mcg-name field are optional with`FLD-SEP` kept.
 - As `param-name` of Option names will be used as Bash variable name in the parsing result, any Option names should satisfy shell variable naming convention; but in command line, an Option like `--dry-run` sounds reasonable. For this reason, BosParse accepts hyphen `-` using in `param-name` as an exception if it isn't at the beginning or end of the param-name. BosParse will replace every hyphen `-` with an underscore `_` in the final result.
 - Exceptions substituting hyphen `-` with underscore `_` may cause name collision, for example, `--dry-run` and `--dry_run` will both be converted to `dry_run`. To avoid this, BosParse will check for potential collision in `PFILTER` definition and exit with an error if any is detected.
-- `mcg-name` follows the same naming rules and the exception as that of option-name.
+- `mcg-name` follows the same naming rules and the exceptions as that of option-name.
 
 ### Serializing `PFILTER`
 
@@ -163,20 +159,26 @@ When running BosParse in `eval/capture` mode, `PFILTER` should be serialized bef
   ~pf="$(bp-serialize-pfilter PFILTER)"
   ```
 
+- `element-stream`, flexible way to pass `PFILTER`:
+
+  ```base
+  ~pf="key1=value1 key2=value2 ..."
+  ```
+
 - `key-value` pairs, for simple keys and values:
 
   ```bash
   ~pf="key1 value1 key2 value2 ..."
   ```
 
-  Restrictions for this purpose:
+  Restrictions for this `element-stream` and `key-value  pairs`:
 
   - `PFILTER` entry value is empty or contains space(s) will break the `key-value` pairs passing. Assign a double quoted variable to `~pf` can solve this problem:
 
     ```bash
     spf=""
     for key in "${PFILTER[@]}"; do
-         spf+="${key} ${PFILTER[${key}]} "
+         spf+="${key} ${PFILTER[${key}]} " # or spf+="${key}=${PFILTER[${key}]} "
     done
     spf="${spf% }" # IMPORTANT: remove trailing space
     result=$(./bosparse ~pf="${spf}" ~json "$@")
@@ -190,21 +192,21 @@ When running BosParse in `eval/capture` mode, `PFILTER` should be serialized bef
     ["captain"]="string:James\\ T.\\ Kirk"
     ```
 
-  - `key-value` pair method is suitable for simple usage, special characters in keys or values may result unexpected behavior. JSON string is always reliable and is recommended.
+  - Both methods are suitable for simple usage, special characters in keys or values may result unexpected behavior. JSON string is always reliable and is recommended.
 
 ### PFILTER-ID
 
 `PFILTER-ID` is a special entry in `PFILTER`, which is used to identify the `PFILTER` by `PARAM_FILTER` as a key:
 
 ```bash
-["PARAM_FILTER"]="arbitrary-content"
+["PARAM_FILTER"]="arbitrary-content-include-empty"
 ```
 
 The value of `PFILTER-ID` entry does not matter while the key `PARAM_FILTER` is reserved as `PFILTER-ID`; BosParse will check the existence of `PFILTER-ID` entry to determine if this associative array is a valid `PFILTER` or not.
 
 ### PFILTER-related Harnesses
 
-- `~pf`: Pass `PFILTER` to BosParse, should be a name reference(source mode) or a serialized `PFILTER`(JSON string/key-value pairs, for all modes)
+- `~pf`: Pass `PFILTER` to BosParse, should be a name reference(source mode) or a serialized `PFILTER`(JSON string/element-stream/key-value pairs, for all modes)
   - PFILTER must be defined in the current shell environment when using name reference
   - When no PFILTER provided, or `~pf=""`, no respective functionality applied on user-params; BosParse behaves as if PFILTER is not used
   - When PFILTER not valid, parsing fails with an error
@@ -243,8 +245,8 @@ When an Enum type parameter is provided using Boolean syntax, BosParse will use 
 ["captain"]="enum:Kirk|Picard|Janeway"
 ```
 
-- When `-c` provided, use `Kirk` (`true`, EML)
-- When `-c-` provided, use `Janeway` (`false`, EMF)
+- When `-c` provided, use `Janeway` (`true`, EML)
+- When `-c-` provided, use `Kirk` (`false`, EMF)
 
 ### Symbol Escaping
 
@@ -263,7 +265,7 @@ BosParse supports the following parameter schema:
 
 - `Option Parameter` (Option): parsable Option parameters should be with the following syntaxes:
 
-  - Schema 1: `<LID> <Option-name> <OA-SEP> <Option-value>`
+  - Schema 1: `<LID> <Option-name> <OV-SEP> <Option-value>`
   - Schema 2: `<LID> <Option-name> <SPACE{1,}> <Option-value>`
   - Schema 3: `<LID> <Option-name> [Trailing-Tag]`
   - Schema 4: `<LID> <length-option-name> <option-names> [Trailing-Tag]`

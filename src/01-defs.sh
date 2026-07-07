@@ -1,33 +1,33 @@
 # shellcheck shell=bash
 # Module 01-defs: Constants and harnesses definitions
-#   bp_definitions() — populates CONSTS, HARNESSES, CONFIGS, EXIT_MSG, SYMNAMES, RESYMS, etc.
-#   bp_derive_harness_entry_fields()  — extract specific fields from a HARNESSES entry
-#   bp_derive_harness_entries_by_field() — find all HARNESSES keys matching a field+value
-#   bp_derive_context_group()  — extract one cluster's members from HARNESSES+CONFIGS
+#   bp_definitions() - populates CONSTS, HARNESSES, CONFIGS, EXIT_MSG, SYMNAMES, RESYMS, etc.
+#   bp_derive_harness_entry_fields()  - extract specific fields from a HARNESSES entry
+#   bp_derive_harness_entries_by_field() - find all HARNESSES keys matching a field+value
+#   bp_derive_context_group()  - extract one cluster's members from HARNESSES+CONFIGS
 #
 # This module defines the entire configuration surface of BosParse:
-#   CONSTS        — true constants (array names, separators, version, banners)
-#   HARNESSES     — all config params with all attributes (type, levels, mcg, immutability, default)
-#   CONFIGS       — runtime config values derived from HARNESSES defaults + post-overrides
-#   EXIT_MSG      — exit code to message mapping (developer variants at +100)
-#   VN_EXCEPTIONS — hyphen-to-underscore mapping for bash variable names
-#   PAS_EXCLUSIONS — forbidden characters for certain config keys
-#   SYMNAMES      — human-readable names for escapable special characters
-#   MCG_TYPES     — mutual-correlate group type prefixes (d/D/e/m/M/r/u)
-#   DEBUG_CMDS    — debug command indicators (__quiet, __trace, etc.)
-#   HRNS_FLDS     — ordered list of HARNESSES field names
-#   PFE_TYPES     — PFILTER entry types (string/bool/enum)
-#   RESYMS        — reserved symbols for LIDs and separators
-#   REGEX_METACHARS — regex metacharacters for prefix-matching escaping
+#   CONSTS         - true constants (array names, separators, version, banners)
+#   HARNESSES      - all config params with all attributes (type, levels, mcg, immutability, default)
+#   CONFIGS        - runtime config values derived from HARNESSES defaults + post-overrides
+#   EXIT_MSG       - exit code to message mapping (developer variants at +100)
+#   VN_EXCEPTIONS  - hyphen-to-underscore mapping for bash variable names
+#   PAS_EXCLUSIONS - forbidden characters for certain config keys
+#   SYMNAMES       - human-readable names for escapable special characters
+#   MCG_TYPES      - mutual-correlate group type prefixes (d/D/e/m/M/r/u)
+#   DEBUG_CMDS     - debug command indicators (__quiet, __trace, etc.)
+#   HRNS_FLDS      - ordered list of HARNESSES field names
+#   PFE_TYPES      - PFILTER entry types (string/bool/enum)
+#   RESYMS         - reserved symbols for LIDs and separators
+#   REGEX_METACHARS - regex metacharacters for prefix-matching escaping
 #
 # HARNESSES fields (colon-separated):
-#   field 1 — type             : bool | string | enum | resym
-#   field 2 — type-arg         : enum values (pipe-separated), resym length, or empty
-#   field 3 — mcg              : mutual-correlate group name (or empty)
-#   field 4 — levels           : parser levels: global | prior | spec (pipe-separated)
-#   field 5 — immutable        : imm if immutable at runtime, empty otherwise
-#   field 6 — default          : default value for CONFIGS
-#   field 7 — cluster          : lid | sep | tag | arr (auto-derived context group)
+#   field 1 - type             : bool | string | enum | resym
+#   field 2 - type-arg         : enum values (pipe-separated), resym length, or empty
+#   field 3 - mcg              : mutual-correlate group name (or empty)
+#   field 4 - levels           : parser levels: global | prior | spec (pipe-separated)
+#   field 5 - immutable        : imm if immutable at runtime, empty otherwise
+#   field 6 - default          : default value for CONFIGS
+#   field 7 - cluster          : lid | sep | tag | arr (auto-derived context group)
 # --------------------------------------------------------------------------------
 
 # populate all config maps
@@ -63,7 +63,7 @@ bp_definitions() {
 	# -- Regex metacharacters for prefix-matching escaping --
 	REGEX_METAS_ref=('\\' '.' '[' ']' '(' ')' '{' '}' '^' '$' '*' '+' '?' '|')
 
-	# -- TRUE CONSTANTS — never mutated at runtime --
+	# -- TRUE CONSTANTS - never mutated at runtime --
 	CONSTANTS_ref=(
 		["BANNER"]="Parsed by BosParse"
 		# ["NO_PFILTER"]="no_param_filter"
@@ -120,7 +120,7 @@ bp_definitions() {
 		["ulid"]="resym:1:ug_lid:global::-:lid" # User param - level
 		["llid"]="resym:2::global:imm:--:lid"   # User liga - level
 
-		# -- Trailing tags / option-arg separator (prior level) --
+		# -- Trailing tags / option-value separator (prior level) --
 		["os"]="resym:1::prior::=:sep"
 		["tt"]="resym:1:ug_tag:prior::+:tag"
 		["tf"]="resym:1:ug_tag:prior::-:tag"
@@ -133,7 +133,7 @@ bp_definitions() {
 
 		# -- PFILTER related (spec level) --
 		["pf"]="string::D-pfilter:spec:::"
-		["pf_id"]="string:::spec::PARAM_FILTER:"
+		["pf_id"]="string:::spec:imm:PARAM_FILTER:"
 		["rup"]="bool::d-pfilter:spec::true:"
 		["afd"]="bool::d-pfilter:spec::true:"
 		["pme"]="bool::d-pfilter:spec::true:"
@@ -208,7 +208,7 @@ bp_definitions() {
 		["slid"]="spec_lid"
 		["ulid"]="user_lid"
 		["zs"]="zn_sep"
-		["os"]="oa_sep"
+		["os"]="ov_sep"
 		["tt"]="trailing_tag_true"
 		["tf"]="trailing_tag_false"
 		["td"]="trailing_tag_default"
@@ -283,7 +283,7 @@ bp_definitions() {
 		# Basic parsing (without PFILTER)
 		["20"]="Only one ZONE-SEP '\${pros_tag[0]}' permitted but '\${pros_tag[1]}' SEPs found."
 		["21"]="Unknown '\${pros_tag[0]}"
-		["121"]="A solitary ARG '\${pros_tag[0]}' found, parsing failed."
+		["121"]="A solitary argument '\${pros_tag[0]}' found, parsing failed."
 
 		["22"]="Invalid \${pros_tag[0]}: '\${pros_tag[1]}', contains special character(s) '\${pros_tag[2]}'"
 		["122"]="Parameter name '\${pros_tag[0]}' contains invalid character(s) '\${pros_tag[1]}', it should respect the Bash variable name convention."
@@ -308,7 +308,7 @@ bp_definitions() {
 
 		# Validate PFILTER
 		["30"]="Specs '~rup' requires a 'PFILTER'(by ~pf) but not supplied."
-		["31"]="Invalid PFILTER: '\${pros_tag[0]}'"
+		["31"]="Invalid PFILTER: \${pros_tag[0]}"
 		["32"]="Invalid PFILTER key name '\${pros_tag[0]}' in PFILTER, it should be a valid shell variable name."
 		["33"]="Invalid PFILTER entry '\${pros_tag[0]}' type '\${pros_tag[1]}', it should be one of '\${pros_tag[2]}'"
 		["34"]="Invalid PFILTER entry '\${pros_tag[0]}': default value '\${pros_tag[2]}' mismatch the type '\${pros_tag[1]}'"
@@ -345,12 +345,12 @@ bp_definitions() {
 		["150"]="Invalid enum entry value: \${pros_tag[1]}, available enums: '\${pros_tag[2]}'"
 
 		["51"]="Invalid setting: \${pros_tag[1]}"
-		["151"]="Invalid \${pros_tag[0]} setting: \${pros_tag[1]}, ARG should be \${pros_tag[2]}"
+		["151"]="Invalid \${pros_tag[0]} setting: \${pros_tag[1]}, value should be \${pros_tag[2]}"
 
 		["52"]="Invalid \${pros_tag[0]} setting \${pros_tag[1]}: \${pros_tag[2]}"
 
 		["53"]="Unknown \${pros_tag[0]} '\${pros_tag[1]}'"
-		["153"]="Specs '~rup' requires all parameters matching 'PFILTER' but '\${pros_tag[1]}' didn't."
+		["153"]="Specs '~rup' requires all parameters defined in 'PFILTER' but '\${pros_tag[1]}' didn't."
 
 		["54"]="Unknown \${pros_tag[0]} '\${pros_tag[1]}'"
 		["154"]="Invalid \${pros_tag[0]} '\${pros_tag[1]}', cannot match any of \${pros_tag[0]}."
@@ -374,9 +374,9 @@ bp_definitions() {
 # extract specific fields from a HARNESSES entry into an indexed array
 # usage:
 #   bp_derive_harness_entry_fields KEY OUT_ARRAY FIELD [FIELD...]
-#   - KEY       — short config name (e.g. run, glid, fs)
-#   - OUT_ARRAY — nameref target receiving field values in order
-#   - FIELD     — name(s) of field(s) to extract: type, type-arg, mcg,
+#   - KEY       - short config name (e.g. run, glid, fs)
+#   - OUT_ARRAY - nameref target receiving field values in order
+#   - FIELD     - name(s) of field(s) to extract: type, type-arg, mcg,
 #               levels, immutable, default, cluster
 #               derive all fields if only 'all' provided
 # example:
@@ -389,7 +389,7 @@ bp_definitions() {
 #   1 - failure, field(s) not match HRNS_FLDS
 bp_derive_harness_entry_fields() {
 	local key=$1
-	local -n _result_arr=$2
+	local -n _out_arr=$2
 	shift 2
 
 	# 'all' fields test
@@ -413,11 +413,11 @@ bp_derive_harness_entry_fields() {
 	for ((i = 0; i < ${#flds_required_arr[@]}; i++)); do
 		local field=${flds_required_arr[i]}
 		if [[ -v index_map["${field}"] ]]; then
-			_result_arr[i]="${entry_flds[index_map[${field}]]}"
+			_out_arr[i]="${entry_flds[index_map[${field}]]}"
 			continue
 		fi
 		# no matched field
-		_result_arr=("${field}")
+		_out_arr=("${field}")
 		return 1
 	done
 	return 0
@@ -425,16 +425,16 @@ bp_derive_harness_entry_fields() {
 
 # find all HARNESSES keys where a field contains a substring
 # usage: bp_derive_harness_entries_by_field FIELD SUBSTRING OUT_ARRAY
-#   FIELD     — type, type-arg, mcg, levels, immutable, default, cluster
-#   SUBSTRING — value to search for (substring match)
-#   OUT_ARRAY — nameref receiving matching keys
+#   FIELD     - field name defined in HRNS_FLDS
+#   NEEDLE    - value to search for (substring match)
+#   OUT_ARRAY - nameref receiving matching keys
 # examples:
 #   bp_derive_harness_entries_by_field levels global  GLOBAL_CFGS # keys usable at global level
 #   bp_derive_harness_entries_by_field cluster lid    LID_KEYS    # keys in the lid cluster
 #   bp_derive_harness_entries_by_field immutable imm  IMM_KEYS    # immutable keys
 bp_derive_harness_entries_by_field() {
 	local field=$1 needle=$2
-	local -n _result=$3
+	local -n _out_array=$3
 
 	local i fld_no fields_derived=() key fields_arr=()
 
@@ -448,23 +448,23 @@ bp_derive_harness_entries_by_field() {
 		readarray -d: -t fields_arr <<<"${HARNESSES[${key}]}"
 		fields_arr[-1]="${fields_arr[-1]%$'\n'}"
 		[[ ${fields_arr[${fld_no}]:-} =~ ${needle} ]] || continue
-		_result+=("${key}")
+		_out_array+=("${key}")
 	done
 }
 
 # extract members of a HARNESSES field group and their CONFIGS values
-# $1 — value to match in the target field (e.g. "lid", "sep", "tag", "arr")
-# $2 — target field name in HRNS_FLDS (default: "cluster")
-# $3 — optional nameref: receives {key: CONFIGS_value} pairs; omit for stdout
-# usage: bp_derive_context_group "lid" "" ctx        # cluster=lid, output to ctx
-#        bp_derive_context_group "imm" "immutable"   # field=immutable, print to stdout
+# $1 - target field name in HRNS_FLDS (e.g. "cluster")
+# $2 - value to match in the target field (e.g. "lid", "sep", "tag", "arr")
+# $3 - optional nameref: receives {key: CONFIGS_value} pairs; omit for stdout
+# usage: bp_derive_context_group "cluster" lid" "ctx""  # cluster=lid, output to ctx
+#        bp_derive_context_group "immutable" "imm"      # field=immutable, print to stdout
 bp_derive_context_group() {
-	local __match=$1
-	local __field="${2:-cluster}"
+	local field=$1
+	local match=$2
 
 	local i fld_no=-1
 	for i in "${!HRNS_FLDS[@]}"; do
-		[[ ${HRNS_FLDS[i]} == "${__field}" ]] || continue
+		[[ ${HRNS_FLDS[i]} == "${field}" ]] || continue
 		fld_no="${i}"
 		break
 	done
@@ -483,7 +483,7 @@ bp_derive_context_group() {
 		readarray -d "${CONFIGS[es]}" -t field_arr <<<"${fields[fld_no]}"
 		field_arr[-1]="${field_arr[-1]%$'\n'}" # remove trailing newline
 		for i in "${!field_arr[@]}"; do
-			[[ ${field_arr[i]} == "${__match}" ]] || continue
+			[[ ${field_arr[i]} == "${match}" ]] || continue
 			if (($# >= 3)); then
 				__out["${key}"]="${CONFIGS[${key}]}"
 			else
@@ -495,6 +495,6 @@ bp_derive_context_group() {
 	# for key in "${!HARNESSES[@]}"; do
 	# 	readarray -d: -t fields <<<"${HARNESSES[${key}]}"
 	# 	fields[-1]=${fields[-1]%$'\n'} # '<<<' introduced a trailing newline
-	# 	[[ ${fields[fld_no]:-} != "${__match}" ]] || printf '%s=%s\n' "${key}" "${CONFIGS[$key]}"
+	# 	[[ ${fields[fld_no]:-} != "${match}" ]] || printf '%s=%s\n' "${key}" "${CONFIGS[$key]}"
 	# done
 }

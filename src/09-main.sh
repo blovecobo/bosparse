@@ -69,9 +69,9 @@ bosparse_detect_run_mode() {
 }
 
 # dispatch parsed results to the appropriate output handler
-# $1 — run mode: "source" (shell vars+arrays), "eval" (key=value), "capture" (JSON)
-# $2 — nameref: options associative array
-# $3 — nameref: positionals indexed array
+# $1 - run mode: "source" (shell vars+arrays), "eval" (key=value), "capture" (JSON)
+# $2 - nameref: options associative array
+# $3 - nameref: positionals indexed array
 bosparse_emit_output() {
 	local -n OPTS_EMIT=$1 POS_EMIT=$2
 
@@ -111,9 +111,9 @@ bosparse_finalize() {
 }
 
 # extract debug flags (__trace, __debug, __extra, __standard, __quiet) from CML
-# $1 — nameref: CML parameters array (modified in-place, debug tokens removed)
-# $2 — nameref: DEBUG_CMDS mapping (flag name → debug key, e.g. __trace → TRACE)
-# $3 — nameref: receives DEBUG_MAPS entries (e.g. DEBUG_MAPS[TRACE]=true)
+# $1 - nameref: CML parameters array (modified in-place, debug tokens removed)
+# $2 - nameref: DEBUG_CMDS mapping (flag name → debug key, e.g. __trace → TRACE)
+# $3 - nameref: receives DEBUG_MAPS entries (e.g. DEBUG_MAPS[TRACE]=true)
 # uses prefix matching for flexibility; skips tokens starting with "~pf"
 bosparse_parse_debug_flags() {
 	local -n params=$1
@@ -203,8 +203,8 @@ bosparse() {
 
 	bosparse_validate_input "$@"
 
-	# create entry fields caches: FILTER_CACHE
-	declare -A FILTER_CACHE=()
+	# create entry fields caches: FILTER_ENTRY_CACHE
+	declare -A FILTER_ENTRY_CACHE=()
 
 	declare -a op_zone=() pp_zone=()
 
@@ -214,13 +214,13 @@ bosparse() {
 	bp_service_priors op_zone
 	bp_service_specs op_zone
 
-	declare -A options_parsed=()
-	bp_service_users op_zone options_parsed
+	declare -A option_variables=()
+	bp_service_users op_zone option_variables
 
 	bp_msg 1 "Output parsing result"
 	[[ ${CONFIGS["run"]} == 'auto' ]] && bosparse_detect_run_mode "${bosparse_script_name}"
 
-	bosparse_emit_output options_parsed pp_zone
+	bosparse_emit_output option_variables pp_zone 
 
 	bosparse_finalize
 }

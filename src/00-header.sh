@@ -33,8 +33,6 @@
 #   - jq, if output json(capture-mode) or serialized-pfilter passed
 
 # change log:
-#   - removed redundant validation on filter-mcg-names
-#   - enhanced bp_validate_option_name
-#   - clean some un-used codes
-#   - fixed exclusion resyms validation
+#   - unify variable names
+#
 set -euo pipefail

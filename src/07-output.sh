@@ -1,18 +1,19 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2153,SC2154
 # Module 07-output: Default assignment and result output
-#   bp_output_source_variables()  — export bool/string params as shell variables (source mode)
-#   bp_output_source_arrays()     — create named result arrays (source mode)
-#   bp_output_eval()              — emit variable assignment statements (eval mode)
-#   bp_output_json()              — emit JSON object (capture mode, requires jq)
-#   bp_show_help()                — display online help text
-#   bp_direct_commands()          — execute directive SPECS (Help, Banner, Version, …)
+#   bp_output_source_variables()  - export bool/string params as shell variables (source mode)
+#   bp_output_source_arrays()     - create named result arrays (source mode)
+#   bp_output_eval()              - emit variable assignment statements (eval mode)
+#   bp_output_json()              - emit JSON object (capture mode, requires jq)
+#   bp_show_help()                - display online help text
+#   bp_direct_commands()          - execute directive SPECS (Help, Banner, Version, …)
 # --------------------------------------------------------------------------------
 
 # create variables for option parameters as parsing result
 bp_output_source_variables() {
 	local -n options_emit=$1
 	if [[ ${CONFIGS["dvo"]} == true ]]; then
+		# auto set output option variables via array
 		[[ -n ${CONFIGS["oan"]} ]] || bp_set_configs 'oan' "${CONSTS[OAN]}"
 		bp_msg 3 "    Output variables disabled"
 		return 0
@@ -21,11 +22,16 @@ bp_output_source_variables() {
 	bp_msg 3 "    Options to variables"
 
 	# output all variables
-	local var
-	for var in "${!options_emit[@]}"; do
-		declare -g "${var}"="${options_emit["${var}"]}"
-		bp_msg -3 "      ${var} = " "${options_emit["${var}"]}"
-	done
+	if ((${#options_emit[@]} > 0)); then
+		local var
+		for var in "${!options_emit[@]}"; do
+			declare -g "${var}"="${options_emit["${var}"]}"
+			bp_msg -3 "      - " "${var} = ${options_emit["${var}"]}"
+		done
+	else
+		bp_msg -3 "      " "  no options"
+	fi
+
 }
 
 bp_output_source_arrays() {
@@ -35,31 +41,31 @@ bp_output_source_arrays() {
 	# output options
 	local key oan
 	oan="${CONFIGS["oan"]}"
+	bp_msg -3 "      Options to array " "'${oan}'"
 	if [[ -n ${oan} ]]; then
-		bp_msg 3 "      Options to array '${oan}'"
 		declare -Ag "${oan}"
-		declare -n "option_emit=${oan}" 
+		declare -n "option_emit=${oan}"
 		for key in "${!options_emit[@]}"; do
 			option_emit["${key}"]="${options_emit[${key}]}"
-			bp_msg 3 "      - ${key} - ${options_emit[${key}]}"
+			bp_msg -3 "      - " "${key} - ${options_emit[${key}]}"
 		done
 	else
-		bp_msg 3 "      " "  no options"
+		bp_msg -3 "      " "  not required"
 	fi
 
 	# output positionals
 	local pan
 	pan="${CONFIGS["pan"]}"
-	bp_msg 3 "      Positionals to array '${pan}'"
+	bp_msg -3 "      Positionals to array " "'${pan}'"
 	if ((${#positionals_emit[@]} > 0)); then
 		declare -Ag "${pan}"
 		declare -n "positional_emit=${pan}"
 		for key in "${!positionals_emit[@]}"; do
 			positional_emit["${key}"]="${positionals_emit[${key}]}"
-			bp_msg 3 "      - ${key} - ${positionals_emit[${key}]}"
+			bp_msg -3 "      - " "${key} - ${positionals_emit[${key}]}"
 		done
 	else
-		bp_msg 3 "      " "  no positionals"
+		bp_msg -3 "      " "  no positionals"
 	fi
 }
 
@@ -74,24 +80,24 @@ bp_output_eval() {
 	local index prefix
 
 	# output option parameters as var
-	bp_msg 3 "      - Options to variables"
+	bp_msg 3 "      Options -> variables"
 	if ((${#options_emit[@]} > 0)); then
 		for index in "${!options_emit[@]}"; do
 			echo "${index}=$(printf %q "${options_emit[${index}]}")"
-			bp_msg 3 "    - ${index} - ${options_emit[${index}]}"
+			bp_msg -3 "        - " "${index} - ${options_emit[${index}]}"
 		done
 	else
 		bp_msg -3 "        " "no options"
 	fi
 
 	# variable name prefix
-	bp_msg 3 "      - Positional to variables"
+	bp_msg 3 "      Positionals -> variables"
 	if ((${#positionals_emit[@]} > 0)); then
 		prefix="${CONFIGS["pan"]}"
 		# output positionals as var with prefix
 		for index in "${!positionals_emit[@]}"; do
 			echo "${prefix}_${index}=$(printf %q "${positionals_emit[${index}]}")"
-			bp_msg 3 "    - ${index} - ${positionals_emit[${index}]}"
+			bp_msg -3 "        - " "${index} - ${positionals_emit[${index}]}"
 		done
 	else
 		bp_msg -3 "        " "no positionals"
@@ -165,14 +171,14 @@ bp_show_help() {
 	local SLID="${CONFIGS[slid]}"
 	local ULID="${CONFIGS[ulid]}"
 	local ZN_SEP="${CONFIGS[zs]}"
-	local OA_SEP="${CONFIGS[os]}"
+	local OV_SEP="${CONFIGS[os]}"
 	local FLD_SEP="${CONFIGS[fs]}"
 	local ELM_SEP="${CONFIGS[es]}"
 	local TAG_TRUE="${CONFIGS[tt]}"
 	local TAG_FALSE="${CONFIGS[tf]}"
 	local TAG_DEFAULT="${CONFIGS[td]}"
 
-	echo "BosParse ${CONSTS["VERSION"]} — parameter parser in & for bash"
+	echo "BosParse ${CONSTS["VERSION"]} - parameter parser in & for bash"
 	echo
 	echo "USAGE"
 	echo "    source bosparse && bosparse [options] ${ZN_SEP} [positionals]"
@@ -191,7 +197,7 @@ bp_show_help() {
 	echo
 	echo "PARAMETER TYPES"
 	echo "    bool         ${ULID}flag, ${ULID}flag${TAG_TRUE}, ${ULID}flag${TAG_FALSE}"
-	echo "    string       ${ULID}param${OA_SEP}value, ${ULID}param value"
+	echo "    string       ${ULID}param${OV_SEP}value, ${ULID}param value"
 	echo "    enum         like string, matched against enum list in PFILTER"
 	echo "    liga         ${ULID}${ULID}nparams (expands to params of length n; n=1 may omit)"
 	echo
@@ -207,7 +213,7 @@ bp_show_help() {
 	echo "    ${GLID}trace           verbose level 4"
 	echo
 	echo "PRIORS (${PLID} prefix, customize at runtime):"
-	echo "    ${PLID}os=<resym>       OA separator (default: ${OA_SEP})"
+	echo "    ${PLID}os=<resym>       OA separator (default: ${OV_SEP})"
 	echo "    ${PLID}tt=<resym>       true tag (default: ${TAG_TRUE})"
 	echo "    ${PLID}tf=<resym>       false tag (default: ${TAG_FALSE})"
 	echo "    ${PLID}td=<bool>        default bool tag (default: ${TAG_DEFAULT})"
