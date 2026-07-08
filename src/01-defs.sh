@@ -66,21 +66,14 @@ bp_definitions() {
 	# -- TRUE CONSTANTS - never mutated at runtime --
 	CONSTANTS_ref=(
 		["BANNER"]="Parsed by BosParse"
-		# ["NO_PFILTER"]="no_param_filter"
-		["PFILTER_ID"]="PARAM_FILTER" # 'PARAM_FILTER' accepted so far
+		["PFILTER_ID"]="PARAM_FILTER" 
 
 		["OAN"]="BP_Options"
-		# ["SAN"]="BP_Strings"
-		# ["BAN"]="BP_Bools"
 		["PAN"]="BP_Positionals"
 
 		["FLD_SEP"]=":"
 		["ELM_SEP"]="|"
 
-		# ["HRNS_FLDS"]="${HRNS_FLDS[@]}"
-		# ["PEF_TYPES"]="${PFE_TYPES[@]}"
-		# ["RESYMS"]="${RESYMS[@]}"
-		# ["REGEX_METACHARS"]="${REGEX_METACHARS[@]}"
 		["CML_STYLE"]="watershed|islands"
 
 		["VERSION"]="0.2.3"

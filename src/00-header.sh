@@ -33,6 +33,7 @@
 #   - jq, if output json(capture-mode) or serialized-pfilter passed
 
 # change log:
-#   - unify variable names
+#   - fix valiate pfilter name confict 
+#   - refactor 'bp_validate_pfilter()'
 #
 set -euo pipefail

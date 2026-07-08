@@ -1,28 +1,31 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2153,SC2206
 # Module 04-pfilter: PFILTER validation and serialization
-#   bp_serialize_pfilter()               - assoc array to JSON string (via jq)
-#   bp_deserialize_to_pfilter()          - JSON string to assoc array (via jq)
+#   bp_serialize_pfilter_to_json_string()    - assoc array to JSON string (via jq)
+#   bp_serialize_pfilter_to_element_stream() - assoc array to element stream
+#   bp_serialize_pfilter_to_kv_sequence()    - assoc array to key-value sequence
 #
-#   bp_validate_pfilter_in_json_stream()     - check PFILTER against json
-#   bp_validate_pfilter_in_kv_stream()       - check PFILTER against 'key-value' pairs
-#   bp_validate_pfilter_in_element_stream()  - check PFILTER against 'key=value' format items
+#   bp_deserialize_json_string_to_pfilter()  - JSON string to assoc array (via jq)
 #
-#   bp_extract_enum_value_list()         - split enum values from |-delimited string
+#   bp_validate_pfilter_json_string()     - check PFILTER against json
+#   bp_validate_pfilter_element_stream()  - check PFILTER against 'key=value' format items
+#   bp_validate_pfilter_kv_sequence()     - check PFILTER against 'key-value' pairs
 #
-#   bp_validate_pfilter_entry_type()     - check type is one of bool/string/enum
-#   bp_validate_pfilter_default()        - ensure default value matches declared type
-#   bp_process_pfilter_entry_mcg_name()  - classify MCG member (d/D/e/m/M) and record
-#   bp_validate_mcg_exclusion()          - check exclusion group has >=2 members
-#   bp_validate_mcg_dependency()         - check d-member has a D-member
-#   bp_validate_mcg_master()             - check M/m master group relationship
-#   bp_validate_pfilter_mcg_settings()   - full cross-member MCG validation
-#   bp_validate_pfilter()                - entry point: accept name-ref / JSON / keys-values
+#   bp_extract_enum_value_list()          - split enum values from |-delimited string
+#
+#   bp_validate_pfilter_entry_type()      - check type is one of bool/string/enum
+#   bp_validate_pfilter_default()         - ensure default value matches declared type
+#   bp_process_pfilter_entry_mcg_name()   - classify MCG member (d/D/e/m/M) and record
+#   bp_validate_mcg_exclusion()           - check exclusion group has >=2 members
+#   bp_validate_mcg_dependency()          - check d-member has a D-member
+#   bp_validate_mcg_master()              - check M/m master group relationship
+#   bp_validate_pfilter_mcg_settings()    - full cross-member MCG validation
+#   bp_validate_pfilter()                 - entry point: accept name-ref / JSON / keys-values
 # --------------------------------------------------------------------------------
 
 # serialize an associative array to JSON string via jq
-# usage: json=$(bp_serialize_pfilter PFILTER)
-bp_serialize_pfilter() {
+# usage: json=$(bp_serialize_pfilter_to_json_string PFILTER)
+bp_serialize_pfilter_to_json_string() {
 	local -n _filter=$1
 
 	# validate jq
@@ -32,7 +35,7 @@ bp_serialize_pfilter() {
 	}
 	# in case not an associative array
 	if [[ "$(declare -p "${!_filter}")" != "declare -A"* ]]; then
-		# not an associative array, output an emptyp object
+		# not an associative array, output an emptyp object instead of an 'empty'
 		echo "{}"
 		return 1
 	fi
@@ -42,23 +45,44 @@ bp_serialize_pfilter() {
 		return 1
 	fi
 
-	local json first=1 k_esc v_esc k
+	local json k_esc v_esc k
 	json="{"
 	for k in "${!_filter[@]}"; do
-		if [[ ${first} -eq 0 ]]; then json+=","; fi
 		k_esc=$(jq -n --arg s "${k}" '$s')
 		v_esc=$(jq -n --arg s "${_filter[${k}]}" '$s')
-		json+="${k_esc}: ${v_esc}"
-		first=0
+		json+="${k_esc}: ${v_esc},"
 	done
+	json="${json%,}" # remove last comma ','
 	json+="}"
 
 	echo "${json}"
 }
 
+bp_serialize_pfilter_to_element_stream() {
+	local -n _filter_map=$1 _element_stream=$2
+
+	local key
+	for key in "${!_filter_map[@]}"; do
+		_element_stream+="${key}=${_filter_map[${key}]} "
+	done
+	# IMPORTANT: remove last space
+	_element_stream="${_element_stream% }"
+}
+
+bp_serialize_pfilter_to_kv_sequence() {
+	local -n _filter_map=$1 _kv_sequence=$2
+
+	local key
+	for key in "${!_filter_map[@]}"; do
+		_kv_sequence+="${key} ${_filter_map[${key}]} "
+	done
+	# IMPORTANT: remove last space
+	_kv_sequence="${_kv_sequence% }"
+}
+
 # usage
-#   bp_deserialize_to_pfilter "${json_str}" PFILTER
-bp_deserialize_to_pfilter() {
+#   bp_deserialize_json_string_to_pfilter "${json_str}" PFILTER
+bp_deserialize_json_string_to_pfilter() {
 	local json="$1"
 	local -n _filter="$2"
 	local keyj valuej
@@ -340,12 +364,12 @@ bp_validate_pfilter_mcg_settings() {
 	return 0
 }
 
-bp_validate_pfilter_in_json_stream() {
+bp_validate_pfilter_json_string() {
 	local -n json_stream=$1 _out_pfilter=$2
 
 	if jq -e . <<<"${json_stream}" >/dev/null 2>&1; then
 		# a valid json string
-		if bp_deserialize_to_pfilter "${json_stream}" _out_pfilter; then
+		if bp_deserialize_json_string_to_pfilter "${json_stream}" _out_pfilter; then
 			bp_msg 3 "    JSON-STREAM found"
 			return 0
 		fi
@@ -358,7 +382,7 @@ bp_validate_pfilter_in_json_stream() {
 #   - ignore empty items
 #   - empty values permitted
 # any element missing OV-SEP will result validate fails
-bp_validate_pfilter_in_element_stream() {
+bp_validate_pfilter_element_stream() {
 	local -n elm_stream=$1 _out_pfilter=$2
 
 	local elements=() element value
@@ -385,7 +409,7 @@ bp_validate_pfilter_in_element_stream() {
 #   - in sequence
 #   - empty value permitted, use "" as place holder
 #   - no leading or trailing space(s)
-bp_validate_pfilter_in_kv_stream() {
+bp_validate_pfilter_kv_sequence() {
 	local -n kv_stream=$1 _out_pfilter=$2
 
 	declare -a pf_arr=()
@@ -414,74 +438,111 @@ bp_validate_pfilter_in_kv_stream() {
 	bp_msg 3 "    KV-STREAM found"
 }
 
-# load and validate a PFILTER from CONFIGS["pf"] into an associative array
-# $1 - nameref: receives the validated PFILTER entries
-#
-# three input formats accepted:
-#   1. name-ref          - a declared associative array name in the caller's scope
-#   2. JSON string       - serialized associative array via jq
-#   3. "key-value" pairs - space-separated string: key1 key2 ... val1 val2 ...
-#
 # all input formats must contain a PFILTER_ID key ("PARAM_FILTER" )
 # which is removed after validation
 # validates each key name: exception substitution, shell variable name check,
 # duplicate-after-substitution detection (exit 58)
 # then runs full MCG integrity check
-bp_validate_pfilter() {
-	local -n pfilter=$1
+# handle assoc array branch of bp_validate_pfilter
+# copies entries from source to target, or verifies id-key if same array
+# $1 - target variable name (string, e.g. "PFILTER")
+# $2 - source variable name (string, user's PFILTER name from CONFIGS[pf])
+# $3 - PFILTER_ID key to verify
+bp_validate_pfilter_assoc_array() {
+	local _pf_trg_name=$1
+	local _pf_src_name=$2
 
-	local up_filter="${CONFIGS[pf]}"
-	local pfilter_id="${CONSTS["PFILTER_ID"]}"
+	# 
+	# echo2 "$_pf_trg_name | $_pf_src_name"
+	# declare -n _pf_src="${_pf_src_name}"
+	# bp_show_array ${_pf_src_name}
+	# echo2 "_pf_src_name: ${_pf_trg_name}"
+	# echo2 "_pf_src_name: ${_pf_trg_name[*]}"
 
-	local pk new_pk
+	local _pf_id="${CONSTS["PFILTER_ID"]//-/_}"
 
-	bp_msg -3 "    " "filter: ${up_filter}"
-
-	if [[ -z ${up_filter} ]]; then
-		local pros_tag[0]="it's an 'empty' variable."
-		bp_exit_with_msg 31 pros_tag
-	fi
-
-	if bp_validate_variable_name "PFILTER name" up_filter true; then
-		bp_msg 3 "    PFILTER name: ${up_filter}"
-
-		if [[ "$(declare -p "${up_filter}" 2>/dev/null)" == "declare -A "* ]]; then
-			# an associative array
-			bp_msg 3 "    An associative array found"
-			# if contains id-key
-			declare -n flt_tmp="${up_filter}"
-			if [[ -v flt_tmp["${pfilter_id}"] ]]; then
-				# all test passed
-				bp_msg 3 "    PFILTER-ID found"
-				for pk in "${!flt_tmp[@]}"; do
-					pfilter["${pk}"]="${flt_tmp[${pk}]}"
-				done
-				bp_msg 3 "    PFILTER nameref '${up_filter}' supplied"
-			else
-				# no id-key
-				local pros_tag[0]="an identifier key '${pfilter_id}' required"
-				bp_exit_with_msg 31 pros_tag
-			fi
+	if [[ "${_pf_src_name}" != "${_pf_trg_name}" ]]; then
+		local -n _pf_trg="${_pf_trg_name}"
+		declare -n _pf_src="${_pf_src_name}"
+		if [[ -v _pf_src[${_pf_id}] ]]; then
+			bp_msg 3 "    PFILTER-ID found"
+			# pollution PFILTER
+			local _k
+			for _k in "${!_pf_src[@]}"; do
+				_pf_trg["${_k}"]="${_pf_src[${_k}]}"
+			done
 		else
-			# not an associative array
-			local pros_tag[0]="not an associative array"
+			local pros_tag[0]="an identifier key '${_pf_id}' required"
 			bp_exit_with_msg 31 pros_tag
 		fi
 	else
-		# not an associative array, try JSON-STREAM, ELM-STREAM, KV-STREAM
-		if bp_validate_pfilter_in_json_stream up_filter pfilter; then
-			:
-		elif bp_validate_pfilter_in_element_stream up_filter pfilter; then
-			:
-		elif bp_validate_pfilter_in_kv_stream up_filter pfilter; then
-			:
-		else
-			# no valid PFILTER found
-			local pros_tag[0]="it should be a json string, an element stream, or key-value pairs"
+		local -n _pf_trg="${_pf_trg_name}"
+		if [[ ! -v _pf_trg[${_pf_id}] ]]; then
+			local pros_tag[0]="an identifier key '${_pf_id}' required"
+			bp_exit_with_msg 31 pros_tag
+		fi
+	fi
+	bp_msg 3 "    PFILTER nameref '${_pf_src_name}' supplied"
+}
+
+# load and validate a PFILTER from CONFIGS["pf"] into an associative array
+# $1 - nameref: receives the validated PFILTER entries
+#
+# three input formats accepted:
+#   1. name-ref          - a declared associative array name in the caller's scope(source mode only)
+#   2. JSON string       - serialized associative array via jq
+#   3. elemenet stream   - assignment stream: key1-value1 key2=value2 ...
+#   3. "key-value" pairs - space-separated string: key1 val1 key2 val2 ...
+bp_validate_pfilter() {
+	local _pf_target=$1 # receive name instead of nameref to avoid name conflict
+
+	local up_filter="${CONFIGS[pf]}"
+	local pfilter_id="${CONSTS["PFILTER_ID"]//-/_}"
+
+	local pk new_pk parser
+	local -a parser_order=(
+		bp_validate_pfilter_json_string
+		bp_validate_pfilter_element_stream
+		bp_validate_pfilter_kv_sequence
+	)
+	local parsed=false
+
+	bp_msg -3 "    " "filter: ${up_filter}"
+
+	[[ -n ${up_filter} ]] || {
+		local pros_tag[0]="it's an 'empty' variable."
+		bp_exit_with_msg 31 pros_tag
+	}
+
+	# check type BEFORE declaring the nameref — no shadow possible
+	local _is_assoc=false
+	if bp_validate_variable_name "PFILTER name" up_filter true; then
+		bp_msg 3 "    PFILTER name: ${up_filter}"
+		[[ "$(declare -p "${up_filter}" 2>/dev/null)" == "declare -A "* ]] && _is_assoc=true
+	fi
+
+	# now declare the nameref (type check already done)
+
+	if [[ ${_is_assoc} == true ]]; then
+		bp_msg 3 "    An associative array found"
+		bp_validate_pfilter_assoc_array "${_pf_target}" "${up_filter}"
+		local -n pfilter="${_pf_target}"
+	else
+		local -n pfilter="${_pf_target}"
+		# not a associative array, try serialized stream
+		for parser in "${parser_order[@]}"; do
+			if "${parser}" up_filter pfilter; then
+				parsed=true
+				break
+			fi
+		done
+
+		# when all parse failed, no valid PFILTER
+		if [[ ${parsed} != true ]]; then
+			local pros_tag[0]="it should be a json string, an element stream, or a key-value sequence"
 			bp_exit_with_msg 31 pros_tag
 		fi
 
-		# if id-key exist, it is
 		if [[ -v pfilter["${pfilter_id}"] ]]; then
 			bp_msg 3 "    PFILTER-ID found"
 			bp_msg 3 "    Serialized PFILTER supplied"
@@ -491,37 +552,30 @@ bp_validate_pfilter() {
 		fi
 	fi
 
-	# remove PFILTER_ID
-	# [[ -v pfilter["${pfilter_id}"] ]] && unset "pfilter[${pfilter_id}]"
 	unset "pfilter[${pfilter_id}]"
 
-	# populate PFILTER and:
-	#   - exception substitution on key
-	#   - key name validation against shell variable naming conventions
+	# populate PFILTER and normalize key names
 	for pk in "${!pfilter[@]}"; do
 		new_pk="${pk}"
 		bp_substitute_variable_name_exceptions new_pk
-		if bp_validate_variable_name "PFILTER entry key" new_pk true; then
-			if [[ ${pk} != "${new_pk}" ]]; then
-				# check: new_name exists in filter, conflict
-				if [[ -v pfilter["${new_pk}"] ]]; then
-					local pros_tag[0]="${new_pk}"
-					pros_tag[1]="${pk}"
-					bp_exit_with_msg 58 pros_tag
-				fi
-				# remove old entry if key name changed after substitution
-				pfilter["${new_pk}"]="${pfilter[${pk}]}"
-				unset "pfilter[${pk}]"
-			fi
-		else
-			# param-name invalid
+		if ! bp_validate_variable_name "PFILTER key" new_pk true; then
 			local pros_tag[0]="$(printf '%q' "${pk}")"
 			bp_exit_with_msg 32 pros_tag
 		fi
+
+		if [[ ${pk} != "${new_pk}" ]]; then
+			if [[ -v pfilter["${new_pk}"] ]]; then
+				# name conflict, like both 'dry-run' and 'dry_run' exist as keys
+				local pros_tag[0]="${new_pk}"
+				pros_tag[1]="${pk}"
+				bp_exit_with_msg 58 pros_tag
+			fi
+			# update PFILTER
+			pfilter["${new_pk}"]="${pfilter[${pk}]}"
+			unset "pfilter[${pk}]"
+		fi
 	done
 
-	# integrity checking:
 	bp_validate_pfilter_mcg_settings pfilter
-
 	bp_msg 3 "    PFILTER validated"
 }

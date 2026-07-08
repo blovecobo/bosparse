@@ -248,7 +248,7 @@ bp_show_configs() {
 		# respond to directive calling
 		if [[ ${output_as_json} == true ]]; then
 			bp_validate_jq
-			bp_serialize_pfilter CONFIGS | jq
+			bp_serialize_pfilter_to_json_string CONFIGS | jq
 		else
 			bp_show_array CONFIGS 2>&1 | sort -n
 		fi
