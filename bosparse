@@ -3546,18 +3546,16 @@ bosparse_detect_run_mode() {
 	local run_mode=""
 	declare -A config_run_mode=()
 
-	if [[ ${script_name} != $(basename "$0") ]]; then
-		bp_msg 3 "  Sourced, output option parameters as variables."
+	if [[ ${CONFIGS["json"]} == true ]]; then
+		bp_msg 3 "  JSON specified, use run-mode 'capture'."
+		run_mode="capture"
+	elif [[ ${script_name} != $(basename "$0") ]]; then
+		bp_msg 3 "  Sourced, use run-mode 'source."
 		run_mode="source"
 	else
 		# not source, assert with '~json'
-		if [[ ${CONFIGS["json"]} == true ]]; then
-			bp_msg 3 "  Not sourced, use run-mode 'capture' as 'json' specified."
-			run_mode="capture"
-		else
-			bp_msg 3 "  Not sourced, use run-mode 'eval' as default"
-			run_mode="eval"
-		fi
+		bp_msg 3 "  Not sourced, use run-mode 'eval' as default"
+		run_mode="eval"
 	fi
 	bp_set_configs 'run' "${run_mode}"
 }
@@ -3714,7 +3712,7 @@ bosparse() {
 	bp_msg 1 "Output parsing result"
 	[[ ${CONFIGS["run"]} == 'auto' ]] && bosparse_detect_run_mode "${bosparse_script_name}"
 
-	bosparse_emit_output option_variables pp_zone 
+	bosparse_emit_output option_variables pp_zone
 
 	bosparse_finalize
 }

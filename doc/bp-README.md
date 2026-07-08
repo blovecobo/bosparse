@@ -30,7 +30,7 @@
   echo "name=$name"
   ```
 
-  > Note: `eval` mode executes generated shell assignments. Only use it when the invocation and parameter names are trusted. For details and mitigations, see the Reference Manual: [Eval Mode Security](./BosParse-Reference-Manual.md).
+  > Note: `eval` mode executes generated shell assignments. Only use it when the invocation and parameter names are trusted. For details and mitigations, see the Reference Manual: `BosParse-Reference-Manual.md`.
 
   Run it:
 
