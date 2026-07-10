@@ -1,16 +1,28 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2154
 # Module 03-helpers: Helper functions for parsing workflow
-#   bp_update_verbose()           - manage output verbosity levels (0-4)
-#   bp_is_in_resyms()             - check if a string consists entirely of reserved symbols
-#   bp_set_configs()              - set single CONFIGS entry if imm/vn-excl/value check passed
-#   bp_update_configs()           - merge parsed options into CONFIGS
-#   bp_apply_filter_default()     - assign PFILTER defaults to un-supplied parameters
+#
+# CONFIGS operations:
+#   bp_set_configs()     - set single CONFIGS entry if imm/vn-excl/value check passed
+#   bp_update_configs()  - merge parsed options into CONFIGS
+#   bp_update_verbose()  - manage output verbosity levels (0-4)
+#
+# RESYMS relevants:
+#   bp_is_in_resyms()    - check if a string consists entirely of reserved symbols
+#   bp_substitute_variable_name_exceptions() - replace hyphens with underscores in variable names
+#
+# Schema pattern operations:
 #   bp_extract_filter_entry()     - split "type:data:mcg" entry into components
-#   bp_show_configs()             - display current CONFIGS
+#   bp_extract_enum_value_list()  - split enum values from |-delimited string
+#
+# Filter caching:
 #   bp_read_filter_entry_cache()  - read extracted entry data from cache; return 1 if not hit
 #   bp_write_filter_entry_cache() - write extracted entry data to cache
-#   bp_substitute_variable_name_exceptions() - replace hyphens with underscores in variable names
+#
+# Derive data from HARNESSES:
+#   bp_derive_harness_entry_fields()     - extract specific fields from a HARNESSES entry
+#   bp_derive_harness_entries_by_field() - find all HARNESSES keys matching a field+value
+#   bp_derive_context_group()            - extract one cluster's members from HARNESSES+CONFIGS
 # --------------------------------------------------------------------------------
 
 # set a CONFIGS key to a value after validation
@@ -69,6 +81,28 @@ bp_set_configs() {
 	[[ ${key} != "slid" ]] || CONFIGS["plid"]="${value}${value}"
 }
 
+# apply parsed Harness options (Globals/Priors/Specs) to CONFIGS
+# $1 - nameref to associative array of {key: value} pairs from the tier
+# calls bp_set_configs for each entry, then refreshes LIDS/TAGS via bosparse_update_mutables
+bp_update_configs() {
+	local -n options_ref=$1
+
+	local ps field_len
+
+	bp_msg 3 "  Apply settings"
+	if [[ ${#options_ref[@]} -eq 0 ]]; then
+		bp_msg -3 "    " "no new setup"
+		return 0
+	fi
+	# apply settings to CONFIGS
+	field_len=$(bp_max_array_member_length "${!options_ref[@]}")
+	for ps in "${!options_ref[@]}"; do
+		bp_set_configs "${ps}" "${options_ref[${ps}]}"
+		bp_msg 3 "      $(printf "\e[0;2m%${field_len}s - '%s'\n" "${ps}" "${options_ref[${ps}]}")" >&2
+	done
+	bosparse_update_mutables
+}
+
 # set the global $verbose level from CONFIGS or DEBUG_MAPS
 # priority: DEBUG_MAPS (from __debug/__trace flags) > CONFIGS (trace/debug/extra/standard/quiet)
 # verbose levels: 4=trace, 3=debug, 2=extra, 1=standard, 0=quiet
@@ -117,26 +151,29 @@ bp_is_in_resyms() {
 	return 1
 }
 
-# apply parsed Harness options (Globals/Priors/Specs) to CONFIGS
-# $1 - nameref to associative array of {key: value} pairs from the tier
-# calls bp_set_configs for each entry, then refreshes LIDS/TAGS via bosparse_update_mutables
-bp_update_configs() {
-	local -n options_ref=$1
+# replace exception characters in a variable name per VN_EXCEPTIONS map
+# $1 - nameref: variable name to modify (modified in-place)
+# currently replaces hyphens with underscores, e.g. "my-param" → "my_param"
+# first and last characters are never substituted (exceptions at both ends disallowed)
+# no-op when string length <= 2
+bp_substitute_variable_name_exceptions() {
+	local -n var_name=${1:-}
 
-	local ps field_len
-
-	bp_msg 3 "  Apply settings"
-	if [[ ${#options_ref[@]} -eq 0 ]]; then
-		bp_msg -3 "    " "no new setup"
+	((${#var_name} > 2)) || {
+		bp_msg -3 "      " "- substitution: ${var_name} -> ${var_name}"
 		return 0
-	fi
-	# apply settings to CONFIGS
-	field_len=$(bp_max_array_member_length "${!options_ref[@]}")
-	for ps in "${!options_ref[@]}"; do
-		bp_set_configs "${ps}" "${options_ref[${ps}]}"
-		bp_msg 3 "      $(printf "\e[0;2m%${field_len}s - '%s'\n" "${ps}" "${options_ref[${ps}]}")" >&2
+	}
+	local first="" last="" test_name orig="${var_name}"
+	first="${var_name:0:1}"
+	last="${var_name: -1}"
+	test_name="${var_name:1:-1}"
+
+	local except_char
+	for except_char in "${!VN_EXCEPTIONS[@]}"; do
+		test_name=${test_name//"${except_char}"/"${VN_EXCEPTIONS[${except_char}]}"}
 	done
-	bosparse_update_mutables
+	var_name="${first}${test_name}${last}"
+	bp_msg -3 "      " "- substitution: ${orig} -> ${var_name}"
 }
 
 # split a PFILTER entry "type:data:mcg" into its three component fields
@@ -182,108 +219,40 @@ bp_extract_filter_entry() {
 	return 0
 }
 
-# assign PFILTER default values to parameters not supplied by the user
-# $1 - nameref to user-supplied options (modified in-place for missing params)
-# $2 - nameref to PFILTER entries {key: "type:data:mcg"}
-# skips MCG members; fails with exit 55 if a non-MCG param has no default when ~afd(default setting)
-# enum defaults use the first element of the enum list
-# ensure '~afd' before calling(no '~afd' check inside function)
-bp_apply_filter_default() {
-	local -n _options=$1 _pfilter=$2
+# split an ELM_SEP-separated enum list string into an indexed array
+# $1 - enum string (elements separated by CONFIGS[es], typically "|")
+# $2 - nameref: receives the resulting array
+# escapes backslash, field-sep, and element-sep before IFS split,
+# then regresses each element
+bp_extract_enum_value_list() {
+	local enum_str=$1
+	local -n enum_arr=$2
 
-	local fe_type fe_data fe_mcg
+	local FLD_SEP="${CONFIGS[fs]}"
+	local ELM_SEP="${CONFIGS[es]}"
 
-	bp_msg 3 "  Assign PFILTER default values if not supplied"
-	local prn_pattern='%15s - %12s | %8s | %14s | %-10s'
-	[[ ${verbose} -ge 3 ]] && printf "    \e[4;33m${prn_pattern}\e[0m\n" \
-		"param" "status" "type" "data" "mcg-name" >&2
-	for param in "${!_pfilter[@]}"; do
-		bp_extract_filter_entry "${CONFIGS[ulid]}" "${_pfilter[${param}]}" fe_type fe_data fe_mcg
-		# skip mcg members
-		[[ -z ${fe_mcg} ]] || {
-			[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
-				"${param}" "MCG member" "${fe_type}" "${fe_data:--}" "${fe_mcg:--}" >&2
-			continue
-		}
-		# skip supplied ones
-		[[ -v _options["${param}"] ]] && {
-			[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
-				"${param}" "supplied" "${fe_type}" "${fe_data:--}" "${fe_mcg:--}" >&2
-			continue
-		}
-		# no default value, failed
-		if [[ -z "${fe_data}" ]]; then
-			local pros_tag[0]="${param}"
-			bp_exit_with_msg 55 pros_tag
-		fi
-
-		# assigning defaults
-		[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
-			"${param}" "default" "${fe_type}" "${fe_data:--}" "${fe_mcg:--}" >&2
-		case "${fe_type}" in
-		bool | string)
-			_options["${param}"]="${fe_data}"
-			;;
-		enum)
-			# set with first enum as default value
-			_options["${param}"]="${fe_data%%"${CONFIGS[es]}"*}"
-			;;
-		*) # this will not happen since integrity checking already done in bp_validate_pfilter
-			;;
-		esac
-		[[ ${verbose} -ge 3 ]] && printf "    \e[2m${prn_pattern}\e[0;2m%s\e[0m\n" \
-			"${param}" "assigned" "${fe_type}" "${_options[${param}]:--}" "${fe_mcg}" >&2
-	done
-	return 0
-}
-
-# display current CONFIGS settings, for debugging & directives
-bp_show_configs() {
-	local output_as_json key param len_key
-
-	[[ ${CONFIGS["json"]} == true ]] && output_as_json=true || output_as_json=false
-	[[ ${CONFIGS["run"]} == "capture" ]] && output_as_json=true
-
-	if [[ ${CONFIGS["Defaults"]} == true ]]; then
-		# respond to directive calling
-		if [[ ${output_as_json} == true ]]; then
-			bp_validate_jq
-			bp_serialize_pfilter_to_json_string CONFIGS | jq
-		else
-			bp_show_array CONFIGS 2>&1 | sort -n
-		fi
-	else
-		# for debugging
-		local key
-		for key in "${!CONFIGS[@]}"; do
-			printf '%s=%q\n' "${key}" "${CONFIGS[${key}]}"
-		done | sort -n
+	# in case empty string passed
+	if [[ -z ${enum_str:-} ]]; then
+		enum_arr=()
+		return
 	fi
-}
 
-# replace exception characters in a variable name per VN_EXCEPTIONS map
-# $1 - nameref: variable name to modify (modified in-place)
-# currently replaces hyphens with underscores, e.g. "my-param" → "my_param"
-# first and last characters are never substituted (exceptions at both ends disallowed)
-# no-op when string length <= 2
-bp_substitute_variable_name_exceptions() {
-	local -n var_name=${1:-}
+	# substitute escaped symbols before IFS split
+	bp_escape_symbol enum_str "\\"
+	bp_escape_symbol enum_str "${FLD_SEP}"
+	bp_escape_symbol enum_str "${ELM_SEP}"
 
-	((${#var_name} > 2)) || {
-		bp_msg -3 "      " "- substitution: ${var_name} -> ${var_name}"
-		return 0
-	}
-	local first="" last="" test_name orig="${var_name}"
-	first="${var_name:0:1}"
-	last="${var_name: -1}"
-	test_name="${var_name:1:-1}"
+	# load enum values into array
+	readarray -d "${ELM_SEP}" -t enum_arr <<<"${enum_str}"
+	enum_arr[-1]="${enum_arr[-1]%$'\n'}"
 
-	local except_char
-	for except_char in "${!VN_EXCEPTIONS[@]}"; do
-		test_name=${test_name//"${except_char}"/"${VN_EXCEPTIONS[${except_char}]}"}
+	# regress escaped symbols in each element
+	local i
+	for i in "${!enum_arr[@]}"; do
+		bp_escape_symbol enum_arr[i] "${ELM_SEP}" "regress"
+		bp_escape_symbol enum_arr[i] "${FLD_SEP}" "regress"
+		bp_escape_symbol enum_arr[i] "\\" "regress"
 	done
-	var_name="${first}${test_name}${last}"
-	bp_msg -3 "      " "- substitution: ${orig} -> ${var_name}"
 }
 
 # use the cached data if hitted
@@ -318,4 +287,132 @@ bp_write_filter_entry_cache() {
 	FILTER_ENTRY_CACHE["${key}_type"]="${entry_fields[0]}" # type field
 	FILTER_ENTRY_CACHE["${key}_data"]="${entry_fields[1]}" # data fields
 	FILTER_ENTRY_CACHE["${key}_mcg"]="${entry_fields[2]}"  # mcg field
+}
+
+# extract specific fields from a HARNESSES entry into an indexed array
+# usage:
+#   bp_derive_harness_entry_fields KEY OUT_ARRAY FIELD [FIELD...]
+#   - KEY       - short config name (e.g. run, glid, fs)
+#   - OUT_ARRAY - nameref target receiving field values in order
+#   - FIELD     - name(s) of field(s) to extract: type, type-arg, mcg,
+#               levels, immutable, default, cluster
+#               derive all fields if only 'all' provided
+# example:
+#   bp_derive_harness_entry_fields fs type immutable RESULT    # RESULT=(string imm)
+# globals relied:
+#   - HRNS_FLDS - fields pattern of HARNESSES
+#   - HARNESSES - all-in-one configuration
+# return codes:
+#   0 - success
+#   1 - failure, field(s) not match HRNS_FLDS
+bp_derive_harness_entry_fields() {
+	local key=$1
+	local -n _out_arr=$2
+	shift 2
+
+	# 'all' fields test
+	local flds_required_arr=("$@")
+	((${#flds_required_arr[@]} == 1)) &&
+		[[ ${flds_required_arr[0]} == 'all' ]] &&
+		flds_required_arr=("${HRNS_FLDS[@]}")
+
+	local i entry_flds=()
+
+	(("${#flds_required_arr[@]}" != 0)) || return 1
+
+	declare -A index_map=()
+	for i in "${!HRNS_FLDS[@]}"; do
+		index_map[${HRNS_FLDS[i]}]="${i}"
+	done
+
+	readarray -d: -t entry_flds <<<"${HARNESSES[${key}]}"
+	entry_flds[-1]="${entry_flds[-1]%$'\n'}"
+
+	for ((i = 0; i < ${#flds_required_arr[@]}; i++)); do
+		local field=${flds_required_arr[i]}
+		if [[ -v index_map["${field}"] ]]; then
+			_out_arr[i]="${entry_flds[index_map[${field}]]}"
+			continue
+		fi
+		# no matched field
+		_out_arr=("${field}")
+		return 1
+	done
+	return 0
+}
+
+# find all HARNESSES keys where a field contains a substring
+# usage: bp_derive_harness_entries_by_field FIELD SUBSTRING OUT_ARRAY
+#   FIELD     - field name defined in HRNS_FLDS
+#   NEEDLE    - value to search for (substring match)
+#   OUT_ARRAY - nameref receiving matching keys
+# examples:
+#   bp_derive_harness_entries_by_field levels global  GLOBAL_CFGS # keys usable at global level
+#   bp_derive_harness_entries_by_field cluster lid    LID_KEYS    # keys in the lid cluster
+#   bp_derive_harness_entries_by_field immutable imm  IMM_KEYS    # immutable keys
+bp_derive_harness_entries_by_field() {
+	local field=$1 needle=$2
+	local -n _out_array=$3
+
+	local i fld_no fields_derived=() key fields_arr=()
+
+	for i in "${!HRNS_FLDS[@]}"; do
+		[[ ${HRNS_FLDS[i]} == "${field}" ]] || continue
+		fld_no="${i}"
+		break
+	done
+
+	for key in "${!HARNESSES[@]}"; do
+		readarray -d: -t fields_arr <<<"${HARNESSES[${key}]}"
+		fields_arr[-1]="${fields_arr[-1]%$'\n'}"
+		[[ ${fields_arr[${fld_no}]:-} =~ ${needle} ]] || continue
+		_out_array+=("${key}")
+	done
+}
+
+# extract members of a HARNESSES field group and their CONFIGS values
+# $1 - target field name in HRNS_FLDS (e.g. "cluster")
+# $2 - value to match in the target field (e.g. "lid", "sep", "tag", "arr")
+# $3 - optional nameref: receives {key: CONFIGS_value} pairs; omit for stdout
+# usage: bp_derive_context_group "cluster" lid" "ctx""  # cluster=lid, output to ctx
+#        bp_derive_context_group "immutable" "imm"      # field=immutable, print to stdout
+bp_derive_context_group() {
+	local field=$1
+	local match=$2
+
+	local i fld_no=-1
+	for i in "${!HRNS_FLDS[@]}"; do
+		[[ ${HRNS_FLDS[i]} == "${field}" ]] || continue
+		fld_no="${i}"
+		break
+	done
+	[[ ${fld_no} -ge 0 ]] || return 0
+
+	local key fields=() field_arr=()
+
+	if (($# >= 3)); then
+		local -n __out=$3
+		__out=()
+	fi
+
+	for key in "${!HARNESSES[@]}"; do
+		readarray -d: -t fields <<<"${HARNESSES[${key}]}"
+		fields[-1]=${fields[-1]%$'\n'} # '<<<' introduced a trailing newline
+		readarray -d "${CONFIGS[es]}" -t field_arr <<<"${fields[fld_no]}"
+		field_arr[-1]="${field_arr[-1]%$'\n'}" # remove trailing newline
+		for i in "${!field_arr[@]}"; do
+			[[ ${field_arr[i]} == "${match}" ]] || continue
+			if (($# >= 3)); then
+				__out["${key}"]="${CONFIGS[${key}]}"
+			else
+				printf '%s=%s\n' "${key}" "${CONFIGS[${key}]}"
+			fi
+			break
+		done
+	done
+	# for key in "${!HARNESSES[@]}"; do
+	# 	readarray -d: -t fields <<<"${HARNESSES[${key}]}"
+	# 	fields[-1]=${fields[-1]%$'\n'} # '<<<' introduced a trailing newline
+	# 	[[ ${fields[fld_no]:-} != "${match}" ]] || printf '%s=%s\n' "${key}" "${CONFIGS[$key]}"
+	# done
 }

@@ -1,18 +1,124 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2206
+#
 # Module 05-parse: Core parsing logic
-#   bp_extract_harness_tokens() - iterate harnesses from CML
-#   bp_check_param_type()       - classify a CML token (bool/string/liga/value) by context
-#   bp_extract_options()        - iterate CML tokens, classify via bp_check_param_type()
-#   bp_extract_parameters_watershed()   - split CML at ZN_SEP (--) into op_zone / pp_zone
-#   bp_extract_parameters_islands()     - split CML by LID presence (options vs positionals)
-#   bp_parse_bool_tag()     - extract trailing true/false tag from parameter name
-#   bp_parse_ligas()        - expand ligatures (~abc) into multiple bools
-#   bp_parse_bools()        - parse boolean params with trailing tags (+/-)
-#   bp_parse_strings()      - parse string params with OV_SEP (=)
-#   bp_parse_options()      - orchestrate liga/bool/string parsing for a LID
-#   bp_prefix_matching()    - exact then prefix then postfix matching
+#
+# Extract CML by styles:
+#   bp_extract_parameters_watershed()  - split CML at ZN_SEP (--) into op_zone / pp_zone
+#   bp_extract_parameters_islands()    - split CML by LID presence (options vs positionals)
+#
+# Extract options:
+#   bp_extract_harness_tokens()  - iterate harnesses from CML
+#   bp_extract_options()         - iterate CML tokens, classify via bp_check_param_type()
+#
+# Parsing supports:
+#   bp_prefix_matching()       - exact then prefix then postfix matching
+#   bp_check_param_type()      - classify a CML token (bool/string/liga/value) by context
+#   bp_apply_filter_default()  - assign PFILTER defaults to un-supplied parameters
+#
+# Parsing functions:
+#   bp_parse_bool_tag()  - extract trailing true/false tag from parameter name
+#   bp_parse_ligas()     - expand ligatures (~abc) into multiple bools
+#   bp_parse_bools()     - parse boolean params with trailing tags (+/-)
+#   bp_parse_strings()   - parse string params with OV_SEP (=)
+#   bp_parse_options()   - orchestrate liga/bool/string parsing for a LID
 # --------------------------------------------------------------------------------
+
+# split CML at ZN_SEP (zone separator, default "--") into option-zone and positional-zone
+# $1 - nameref: receives option-zone tokens (before ZN_SEP)
+# $2 - nameref: receives positional-zone tokens (after ZN_SEP)
+# remaining args are the CML tokens to split
+#   if no ZN_SEP: guesses zone by checking if first token has a LID
+#   if ZN_SEP at position 1: all tokens go to positional-zone
+#   if ZN_SEP at last position: all tokens go to option-zone
+# exits 20 if more than one ZN_SEP found
+bp_extract_parameters_watershed() {
+	local -n options=$1 positionals=$2
+
+	shift 2
+
+	bp_msg -3 "    CML: " "$*"
+	local param zn_sep_count zn_sep_pos
+
+	# count ZN-SEP and record its position
+	zn_sep_count=0
+	zn_sep_pos=-1
+	for param in "$@"; do
+		if [[ ${param} == "${CONFIGS[zs]}" ]]; then
+			((zn_sep_count += 1))
+		fi
+	done
+
+	options=()
+	positionals=()
+
+	if [[ ${zn_sep_count} -gt 1 ]]; then
+		# duplicate ZONE_SEPs
+		local pros_tag[0]="${CONFIGS["zs"]}"
+		pros_tag[1]="${zn_sep_count}"
+		bp_exit_with_msg 20 pros_tag
+	elif [[ ${zn_sep_count} -eq 1 ]]; then
+		# locate the ZN_SEP position (1-based indirection)
+		local i
+		for ((i = 1; i <= $#; i++)); do
+			if [[ ${!i} == "${CONFIGS[zs]}" ]]; then
+				zn_sep_pos=${i}
+				break
+			fi
+		done
+		if [[ ${zn_sep_pos} -eq 1 ]]; then
+			# PP_ZONE only with leading zone-sep
+			for ((i = 2; i <= $#; i++)); do
+				positionals+=("${!i}")
+			done
+		elif [[ ${zn_sep_pos} -eq $# ]]; then
+			# OP_ZONE only with trailing zone-sep
+			for ((i = 1; i < $#; i++)); do
+				options+=("${!i}")
+			done
+		else
+			# normal case: split at ZN_SEP
+			for ((i = 1; i < zn_sep_pos; i++)); do
+				options+=("${!i}")
+			done
+			for ((i = zn_sep_pos + 1; i <= $#; i++)); do
+				positionals+=("${!i}")
+			done
+		fi
+	else
+		# no ZONE_SEP: one zone only, guess by LID of first param
+		if [[ $# -gt 0 ]]; then
+			if bp_with_lid "${1}"; then
+				options=("$@")
+			else
+				positionals=("$@")
+			fi
+		fi
+	fi
+}
+
+# split CML into option-zone and positional-zone by LID presence (islands style)
+# $1 - nameref: receives option-zone tokens (params with any LID)
+# $2 - nameref: receives positional-zone tokens (params without LID)
+# remaining args are the CML tokens to classify
+# ZN_SEP tokens are skipped entirely
+bp_extract_parameters_islands() {
+	local -n options=$1 positionals=$2
+	shift 2
+
+	# extract params
+	local param
+	for param in "$@"; do
+		[[ ${param} == "${CONFIGS[zs]}" ]] && continue
+		if bp_with_lid "${param}"; then
+			bp_msg -3 "    " "- option token:   ${param}"
+			options+=("${param}")
+		else
+			bp_msg -3 "    " "- position token: ${param}"
+			positionals+=("${param}")
+		fi
+	done
+}
 
 # extract harnesses from CML(for Globals) or OP-ZONE(for Priors & Specs)
 bp_extract_harness_tokens() {
@@ -43,6 +149,157 @@ bp_extract_harness_tokens() {
 		return 0
 	else
 		return 1
+	fi
+}
+
+# iterate CML tokens, classify each via bp_check_param_type, sort into buckets
+# $1 - lid to match against
+# $2 - nameref: option-zone array (tokens to classify)
+# $3 - nameref: receives string-type tokens
+# $4 - nameref: receives bool-type tokens
+# $5 - nameref: receives liga-type tokens
+# $6 - nameref: receives all extracted tokens (union of 3-5)
+# for harnesses(globals/priors/specs): filters by lid, splits by OV_SEP into strings/bools
+# for user options: delegates to bp_check_param_type, handles arg_consumed flag
+# exits 21 on solitary arg (no lid match) for non-global/prior/spec levels
+bp_extract_options() {
+	local lid=$1
+	local -n _op_zone=$2
+	local -n strings=$3 bools=$4 ligas=$5 # classified extracted options
+	local -n options=$6                   # all extracted options
+
+	bp_msg -2 "  Extract Options '${lid}'" # ": ${_op_zone[*]}"
+
+	# process globals, priors and specs
+	bp_extract_harness_tokens "${lid}" _op_zone strings bools options && return 0
+
+	# process user-params
+	local i arg_consumed=false
+	for i in "${!_op_zone[@]}"; do
+
+		local curr_param next_param
+		local extracted_param="" param_type
+
+		# skip if param is the value of last param
+		if [[ "${arg_consumed}" == true ]]; then
+			arg_consumed=false
+			continue
+		fi
+
+		curr_param="${_op_zone[i]}"
+		next_param="${_op_zone[$((i + 1))]:-}"
+
+		# bp_msg -3 "    current/next: " "${curr_param}  ${next_param:--}"
+
+		# parse options
+		param_type=0
+		bp_check_param_type "${lid}" "${curr_param}" "${next_param}" extracted_param || param_type=$?
+		bp_msg -3 "    " "- type: ${param_type} | found: ${extracted_param}"
+		case "${param_type}" in
+		1) ligas+=("${extracted_param}") ;;
+		2) bools+=("${extracted_param}") ;;
+		3)
+			bools+=("${extracted_param}")
+			arg_consumed=true
+			;;
+		4) strings+=("${extracted_param}") ;;
+		5)
+			strings+=("${extracted_param}")
+			arg_consumed=true
+			;;
+		6) # matching other lid with built-in value, skip
+			bp_msg -3 "      ingored: ${extracted_param}"
+			continue
+			;;
+		7) # matching other lid followd by a value, skip with a consumption signal
+			arg_consumed=true
+			bp_msg -3 "      ingored: ${extracted_param}"
+			continue
+			;;
+		0) # a solitary arg found, parsing failed
+			local pros_tag[0]="${curr_param}"
+			bp_exit_with_msg 21 pros_tag
+			;;
+		*)
+			# unknow type, should not happened, may used in future
+			local pros_tag="unexpected param_type '${param_type}' from bp_check_param_type."
+			bp_exit_with_msg 3 pros_tag
+			;;
+		esac
+		options+=("${extracted_param}")
+		bp_msg -3 "      extracted: " "${extracted_param}"
+	done
+	return 0
+}
+
+# validate:
+#   test exactly match an array member
+#   if not, try prefix-matching/postfix-matching(depends on $3)
+# return code and output:
+#   0 - one matched:    - expactly/prefixly/postfixly matched
+#	1 - non-matched:    - ""
+#   2 - multi-matched:  - matching names
+# note:
+#   this script assumes that no duplicated members in matching-list
+# relies global:
+#   - REGEX_METAS
+# params:
+#   $1: the parameter name being checked
+#   $2: list of parameters to match against (array nameref)
+#   $3: type of matching ('exact', 'prefix', or 'postfix')
+bp_prefix_matching() {
+	local needle=$1
+	local -n haystack=$2
+	local match_method=${3:-prefix}
+
+	local pk needle_regex
+	local re_char
+
+	declare -a matched=()
+
+	((${#haystack[@]} > 0)) || return 1
+	[[ -n ${needle} ]] || return 1
+
+	# build regex-safe pattern from needle
+	needle_regex="${needle}"
+	# escape regex metacharacters (backslash first to avoid double-escaping)
+	for re_char in "${REGEX_METAS[@]}"; do
+		needle_regex="${needle_regex//"${re_char}"/\\"${re_char}"}"
+	done
+
+	# try exactly match (plain string comparison, no regex)
+	if bp_is_array_member "${needle}" haystack; then
+		echo "${needle}"
+		return 0
+	elif [[ "exactly" =~ ^${match_method} ]]; then
+		return 1
+	fi
+
+	# try prefix/postfix matching
+	for pk in "${haystack[@]}"; do
+		if [[ "prefix" == "${match_method}" ]]; then
+			# prefix matching
+			[[ ${pk} =~ ^${needle_regex} ]] && matched+=("${pk}")
+		elif [[ "postfix" =~ ^${match_method} ]]; then
+			# postfix-matching
+			[[ ${pk} =~ ${needle_regex}$ ]] && matched+=("${pk}")
+		else
+			pros_tag[0]="Wrong options '${match_method}' when calling 'prefix-matching()', 'prefix(default)|postfix' available."
+			bp_exit_with_msg 4
+		fi
+	done
+
+	if [[ "${#matched[@]}" -eq 1 ]]; then
+		# one prefix-matched
+		echo "${matched[0]}"
+		return 0
+	elif [[ ${#matched[@]} -eq 0 ]]; then
+		# none  matched
+		return 1
+	else
+		# multiple matched
+		echo "${matched[*]}"
+		return 2
 	fi
 }
 
@@ -136,194 +393,59 @@ bp_check_param_type() {
 	fi
 }
 
-# iterate CML tokens, classify each via bp_check_param_type, sort into buckets
-# $1 - lid to match against
-# $2 - nameref: option-zone array (tokens to classify)
-# $3 - nameref: receives string-type tokens
-# $4 - nameref: receives bool-type tokens
-# $5 - nameref: receives liga-type tokens
-# $6 - nameref: receives all extracted tokens (union of 3-5)
-# for harnesses(globals/priors/specs): filters by lid, splits by OV_SEP into strings/bools
-# for user options: delegates to bp_check_param_type, handles arg_consumed flag
-# exits 21 on solitary arg (no lid match) for non-global/prior/spec levels
-bp_extract_options() {
-	local lid=$1
-	local -n _op_zone=$2
-	local -n strings=$3 bools=$4 ligas=$5 # classified extracted options
-	local -n options=$6                   # all extracted options
+# assign PFILTER default values to parameters not supplied by the user
+# $1 - nameref to user-supplied options (modified in-place for missing params)
+# $2 - nameref to PFILTER entries {key: "type:data:mcg"}
+# skips MCG members; fails with exit 55 if a non-MCG param has no default when ~afd(default setting)
+# enum defaults use the first element of the enum list
+# ensure '~afd' before calling(no '~afd' check inside function)
+bp_apply_filter_default() {
+	local -n _options=$1 _pfilter=$2
 
-	bp_msg -2 "  Extract Options '${lid}'" # ": ${_op_zone[*]}"
+	local fe_type fe_data fe_mcg
 
-	# process globals, priors and specs
-	bp_extract_harness_tokens "${lid}" _op_zone strings bools options && return 0
-
-	# process user-params
-	local i arg_consumed=false
-	for i in "${!_op_zone[@]}"; do
-
-		# if [[ ${lid} == "${CONFIGS[glid]}" || ${lid} == "${CONFIGS[plid]}" ]]; then
-		# 	# filter out params not match current lid
-		# 	bp_with_lid "${_op_zone[i]}" "${lid}" || continue
-		# 	# skip solitary LIDS (e.g. standalone '~~' zone separator colliding with PLID)
-		# 	[[ ${#_op_zone[i]} -gt ${#lid} ]] || continue
-		#
-		# 	bp_msg -3 "    " "- token: ${_op_zone[i]}"
-		# 	options+=("${_op_zone[i]}")
-		# 	[[ ${_op_zone[i]} =~ ${CONFIGS[os]} ]] &&
-		# 		strings+=("${_op_zone[i]}") ||
-		# 		bools+=("${_op_zone[i]}")
-		# 	continue
-		# fi
-
-		local curr_param next_param
-		local extracted_param="" param_type
-
-		# skip if param is the value of last param
-		if [[ "${arg_consumed}" == true ]]; then
-			arg_consumed=false
+	bp_msg 3 "  Assign PFILTER default values if not supplied"
+	local prn_pattern='%15s - %12s | %8s | %14s | %-10s'
+	[[ ${verbose} -ge 3 ]] && printf "    \e[4;33m${prn_pattern}\e[0m\n" \
+		"param" "status" "type" "data" "mcg-name" >&2
+	for param in "${!_pfilter[@]}"; do
+		bp_extract_filter_entry "${CONFIGS[ulid]}" "${_pfilter[${param}]}" fe_type fe_data fe_mcg
+		# skip mcg members
+		[[ -z ${fe_mcg} ]] || {
+			[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
+				"${param}" "MCG member" "${fe_type}" "${fe_data:--}" "${fe_mcg:--}" >&2
 			continue
+		}
+		# skip supplied ones
+		[[ -v _options["${param}"] ]] && {
+			[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
+				"${param}" "supplied" "${fe_type}" "${fe_data:--}" "${fe_mcg:--}" >&2
+			continue
+		}
+		# no default value, failed
+		if [[ -z "${fe_data}" ]]; then
+			local pros_tag[0]="${param}"
+			bp_exit_with_msg 55 pros_tag
 		fi
 
-		curr_param="${_op_zone[i]}"
-		next_param="${_op_zone[$((i + 1))]:-}"
-
-		# bp_msg -3 "    current/next: " "${curr_param}  ${next_param:--}"
-
-		# parse options
-		param_type=0
-		bp_check_param_type "${lid}" "${curr_param}" "${next_param}" extracted_param || param_type=$?
-		bp_msg -3 "    " "- type: ${param_type} | found: ${extracted_param}"
-		case "${param_type}" in
-		1) ligas+=("${extracted_param}") ;;
-		2) bools+=("${extracted_param}") ;;
-		3)
-			bools+=("${extracted_param}")
-			arg_consumed=true
+		# assigning defaults
+		[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
+			"${param}" "default" "${fe_type}" "${fe_data:--}" "${fe_mcg:--}" >&2
+		case "${fe_type}" in
+		bool | string)
+			_options["${param}"]="${fe_data}"
 			;;
-		4) strings+=("${extracted_param}") ;;
-		5)
-			strings+=("${extracted_param}")
-			arg_consumed=true
+		enum)
+			# set with first enum as default value
+			_options["${param}"]="${fe_data%%"${CONFIGS[es]}"*}"
 			;;
-		6) # matching other lid with built-in value, skip
-			bp_msg -3 "      ingored: ${extracted_param}"
-			continue
-			;;
-		7) # matching other lid followd by a value, skip with a consumption signal
-			arg_consumed=true
-			bp_msg -3 "      ingored: ${extracted_param}"
-			continue
-			;;
-		0) # a solitary arg found, parsing failed
-			local pros_tag[0]="${curr_param}"
-			bp_exit_with_msg 21 pros_tag
-			;;
-		*)
-			# unknow type, should not happened, may used in future
-			local pros_tag="unexpected param_type '${param_type}' from bp_check_param_type."
-			bp_exit_with_msg 3 pros_tag
+		*) # this will not happen since integrity checking already done in bp_validate_pfilter
 			;;
 		esac
-		options+=("${extracted_param}")
-		bp_msg -3 "      extracted: " "${extracted_param}"
+		[[ ${verbose} -ge 3 ]] && printf "    \e[2m${prn_pattern}\e[0;2m%s\e[0m\n" \
+			"${param}" "assigned" "${fe_type}" "${_options[${param}]:--}" "${fe_mcg}" >&2
 	done
 	return 0
-}
-
-# split CML into option-zone and positional-zone by LID presence (islands style)
-# $1 - nameref: receives option-zone tokens (params with any LID)
-# $2 - nameref: receives positional-zone tokens (params without LID)
-# remaining args are the CML tokens to classify
-# ZN_SEP tokens are skipped entirely
-bp_extract_parameters_islands() {
-	local -n options=$1 positionals=$2
-	shift 2
-
-	# extract params
-	local param
-	for param in "$@"; do
-		[[ ${param} == "${CONFIGS[zs]}" ]] && continue
-		if bp_with_lid "${param}"; then
-			bp_msg -3 "    " "- option token:   ${param}"
-			options+=("${param}")
-		else
-			bp_msg -3 "    " "- position token: ${param}"
-			positionals+=("${param}")
-		fi
-	done
-}
-
-# split CML at ZN_SEP (zone separator, default "--") into option-zone and positional-zone
-# $1 - nameref: receives option-zone tokens (before ZN_SEP)
-# $2 - nameref: receives positional-zone tokens (after ZN_SEP)
-# remaining args are the CML tokens to split
-#   if no ZN_SEP: guesses zone by checking if first token has a LID
-#   if ZN_SEP at position 1: all tokens go to positional-zone
-#   if ZN_SEP at last position: all tokens go to option-zone
-# exits 20 if more than one ZN_SEP found
-bp_extract_parameters_watershed() {
-	local -n options=$1 positionals=$2
-
-	shift 2
-
-	bp_msg -3 "    CML: " "$*"
-	local param zn_sep_count zn_sep_pos
-
-	# count ZN-SEP and record its position
-	zn_sep_count=0
-	zn_sep_pos=-1
-	for param in "$@"; do
-		if [[ ${param} == "${CONFIGS[zs]}" ]]; then
-			((zn_sep_count += 1))
-		fi
-	done
-
-	options=()
-	positionals=()
-
-	if [[ ${zn_sep_count} -gt 1 ]]; then
-		# duplicate ZONE_SEPs
-		local pros_tag[0]="${CONFIGS["zs"]}"
-		pros_tag[1]="${zn_sep_count}"
-		bp_exit_with_msg 20 pros_tag
-	elif [[ ${zn_sep_count} -eq 1 ]]; then
-		# locate the ZN_SEP position (1-based indirection)
-		local i
-		for ((i = 1; i <= $#; i++)); do
-			if [[ ${!i} == "${CONFIGS[zs]}" ]]; then
-				zn_sep_pos=${i}
-				break
-			fi
-		done
-		if [[ ${zn_sep_pos} -eq 1 ]]; then
-			# PP_ZONE only with leading zone-sep
-			for ((i = 2; i <= $#; i++)); do
-				positionals+=("${!i}")
-			done
-		elif [[ ${zn_sep_pos} -eq $# ]]; then
-			# OP_ZONE only with trailing zone-sep
-			for ((i = 1; i < $#; i++)); do
-				options+=("${!i}")
-			done
-		else
-			# normal case: split at ZN_SEP
-			for ((i = 1; i < zn_sep_pos; i++)); do
-				options+=("${!i}")
-			done
-			for ((i = zn_sep_pos + 1; i <= $#; i++)); do
-				positionals+=("${!i}")
-			done
-		fi
-	else
-		# no ZONE_SEP: one zone only, guess by LID of first param
-		if [[ $# -gt 0 ]]; then
-			if bp_with_lid "${1}"; then
-				options=("$@")
-			else
-				positionals=("$@")
-			fi
-		fi
-	fi
 }
 
 # extract trailing true/false tag character from parameter name
@@ -436,7 +558,7 @@ bp_parse_strings() {
 # $4 - nameref: liga tokens
 # $5 - nameref: receives all parsed {name: value} pairs
 # order: ligas first, then bools, then strings (last writer wins for dupes)
-# option names validated against shell variable naming conventions 
+# option names validated against shell variable naming conventions
 bp_parse_options() {
 	local lid=$1
 	local -n strings_po=$2 bools_po=$3 ligas_po=$4
@@ -452,75 +574,4 @@ bp_parse_options() {
 		bp_parse_bools "${lid}" bools_po options_po
 	((${#strings_po[@]} == 0)) ||
 		bp_parse_strings "${lid}" strings_po options_po
-}
-
-# validate:
-#   test exactly match an array member
-#   if not, try prefix-matching/postfix-matching(depends on $3)
-# return code and output:
-#   0 - one matched:      expactly/prefixly/postfixly matched
-#	1 - non-matched:      ""
-#   2 - multiple matched: matching names
-# note:
-#   this script assumes that no duplicated members in matching-list
-# relies global:
-#   - REGEX_METACHARS
-# params:
-#   $1: the parameter name being checked
-#   $2: list of parameters to match against (array nameref)
-#   $3: type of matching ('exact', 'prefix', or 'postfix')
-bp_prefix_matching() {
-	local needle=$1
-	local -n haystack=$2
-	local match_method=${3:-prefix}
-
-	local pk needle_regex
-	local re_char
-
-	declare -a matched=()
-
-	((${#haystack[@]} > 0)) || return 1
-	[[ -n ${needle} ]] || return 1
-
-	# build regex-safe pattern from needle
-	needle_regex="${needle}"
-	# escape regex metacharacters (backslash first to avoid double-escaping)
-	for re_char in "${REGEX_METAS[@]}"; do
-		needle_regex="${needle_regex//"${re_char}"/\\"${re_char}"}"
-	done
-
-	# try exactly match (plain string comparison, no regex)
-	if bp_is_array_member "${needle}" haystack; then
-		echo "${needle}"
-		return 0
-	elif [[ "exactly" =~ ^${match_method} ]]; then
-		return 1
-	fi
-
-	# try prefix/postfix matching
-	for pk in "${haystack[@]}"; do
-		if [[ "prefix" == "${match_method}" ]]; then
-			# prefix matching
-			[[ ${pk} =~ ^${needle_regex} ]] && matched+=("${pk}")
-		elif [[ "postfix" =~ ^${match_method} ]]; then
-			# postfix-matching
-			[[ ${pk} =~ ${needle_regex}$ ]] && matched+=("${pk}")
-		else
-			pros_tag[0]="Wrong options '${match_method}' when calling 'prefix-matching()', 'prefix(default)|postfix' available."
-			bp_exit_with_msg 4
-		fi
-	done
-
-	if [[ "${#matched[@]}" -eq 1 ]]; then
-		# one prefix-matched
-		echo "${matched[0]}"
-		return 0
-	elif [[ ${#matched[@]} -eq 0 ]]; then
-		# none  matched
-		return 1
-	else
-		# multiple matched
-		echo "${matched[*]}"
-		return 2
-	fi
 }

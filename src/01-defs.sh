@@ -1,9 +1,8 @@
 # shellcheck shell=bash
+#
 # Module 01-defs: Constants and harnesses definitions
+#
 #   bp_definitions() - populates CONSTS, HARNESSES, CONFIGS, EXIT_MSG, SYMNAMES, RESYMS, etc.
-#   bp_derive_harness_entry_fields()  - extract specific fields from a HARNESSES entry
-#   bp_derive_harness_entries_by_field() - find all HARNESSES keys matching a field+value
-#   bp_derive_context_group()  - extract one cluster's members from HARNESSES+CONFIGS
 #
 # This module defines the entire configuration surface of BosParse:
 #   CONSTS         - true constants (array names, separators, version, banners)
@@ -18,16 +17,16 @@
 #   HRNS_FLDS      - ordered list of HARNESSES field names
 #   PFE_TYPES      - PFILTER entry types (string/bool/enum)
 #   RESYMS         - reserved symbols for LIDs and separators
-#   REGEX_METACHARS - regex metacharacters for prefix-matching escaping
+#   REGEX_METAS    - regex metacharacters for prefix-matching escaping
 #
 # HARNESSES fields (colon-separated):
-#   field 1 - type             : bool | string | enum | resym
-#   field 2 - type-arg         : enum values (pipe-separated), resym length, or empty
-#   field 3 - mcg              : mutual-correlate group name (or empty)
-#   field 4 - levels           : parser levels: global | prior | spec (pipe-separated)
-#   field 5 - immutable        : imm if immutable at runtime, empty otherwise
-#   field 6 - default          : default value for CONFIGS
-#   field 7 - cluster          : lid | sep | tag | arr (auto-derived context group)
+#   field 1 - type       : bool | string | enum | resym
+#   field 2 - type-arg   : enum values (pipe-separated), resym length, or empty
+#   field 3 - mcg        : mutual-correlate group name (or empty)
+#   field 4 - levels     : parser levels: global | prior | spec (pipe-separated)
+#   field 5 - immutable  : imm if immutable at runtime, empty otherwise
+#   field 6 - default    : default value for CONFIGS
+#   field 7 - cluster    : lid | sep | tag | arr (auto-derived context group)
 # --------------------------------------------------------------------------------
 
 # populate all config maps
@@ -66,7 +65,7 @@ bp_definitions() {
 	# -- TRUE CONSTANTS - never mutated at runtime --
 	CONSTANTS_ref=(
 		["BANNER"]="Parsed by BosParse"
-		["PFILTER_ID"]="PARAM_FILTER" 
+		["PFILTER_ID"]="PARAM_FILTER"
 
 		["OAN"]="BP_Options"
 		["PAN"]="BP_Positionals"
@@ -362,132 +361,4 @@ bp_definitions() {
 		["70"]="Parameter '\${pros_tag[1]}' is required but not supplied."
 		["170"]="Parameter '\${pros_tag[1]}' in Required MCG '\${pros_tag[0]}' without default value and not supplied."
 	)
-}
-
-# extract specific fields from a HARNESSES entry into an indexed array
-# usage:
-#   bp_derive_harness_entry_fields KEY OUT_ARRAY FIELD [FIELD...]
-#   - KEY       - short config name (e.g. run, glid, fs)
-#   - OUT_ARRAY - nameref target receiving field values in order
-#   - FIELD     - name(s) of field(s) to extract: type, type-arg, mcg,
-#               levels, immutable, default, cluster
-#               derive all fields if only 'all' provided
-# example:
-#   bp_derive_harness_entry_fields fs type immutable RESULT    # RESULT=(string imm)
-# globals relied:
-#   - HRNS_FLDS - fields pattern of HARNESSES
-#   - HARNESSES - all-in-one configuration
-# return codes:
-#   0 - success
-#   1 - failure, field(s) not match HRNS_FLDS
-bp_derive_harness_entry_fields() {
-	local key=$1
-	local -n _out_arr=$2
-	shift 2
-
-	# 'all' fields test
-	local flds_required_arr=("$@")
-	((${#flds_required_arr[@]} == 1)) &&
-		[[ ${flds_required_arr[0]} == 'all' ]] &&
-		flds_required_arr=("${HRNS_FLDS[@]}")
-
-	local i entry_flds=()
-
-	(("${#flds_required_arr[@]}" != 0)) || return 1
-
-	declare -A index_map=()
-	for i in "${!HRNS_FLDS[@]}"; do
-		index_map[${HRNS_FLDS[i]}]="${i}"
-	done
-
-	readarray -d: -t entry_flds <<<"${HARNESSES[${key}]}"
-	entry_flds[-1]="${entry_flds[-1]%$'\n'}"
-
-	for ((i = 0; i < ${#flds_required_arr[@]}; i++)); do
-		local field=${flds_required_arr[i]}
-		if [[ -v index_map["${field}"] ]]; then
-			_out_arr[i]="${entry_flds[index_map[${field}]]}"
-			continue
-		fi
-		# no matched field
-		_out_arr=("${field}")
-		return 1
-	done
-	return 0
-}
-
-# find all HARNESSES keys where a field contains a substring
-# usage: bp_derive_harness_entries_by_field FIELD SUBSTRING OUT_ARRAY
-#   FIELD     - field name defined in HRNS_FLDS
-#   NEEDLE    - value to search for (substring match)
-#   OUT_ARRAY - nameref receiving matching keys
-# examples:
-#   bp_derive_harness_entries_by_field levels global  GLOBAL_CFGS # keys usable at global level
-#   bp_derive_harness_entries_by_field cluster lid    LID_KEYS    # keys in the lid cluster
-#   bp_derive_harness_entries_by_field immutable imm  IMM_KEYS    # immutable keys
-bp_derive_harness_entries_by_field() {
-	local field=$1 needle=$2
-	local -n _out_array=$3
-
-	local i fld_no fields_derived=() key fields_arr=()
-
-	for i in "${!HRNS_FLDS[@]}"; do
-		[[ ${HRNS_FLDS[i]} == "${field}" ]] || continue
-		fld_no="${i}"
-		break
-	done
-
-	for key in "${!HARNESSES[@]}"; do
-		readarray -d: -t fields_arr <<<"${HARNESSES[${key}]}"
-		fields_arr[-1]="${fields_arr[-1]%$'\n'}"
-		[[ ${fields_arr[${fld_no}]:-} =~ ${needle} ]] || continue
-		_out_array+=("${key}")
-	done
-}
-
-# extract members of a HARNESSES field group and their CONFIGS values
-# $1 - target field name in HRNS_FLDS (e.g. "cluster")
-# $2 - value to match in the target field (e.g. "lid", "sep", "tag", "arr")
-# $3 - optional nameref: receives {key: CONFIGS_value} pairs; omit for stdout
-# usage: bp_derive_context_group "cluster" lid" "ctx""  # cluster=lid, output to ctx
-#        bp_derive_context_group "immutable" "imm"      # field=immutable, print to stdout
-bp_derive_context_group() {
-	local field=$1
-	local match=$2
-
-	local i fld_no=-1
-	for i in "${!HRNS_FLDS[@]}"; do
-		[[ ${HRNS_FLDS[i]} == "${field}" ]] || continue
-		fld_no="${i}"
-		break
-	done
-	[[ ${fld_no} -ge 0 ]] || return 0
-
-	local key fields=() field_arr=()
-
-	if (($# >= 3)); then
-		local -n __out=$3
-		__out=()
-	fi
-
-	for key in "${!HARNESSES[@]}"; do
-		readarray -d: -t fields <<<"${HARNESSES[${key}]}"
-		fields[-1]=${fields[-1]%$'\n'} # '<<<' introduced a trailing newline
-		readarray -d "${CONFIGS[es]}" -t field_arr <<<"${fields[fld_no]}"
-		field_arr[-1]="${field_arr[-1]%$'\n'}" # remove trailing newline
-		for i in "${!field_arr[@]}"; do
-			[[ ${field_arr[i]} == "${match}" ]] || continue
-			if (($# >= 3)); then
-				__out["${key}"]="${CONFIGS[${key}]}"
-			else
-				printf '%s=%s\n' "${key}" "${CONFIGS[${key}]}"
-			fi
-			break
-		done
-	done
-	# for key in "${!HARNESSES[@]}"; do
-	# 	readarray -d: -t fields <<<"${HARNESSES[${key}]}"
-	# 	fields[-1]=${fields[-1]%$'\n'} # '<<<' introduced a trailing newline
-	# 	[[ ${fields[fld_no]:-} != "${match}" ]] || printf '%s=%s\n' "${key}" "${CONFIGS[$key]}"
-	# done
 }

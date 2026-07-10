@@ -169,7 +169,7 @@ When running BosParse in `eval/capture` mode, `PFILTER` should be serialized bef
   ~pf="key1 value1 key2 value2 ..."
   ```
 
-Restrictions for this `element-stream` and `key-value sequence`:
+Restrictions for `element-stream` and `key-value sequence`:
 
 - `PFILTER` entry value is empty or contains space(s) will break the `key-value` pairs passing. Assign a double quoted variable to `~pf` can solve this problem:
 
@@ -182,6 +182,12 @@ Restrictions for this `element-stream` and `key-value sequence`:
   done
   spf="${spf% }" # IMPORTANT: remove the trailing space
   result=$(./bosparse ~pf="${spf}" ~json "$@")
+  ```
+
+  On Bash version 5.2+, use Bash parameter expansion is more efficient to create 'key-value' sequence:
+
+  ```bash
+  spf="${PFILTER[@]@K}"
   ```
 
 - Trailing(or leading) space should be removed before passing

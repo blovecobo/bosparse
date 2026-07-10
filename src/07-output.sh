@@ -1,11 +1,16 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2153,SC2154
 # Module 07-output: Default assignment and result output
+#
+# Ouput result:
 #   bp_output_source_variables()  - export bool/string params as shell variables (source mode)
 #   bp_output_source_arrays()     - create named result arrays (source mode)
 #   bp_output_eval()              - emit variable assignment statements (eval mode)
 #   bp_output_json()              - emit JSON object (capture mode, requires jq)
+#
+# Directives:
 #   bp_show_help()                - display online help text
+#   bp_show_configs()             - display current CONFIGS
 #   bp_direct_commands()          - execute directive SPECS (Help, Banner, Version, …)
 # --------------------------------------------------------------------------------
 
@@ -259,6 +264,30 @@ bp_show_help() {
 	echo "    20+   parameter/filter errors (see doc/BosParse-Reference-Manual.md)"
 	echo
 	echo "For details: doc/BosParse-Reference-Manual.md  doc/bp-PFILTER.md"
+}
+
+# display current CONFIGS settings, for debugging & directives
+bp_show_configs() {
+	local output_as_json key param len_key
+
+	[[ ${CONFIGS["json"]} == true ]] && output_as_json=true || output_as_json=false
+	[[ ${CONFIGS["run"]} == "capture" ]] && output_as_json=true
+
+	if [[ ${CONFIGS["Defaults"]} == true ]]; then
+		# respond to directive calling
+		if [[ ${output_as_json} == true ]]; then
+			bp_validate_jq
+			bp_serialize_pfilter_to_json_string CONFIGS | jq
+		else
+			bp_show_array CONFIGS 2>&1 | sort -n
+		fi
+	else
+		# for debugging
+		local key
+		for key in "${!CONFIGS[@]}"; do
+			printf '%s=%q\n' "${key}" "${CONFIGS[${key}]}"
+		done | sort -n
+	fi
 }
 
 # bp_direct_commands: execute directive SPECS (Help, Banner, Version, Resymbols, Defaults)

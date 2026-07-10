@@ -10,12 +10,14 @@
 #   bp_service_specs()    - parse ~ (SLID) tokens, apply spec-level settings
 #   bp_service_users()    - parse - (ULID) tokens, validate against PFILTER
 # --------------------------------------------------------------------------------
+
 # run one parsing tier: extract, parse, validate, and MCG-check options
-# $1 - lid for this tier (glid/plid/slid/ulid)
-# $2 - tier name label ("Global"/"Prior"/"Specs"/"User-params")
-# $3 - nameref to filter entries for this tier (empty = no PFILTER)
-# $4 - nameref: receives validated {name: value} options
-# $5 - nameref to option-zone tokens (modified in-place: parsed tokens removed)
+# params:
+#   $1 - lid for this tier (glid/plid/slid/ulid)
+#   $2 - tier name label ("Global"/"Prior"/"Specs"/"User-params")
+#   $3 - nameref to filter entries for this tier (empty = no PFILTER)
+#   $4 - nameref: receives validated {name: value} options
+#   $5 - nameref to option-zone tokens (modified in-place: parsed tokens removed)
 # workflow: extract_options → parse_options → validate names & args → MCG checks
 bp_parse_tier() {
 	local lid=$1 tier=$2
@@ -27,7 +29,7 @@ bp_parse_tier() {
 	bp_extract_options "${lid}" op_zone_tier strings_ext bools_ext ligas_ext options_ext
 
 	# remove extracted options from op-zone
-	local index param param_cmp
+	local index param var_name
 	for index in "${!op_zone_tier[@]}"; do
 		bp_is_array_member "${op_zone_tier[index]}" options_ext || continue
 		bp_msg -3 "    - stripped from CML: " "${op_zone_tier[index]}"
@@ -44,44 +46,44 @@ bp_parse_tier() {
 		filter_keys=("${!filter_tier[@]}")
 		bp_msg -2 "  Validate options " "${lid}"
 		for param in "${!options_parsed[@]}"; do
-			param_cmp="${param}"
+			var_name="${param}"
 
 			# validate names
-			# option names are valid shell variables after parsing
+			# option names were valid shell variables after parsing
 			if ((${#filter_tier[@]} == 0)); then
-				# no filter, add into result directly
-				bp_msg -3 "      " "- variable name: ${param} -> ${param_cmp}"
-				options_tier["${param_cmp}"]="${options_parsed[${param}]}"
+				# no filter, add the param into result directly
+				bp_msg -3 "      " "- variable name: ${param} -> ${var_name}"
+				options_tier["${var_name}"]="${options_parsed[${param}]}"
 			else
 				# filter provided, validate parsed options against filter
-				# validate name, undifines let off if '~rup-'
-				bp_validate_option_name param_cmp filter_keys "${lid}" "${tier}"
-				bp_msg -3 "      " "- variable name: ${param} -> ${param_cmp}"
+				# validate name, undifined parames let off if '~rup-'
+				bp_validate_option_name var_name filter_keys "${lid}" "${tier}"
+				bp_msg -3 "      " "- variable name: ${param} -> ${var_name}"
 
 				# for 'undifined' 'user options', skip value validation and add into
 				# parsing result directly if '~rup-'
 				[[ ${CONFIGS["rup"]} == false ]] &&
-					! bp_is_array_member "${param_cmp}" filter_keys &&
+					! bp_is_array_member "${var_name}" filter_keys &&
 					[[ ${lid} == "${CONFIGS[ulid]}" ]] &&
-					options_tier["${param_cmp}"]="${options_parsed[${param_cmp}]}" &&
+					options_tier["${var_name}"]="${options_parsed[${var_name}]}" &&
 					return
 
 				# validate values
 				local fe_type fe_data fe_mcg_name
-				bp_extract_filter_entry "${lid}" "${filter_tier[${param_cmp}]}" \
+				bp_extract_filter_entry "${lid}" "${filter_tier[${var_name}]}" \
 					fe_type fe_data fe_mcg_name
-				bp_msg -3 "      " "- filter entry: '${filter_tier[${param_cmp}]}' -> '${fe_type}' '${fe_data:--}' '${fe_mcg_name:--}'"
-				# options_parsed[${param}]: param_cmp may differ to param
+				bp_msg -3 "      " "- filter entry: '${filter_tier[${var_name}]}' -> '${fe_type}' '${fe_data:--}' '${fe_mcg_name:--}'"
+				# options_parsed[${param}]: var_name may differ to param
 				option_value="${options_parsed[${param}]}"
 				option_value_ori="${option_value}"
-				bp_validate_option_values "${lid}" "${tier}" "${param}" "${param_cmp}" \
+				bp_validate_option_values "${lid}" "${tier}" "${param}" "${var_name}" \
 					option_value "${fe_type}" "${fe_data}" "${fe_mcg_name}"
 				bp_msg -3 "      " "- ${option_value_ori} -> ${option_value}"
-				options_tier["${param_cmp}"]="${option_value}"
+				options_tier["${var_name}"]="${option_value}"
 			fi
 		done
 		# validate options against MCG rules of filter
-		((${#filter_keys[@]} == 0)) || bp_validate_option_mcgs "${lid}" filter_tier options_tier
+		((${#filter_keys[@]} == 0)) || bp_validate_options_against_mcgs "${lid}" filter_tier options_tier
 	else
 		bp_msg -2 "    " "no ${tier} options"
 	fi
@@ -208,10 +210,10 @@ bp_service_users() {
 		bp_msg 3 "  Validate PFILTER"
 		# in case the name 'PFILTER' used by user
 		if [[ ${CONFIGS["pf"]} != "PFILTER" ]]; then
-			declare -A PFILTER
+			declare -A PFILTER=()
 			bp_validate_pfilter PFILTER
 		else
-			declare -A PFILTER_alias
+			declare -A PFILTER_alias=()
 			bp_validate_pfilter PFILTER_alias
 			declare -n PFILTER="PFILTER_alias"
 		fi

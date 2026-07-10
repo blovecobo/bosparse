@@ -1,4 +1,5 @@
 # shellcheck shell=bash
+# 
 # Module 02-util: Utility functions
 #   Debugging & tracing (bp_trace, bp_on_exit, echo2, bp_msg)
 #   Symbol escaping/restoring system for safe parameter handling (bp_escape_symbol)

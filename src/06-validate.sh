@@ -1,11 +1,17 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2153,SC2154,SC2015
+#
 # Module 06-validate: Parameter validation against PFILTER and MCG rules
+#
+# Variable validation:
 #   bp_validate_variable_name()      - validate & normalize a shell variable name
 #
-#   bp_validate_option_name()        - match param name against filter (exact/prefix/multi)
-#   bp_validate_option_values()      - validate value per type (bool/string/enum/resym)
+# Optiong name & value validations:
+#   bp_validate_option_name()         - match param name against filter (exact/prefix/multi)
+#   bp_validate_option_values_enums() - validate enum options by enum list and EML & EMF
+#   bp_validate_option_values()       - validate value per type (bool/string/enum/resym)
 #
+# Validate options against MCG rules:
 #   bp_get_all_mcgs()                - collect all MCG names from PFILTER entries
 #   bp_build_mcg_membership_map()    - invert PFILTER: MCG name to member list
 #   bp_validate_mcg_types()          - ensure MCG names start with valid type prefixes
@@ -14,8 +20,57 @@
 #   bp_validate_required_groups()    - enforce required MCG members are supplied
 #   bp_validate_dependence_groups()  - d-member supplied requires D-member supplied
 #   bp_validate_master_groups()      - M/m MCG rules
-#   bp_validate_option_mcgs()        - orchestrate all MCG validation by type
+#
+# MCG validation entrance:
+#   bp_validate_options_against_mcgs()  - orchestrate all MCG validation by type
 # --------------------------------------------------------------------------------
+
+# validate a shell variable name (exception substitution must be done before calling)
+# $1 - class/label for the variable (used in error messages)
+# $2 - nameref: variable name to validate (not modified)
+# $3 - return_on_error (default false): if true, returns 1 instead of exiting on failure
+# rules:
+#   - must not be empty (exit 26 / return 1)
+#   - must not start or end with hyphen (exit 22 / return 1)
+#   - must match ^[a-zA-Z_][a-zA-Z0-9_]*$ (exit 22/23/21 or return 1)
+# returns: 0 if valid, 1 if invalid (only when return_on_error=true)
+bp_validate_variable_name() {
+	local var_class=$1
+	local -n var_name_ref="$2"
+	local return_on_error=${3:-false}
+
+	local pros_tag[0]="${var_class}"
+	pros_tag[1]="${var_name_ref}"
+
+	if [[ -z "${var_name_ref}" ]]; then
+		[[ ${return_on_error} == true ]] && return 1
+		bp_exit_with_msg 26 pros_tag
+	fi
+
+	# leading or trailing hyphens are not allowed (would break LID/trailing-tag parsing)
+	if [[ ${var_name_ref} == -* ]] || [[ ${var_name_ref} == *- ]]; then
+		if [[ ${return_on_error} == true ]]; then
+			return 1
+		fi
+		pros_tag[2]="-"
+		bp_exit_with_msg 22 pros_tag
+	fi
+
+	[[ ${var_name_ref} =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] && return 0
+
+	[[ ${return_on_error} == true ]] && return 1
+
+	if [[ ${var_name_ref:0:1} == [0-9] ]]; then
+		pros_tag[2]="${var_name_ref:0:1}"
+		bp_exit_with_msg 23 pros_tag
+	fi
+
+	if [[ ! ${var_name_ref} =~ ^[a-zA-Z0-9_]+$ ]]; then
+		pros_tag[2]="${var_name_ref//[a-zA-Z0-9_]/}"
+		bp_exit_with_msg 22 pros_tag
+	fi
+	bp_exit_with_msg 21 pros_tag
+}
 
 # match a parameter name against PFILTER keys using exact or prefix matching
 # $1 - nameref: parameter name (modified in-place to matched key on success)
@@ -243,6 +298,29 @@ bp_get_all_mcgs() {
 	done
 }
 
+# single-pass: build mcg -> members mapping from all PFILTER entries
+bp_build_mcg_membership_map() {
+	local lid=$1
+	local -n filter_bmm=$2 mcg_mems=$3
+
+	local mem fe_type fe_data fe_mcg mcg_name
+	local -a mem_mcg_names ELM_SEP="${CONFIGS[es]}"
+
+	for mem in "${!filter_bmm[@]}"; do
+		bp_extract_filter_entry "${lid}" "${filter_bmm[${mem}]}" fe_type fe_data fe_mcg
+		[[ -n ${fe_mcg} ]] || continue
+		# bp_escape_symbol fe_mcg "${ELM_SEP}" "regress" # ensure shell variable before
+		readarray -d "${ELM_SEP}" -t mem_mcg_names <<<"${fe_mcg}"
+		mem_mcg_names[-1]="${mem_mcg_names[-1]%$'\n'}"
+		# for mcg_name in "${!mem_mcg_names[@]}"; do
+		# 	bp_escape_symbol mem_mcg_names["${mcg_name}"] "${ELM_SEP}" "regress"
+		# done
+		for mcg_name in "${mem_mcg_names[@]}"; do
+			mcg_mems["${mcg_name}"]+="|${mem}"
+		done
+	done
+}
+
 # verify each MCG name starts with a valid type prefix (d/D/e/m/M/r/u)
 bp_validate_mcg_types() {
 	local -n mcg_names_ref=$1
@@ -265,6 +343,28 @@ bp_validate_mcg_types() {
 			bp_exit_with_msg 37 pros_tag
 		}
 	done
+}
+
+# validate an MCG name: hyphens allowed internally, not at edges
+# $1 - MCG name to validate
+# rules:
+#   - no leading or trailing hyphen (exits 37)
+#   - body (after removing first/last char) must be [a-zA-Z0-9_-]+
+# exits 37 on invalid name
+bp_validate_mcg_name() {
+	local mcg_name=$1
+
+	local pros_tag[0]="${mcg_name}"
+	local first="${mcg_name:0:1}" last="${mcg_name: -1}"
+	if [[ ${first} == '-' ]] || [[ ${last} == '-' ]]; then
+		pros_tag[1]="a hyphen '-' at the beginning or end of MCG name are not allowed."
+		bp_exit_with_msg 37 pros_tag
+	fi
+
+	local test_name="${mcg_name:1:-1}"
+	[[ ${test_name} =~ ^[a-zA-Z0-9_-]*$ ]] && return 0
+	pros_tag[1]="contains invalid character(s): '${test_name//[a-zA-Z0-9_-]/}'"
+	bp_exit_with_msg 37 pros_tag
 }
 
 # bp_validate_required_groups: ensure all members of Required MCGs are supplied or have defaults
@@ -318,29 +418,6 @@ bp_validate_required_groups() {
 			fi
 		done
 		bp_msg 2 "        - MCG ${mcg}: PASSED"
-	done
-}
-
-# single-pass: build mcg -> members mapping from all PFILTER entries
-bp_build_mcg_membership_map() {
-	local lid=$1
-	local -n filter_bmm=$2 mcg_mems=$3
-
-	local mem fe_type fe_data fe_mcg mcg_name
-	local -a mem_mcg_names ELM_SEP="${CONFIGS[es]}"
-
-	for mem in "${!filter_bmm[@]}"; do
-		bp_extract_filter_entry "${lid}" "${filter_bmm[${mem}]}" fe_type fe_data fe_mcg
-		[[ -n ${fe_mcg} ]] || continue
-		# bp_escape_symbol fe_mcg "${ELM_SEP}" "regress" # ensure shell variable before
-		readarray -d "${ELM_SEP}" -t mem_mcg_names <<<"${fe_mcg}"
-		mem_mcg_names[-1]="${mem_mcg_names[-1]%$'\n'}"
-		# for mcg_name in "${!mem_mcg_names[@]}"; do
-		# 	bp_escape_symbol mem_mcg_names["${mcg_name}"] "${ELM_SEP}" "regress"
-		# done
-		for mcg_name in "${mem_mcg_names[@]}"; do
-			mcg_mems["${mcg_name}"]+="|${mem}"
-		done
 	done
 }
 
@@ -446,7 +523,7 @@ bp_validate_master_groups() {
 }
 
 # orchestrate all MCG validation: classify, then validate per-type rules
-bp_validate_option_mcgs() {
+bp_validate_options_against_mcgs() {
 	local lid=$1
 	local -n filter_vom=$2 options_vom=$3
 
@@ -575,73 +652,4 @@ bp_validate_option_mcgs() {
 		options_vom
 
 	return 0
-}
-
-# validate an MCG name: hyphens allowed internally, not at edges
-# $1 - MCG name to validate
-# rules:
-#   - no leading or trailing hyphen (exits 37)
-#   - body (after removing first/last char) must be [a-zA-Z0-9_-]+
-# exits 37 on invalid name
-bp_validate_mcg_name() {
-	local mcg_name=$1
-
-	local pros_tag[0]="${mcg_name}"
-	local first="${mcg_name:0:1}" last="${mcg_name: -1}"
-	if [[ ${first} == '-' ]] || [[ ${last} == '-' ]]; then
-		pros_tag[1]="a hyphen '-' at the beginning or end of MCG name are not allowed."
-		bp_exit_with_msg 37 pros_tag
-	fi
-
-	local test_name="${mcg_name:1:-1}"
-	[[ ${test_name} =~ ^[a-zA-Z0-9_-]*$ ]] && return 0
-	pros_tag[1]="contains invalid character(s): '${test_name//[a-zA-Z0-9_-]/}'"
-	bp_exit_with_msg 37 pros_tag
-}
-
-# validate a shell variable name (exception substitution must be done before calling)
-# $1 - class/label for the variable (used in error messages)
-# $2 - nameref: variable name to validate (not modified)
-# $3 - return_on_error (default false): if true, returns 1 instead of exiting on failure
-# rules:
-#   - must not be empty (exit 26 / return 1)
-#   - must not start or end with hyphen (exit 22 / return 1)
-#   - must match ^[a-zA-Z_][a-zA-Z0-9_]*$ (exit 22/23/21 or return 1)
-# returns: 0 if valid, 1 if invalid (only when return_on_error=true)
-bp_validate_variable_name() {
-	local var_class=$1
-	local -n var_name_ref="$2"
-	local return_on_error=${3:-false}
-
-	local pros_tag[0]="${var_class}"
-	pros_tag[1]="${var_name_ref}"
-
-	if [[ -z "${var_name_ref}" ]]; then
-		[[ ${return_on_error} == true ]] && return 1
-		bp_exit_with_msg 26 pros_tag
-	fi
-
-	# leading or trailing hyphens are not allowed (would break LID/trailing-tag parsing)
-	if [[ ${var_name_ref} == -* ]] || [[ ${var_name_ref} == *- ]]; then
-		if [[ ${return_on_error} == true ]]; then
-			return 1
-		fi
-		pros_tag[2]="-"
-		bp_exit_with_msg 22 pros_tag
-	fi
-
-	[[ ${var_name_ref} =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] && return 0
-
-	[[ ${return_on_error} == true ]] && return 1
-
-	if [[ ${var_name_ref:0:1} == [0-9] ]]; then
-		pros_tag[2]="${var_name_ref:0:1}"
-		bp_exit_with_msg 23 pros_tag
-	fi
-
-	if [[ ! ${var_name_ref} =~ ^[a-zA-Z0-9_]+$ ]]; then
-		pros_tag[2]="${var_name_ref//[a-zA-Z0-9_]/}"
-		bp_exit_with_msg 22 pros_tag
-	fi
-	bp_exit_with_msg 21 pros_tag
 }

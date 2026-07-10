@@ -29,7 +29,7 @@
 #       json=$(./bosparse ~j [options] -- [positionals])
 #
 # dependencies:
-#   - bash, version 4.4+
+#   - bash, version 4.4+(consider 5.2+ to avoid circular name reference using ${!nameref})
 #   - jq, if output json(capture-mode) or serialized-pfilter passed
 
 # change log:

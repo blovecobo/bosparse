@@ -1,17 +1,24 @@
 # shellcheck shell=bash
 # Module 09-main: Entry point, high-level orchestration, and global mutables
-#   bosparse() -- main function, called when script is executed (not sourced)
 #   Workflow: init configs -> detect style -> extract zones -> parse globals ->
 #   parse Priors -> parse Specs -> parse User params -> parse Positionals -> output
 #
-#   bosparse_immutables()           -- create IMMUTABLES/BASH_VARS/LID_NAMES/TAG_NAMES
-#   bosparse_update_mutables()      -- refresh LIDS/TAGS from CONFIGS
+# Main function
+#   bosparse() -- main function, called when script is executed (not sourced)
+#
+# Prerequisite
 #   bosparse_require_bash_version() -- verify bash >= 4.4
+#
+# Initialize tools:
+#   bosparse_validate_input()       -- reject empty input, lone '--', or lone ZN-SEP
+#   bosparse_parse_debug_flags()    -- extract __debug, __trace, etc. from CML
+#   bosparse_immutables()           -- create IMMUTABLES/BASH-VARS/LID-NAMES/TAG-NAMES
+#   bosparse_update_mutables()      -- refresh LIDS/TAGS from CONFIGS
+#
+# Runtime supports:
 #   bosparse_detect_run_mode()      -- auto-detect source vs eval vs capture
 #   bosparse_emit_output()          -- dispatch to source/eval/capture output handler
-#   bosparse_validate_input()       -- reject empty input, lone '--', or lone ZN_SEP
 #   bosparse_finalize()             -- mark parsing complete (disables exit trace)
-#   bosparse_parse_debug_flags()    -- extract __debug, __trace, etc. from CML
 # --------------------------------------------------------------------------------
 # create groups of immutables from HARNESSES
 bosparse_immutables() {
