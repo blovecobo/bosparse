@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 #
-# Module 01-defs: Constants and harnesses definitions
+# Module defs: Constants and harnesses definitions
 #
 #   bp_definitions() - populates CONSTS, HARNESSES, CONFIGS, EXIT_MSG, SYMNAMES, RESYMS, etc.
 #
@@ -122,6 +122,7 @@ bp_definitions() {
 		["run"]="enum:auto|source|capture|eval::spec::auto:"
 		["json"]="bool:::prior|spec::false:"
 		["dvo"]="bool:::spec::false:"
+		["spr"]="bool:::spec::false:"
 
 		# -- PFILTER related (spec level) --
 		["pf"]="string::D-pfilter:spec:::"
@@ -177,42 +178,47 @@ bp_definitions() {
 
 	# -- Short→long name mapping (for documentation only, not used at runtime) --
 	declare -A CFG_NMS_ref=(
-		["run"]="run_mode"
-		["json"]="output_as_json"
-		["dvo"]="disable_variable_output"
-		["style"]="style_of_commandline"
-		["pme"]="prefix_matching_enabled"
-		["Banner"]="directive_banner"
-		["Defaults"]="directive_default_configs"
-		["Help"]="directive_help"
-		["Resymbols"]="directive_resyms"
-		["Version"]="directive_version"
-		["pf"]="param_filter"
-		["pf_id"]="pfilter_id"
-		["rup"]="all_matching_filter"
-		["afd"]="apply_filter_defaults"
-		["oan"]="options_array_name"
-		["ban"]="bools_array_name"
-		["san"]="strings_array_name"
-		["pan"]="positionals_array_name"
-		["glid"]="global_lid"
-		["plid"]="prior_lid"
-		["slid"]="spec_lid"
-		["ulid"]="user_lid"
-		["zs"]="zn_sep"
-		["os"]="ov_sep"
-		["tt"]="trailing_tag_true"
-		["tf"]="trailing_tag_false"
-		["td"]="trailing_tag_default"
-		["fs"]="filter_field_sep"
-		["es"]="filter_element_sep"
-		["ep"]="escape_prefix"
-		["config"]="bp_show_config"
-		["quiet"]="quiet"
-		["standard"]="standard"
-		["extra"]="extra"
-		["debug"]="debug"
-		["trace"]="trace"
+		["style"]="style_of_commandline" # CML style, watershed[default]|islands
+
+		["run"]="run_mode"                # dictate output method, auto[default]|eval|capture
+		["json"]="output_as_json"         # specify capture mode if 'run' not specified
+		["dvo"]="disable_variable_output" # output variables via arrays only in source mode
+		["spr"]="show_parsed_variables"   # show parsed result in source-mode on stderr
+
+		["Banner"]="directive_banner"            # show Banner
+		["Defaults"]="directive_default_configs" # show CONFIGS after Specs parsing
+		["Help"]="directive_help"                # show online help
+		["Resymbols"]="directive_resyms"         # show reserved symbols
+		["Version"]="directive_version"          # show current BosParse version
+
+		["pf"]="param_filter"             # pass PFILTER, may be nameref, ELM-stream or KV sequence
+		["pf_id"]="pfilter_id"            # key of PFILTER-ID in PFILTER
+		["rup"]="all_matching_filter"     # restrict unknown parameters
+		["afd"]="apply_filter_defaults"   # appliy PFILTER devault values for un-grouped entries
+		["pme"]="prefix_matching_enabled" # enable prefix-matching on user params and enum list
+		["oan"]="options_array_name"      # array name contains parsed Options
+		["pan"]="positionals_array_name"  # array name contains parsed Positionals
+
+		["glid"]="global_lid"         # LID of Globals
+		["plid"]="prior_lid"          # LID of Priors
+		["slid"]="spec_lid"           # LID of Specs
+		["ulid"]="user_lid"           # LID of Usser-params
+		["zs"]="zn_sep"               # ZONE separator
+		["os"]="ov_sep"               # separator for Option name and value
+		["fs"]="filter_field_sep"     # field seperator in PFILTER entries
+		["es"]="filter_element_sep"   # element separator in PFILTER entry fields
+		["tt"]="trailing_tag_true"    # trailing-tag for 'true'
+		["tf"]="trailing_tag_false"   # traiiing-tag for 'false'
+		["td"]="trailing_tag_default" # default value if trailing-tag omitted
+
+		["ep"]="escape_prefix" # escape prefix for symbol escaping
+
+		["config"]="bp_show_config" # show CONFIGS
+		["quiet"]="quiet"           # verbose level 0
+		["standard"]="standard"     # verbose level 1
+		["extra"]="extra"           # verbose level 2
+		["debug"]="debug"           # verbose level 3
+		["trace"]="trace"           # verbose level 4
 	)
 
 	PAS_EXCLUSIONS_ref=(

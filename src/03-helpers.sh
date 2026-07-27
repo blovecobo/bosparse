@@ -1,6 +1,7 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2154
-# Module 03-helpers: Helper functions for parsing workflow
+#
+# Module helpers: Helper functions for parsing workflow
 #
 # CONFIGS operations:
 #   bp_set_configs()     - set single CONFIGS entry if imm/vn-excl/value check passed

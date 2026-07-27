@@ -10,33 +10,27 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUTPUT="${1:-${SCRIPT_DIR}/bosparse}"
 SRC_DIR="${SCRIPT_DIR}/src"
 
-MODULES=(
-	00-header.sh
-	01-defs.sh
-	02-util.sh
-	03-helpers.sh
-	04-pfilter.sh
-	05-parse.sh
-	06-validate.sh
-	07-output.sh
-	08-services.sh
-	09-main.sh
-)
+MODULES=() module=""
+for module in "${SRC_DIR}"/*; do
+	MODULES+=("${module##*/}")
+done
+# echo "${MODULES[*]}"
 
 echo "Building BosParse from modules..."
 
 # Check all modules exist
-for mod in "${MODULES[@]}"; do
-	[[ -f "${SRC_DIR}/${mod}" ]] || {
-		echo "Error: missing ${SRC_DIR}/${mod}" >&2
+for module in "${MODULES[@]}"; do
+	[[ -f "${SRC_DIR}/${module}" ]] || {
+		echo "Error: missing ${SRC_DIR}/${module}" >&2
 		exit 1
 	}
 done
 
 # Concatenate modules
 {
-	for mod in "${MODULES[@]}"; do
-		cat "${SRC_DIR}/${mod}"
+	for module in "${MODULES[@]}"; do
+		# output with comment lines removed, keep shebang; remove duplicate empty line
+		cat "${SRC_DIR}/${module}" | sed -E '/^#!/b; /^\s*#/d' | sed -E '/^\s*$/N;/^\s*\n\s*$/D'
 		echo # ensure trailing newline
 	done
 } >"$OUTPUT"

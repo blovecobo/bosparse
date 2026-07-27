@@ -1,5 +1,6 @@
 # shellcheck shell=bash
-# Module 08-services: Stage service functions
+#
+# Module services: Stage service functions
 #   All dependencies received via explicit parameters.
 #   Nameref variables use ${!varname} when passed to sub-functions
 #   to avoid circular name reference warnings in bash 5.2+.

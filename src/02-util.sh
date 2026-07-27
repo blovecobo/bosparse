@@ -1,6 +1,7 @@
 # shellcheck shell=bash
-# 
-# Module 02-util: Utility functions
+#
+# Module util: Utility functions
+#
 #   Debugging & tracing (bp_trace, bp_on_exit, echo2, bp_msg)
 #   Symbol escaping/restoring system for safe parameter handling (bp_escape_symbol)
 #   String operations (bp_is_number, bp_count_substr, bp_max_array_member_length)
@@ -230,7 +231,7 @@ bp_msg() {
 
 # bp_exit_with_msg: exit with code and contextual error message
 # $1 - exit code (uses +100 developer-message variant when verbose >= 3)
-# $2 - optional nameref to pros_tag array for {pros_tag[n]} substitution
+# $2 - optional nameref to pros_tag array for pros_tag[n] substitution
 # $3 - optional additional message text (also gets pros_tag substitution)
 # globals: EXIT_MSG, verbose
 # always exits; does not return
@@ -308,6 +309,7 @@ bp_show_array() {
 	local separator=${2:--}
 	local gap=${3:-1}
 	local sort_opt=${4:-}
+	local indent=${5:-0}
 
 	# echo >&2 "${!target_arr}:"
 	if [[ ${gap} -gt 0 ]]; then
@@ -319,7 +321,7 @@ bp_show_array() {
 	for key in "${!target_arr[@]}"; do
 		((${#key} > lmax)) && lmax=${#key}
 	done
-	((lmax += 2))
+	((lmax += (2 + indent)))
 	if [[ ${sort_opt} == true ]]; then
 		sort_opt=' -n'
 	else

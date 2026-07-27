@@ -1,17 +1,17 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2153,SC2206
-# Module 04-pfilter: PFILTER validation and serialization
+#
+# Module pfilter: PFILTER validation and serialization
 #
 # General used functions for PFILTER manipulations:
-#   bp_serialize_pfilter_to_json_string()    - assoc array to JSON string (via jq)
-#   bp_serialize_pfilter_to_element_stream() - assoc array to element stream
-#   bp_serialize_pfilter_to_kv_sequence()    - assoc array to key-value sequence
-#   bp_deserialize_json_string_to_pfilter()  - JSON string to assoc array (via jq)
+#   bp_pfilter_to_json_string()     - assoc array to JSON string (via jq)
+#   bp_pfilter_to_element_stream()  - assoc array to element stream
+#   bp_pfilter_to_kv_sequence()     - assoc array to key-value sequence
 #
 # Desrialize function used by 'bp_validate_pfilter()':
-#   bp_deserialize_json_string()     - JSON-STING  -> PFILTER
-#   bp_deserialize_element_stream()  - ELM-STREAM  -> PFILTER
-#   bp_deserialize_kv_sequence()     - KV_SEQUENCE -> PFILTER
+#   bp_json_string_to_pfilter()     - JSON-STING  -> PFILTER (via jq)
+#   bp_element_stream_to_pfilter()  - ELM-STREAM  -> PFILTER
+#   bp_kv_sequence_to_pfilter()     - KV_SEQUENCE -> PFILTER
 #
 # PFILTER field validations:
 #   bp_validate_pfilter_entry_type()      - check type is one of bool/string/enum
@@ -25,22 +25,24 @@
 #   bp_validate_pfilter_mcg_settings()    - full cross-member MCG validation
 #
 # PFILTER validation:
-#   bp_validate_pfilter()                 - entry point: accept name-ref / JSON / keys-values
+#   bp_populate_pfilter()    - populate FPILTER with validated filter with key validation
+#   bp_validate_pfilter()    - entry point: accept name-ref / JSON / keys-values
 #
 # PFILTER fields(separated by colon ':'):
-#   field1: type 
+#   field1: type
 #   field2: data
 #     - default value for bool/string type
-#     - enum value list for enum type 
+#     - enum value list for enum type
 #   field3: mcg name(s)
 # --------------------------------------------------------------------------------
 
-# serialize an associative array to JSON string via jq
-# usage: json=$(bp_serialize_pfilter_to_json_string PFILTER)
-bp_serialize_pfilter_to_json_string() {
+# serialize PFILTER(associative array) to JSON string via jq
+# usage:
+#   json=$(bp_pfilter_to_json_string PFILTER)
+bp_pfilter_to_json_string() {
 	local -n _filter=$1
 
-	# validate jq
+	bp_validate_jq
 	command -v jq >/dev/null 2>&1 || {
 		echo "jq required for serialization" >&2
 		return 1
@@ -71,13 +73,15 @@ bp_serialize_pfilter_to_json_string() {
 }
 
 # serialize a PFILTER to ELM-STREAM
+# usage:
+#   bp_pfilter_to_element_stream PFILTER ELM_STREAM
 # $1: nameref of a PFILTER
 # $2: nameref of the created ELM-STREAM
 # ELM-STREAM format: key1=value1 key2=value2 ...
 # caution:
 #   spaces at beginning and end should be trimed before return
-#   spaces in values should be escaped
-bp_serialize_pfilter_to_element_stream() {
+#   spaces in values should be escaped beforehand
+bp_pfilter_to_element_stream() {
 	local -n _filter_map=$1 _element_stream=$2
 
 	local key
@@ -89,14 +93,18 @@ bp_serialize_pfilter_to_element_stream() {
 }
 
 # serialize a PFILTER to KV_SEQUENCE
+# usage:
+#   bp_pfilter_to_kv_sequence PFILTER KV_SEQUENCE
 # $1: nameref of a PFILTER
 # $2: nameref of the created KV_SEQUENCE
 # ELM-STREAM format: key1 value1 key2 value2 ...
 # caution:
-#   spaces at beginning and end should be trimed before return
-#   spaces in values should be escaped
-#   order matters, no solitary key or value allowed
-bp_serialize_pfilter_to_kv_sequence() {
+#   - spaces at beginning and end of sequence should be trimed before return
+#   - spaces in values should be escaped beforehand (" " -> "\ ")
+#   - order matters, no solitary key or value allowed
+#   - if running on Bash 5.2+, Bash parameter expansion can be used to serialize:
+#     `kv_sequnce=${PFILTER[@]@k}`
+bp_pfilter_to_kv_sequence() {
 	local -n _filter_map=$1 _kv_sequence=$2
 
 	local key
@@ -105,20 +113,6 @@ bp_serialize_pfilter_to_kv_sequence() {
 	done
 	# IMPORTANT: remove last space
 	_kv_sequence="${_kv_sequence% }"
-}
-
-# usage
-#   bp_deserialize_json_string_to_pfilter "${json_str}" PFILTER
-bp_deserialize_json_string_to_pfilter() {
-	local json="$1"
-	local -n _filter="$2"
-	local keyj valuej
-
-	bp_validate_jq
-
-	while IFS=$'\t' read -r keyj valuej; do
-		_filter["${keyj}"]="${valuej}"
-	done < <(jq -r 'to_entries[] | "\(.key)\t\(.value)"' <<<"${json}")
 }
 
 # validate a single PFILTER entry type against PFE_TYPES
@@ -356,7 +350,7 @@ bp_validate_pfilter_mcg_settings() {
 }
 
 # populate FPILTER with validated input filter, and:
-#   - substitute exceptions in key-nmae
+#   - substitute exceptions in key-name
 #   - validate key name against shell variable name
 #   - check key name collision(dry_run vs dry-run)
 bp_populate_pfilter() {
@@ -392,15 +386,18 @@ bp_populate_pfilter() {
 # deserialize json string to associative array
 # $1: nameref of json string
 # $2: nameref of PFILTER array to populate
-bp_deserialize_json_string() {
-	local -n json_stream=$1 _out_pfilter=$2
+bp_json_string_to_pfilter() {
+	local -n json_str=$1
+	local -n _out_pfilter=$2
 
-	if jq -e . <<<"${json_stream}" >/dev/null 2>&1; then
+	local keyj valuej
+	if jq -e . <<<"${json_str}" >/dev/null 2>&1; then
 		# a valid json string
-		if bp_deserialize_json_string_to_pfilter "${json_stream}" _out_pfilter; then
-			bp_msg 3 "    JSON-string found"
-			return 0
-		fi
+		while IFS=$'\t' read -r keyj valuej; do
+			_out_pfilter["${keyj}"]="${valuej}"
+		done < <(jq -e -r 'to_entries[] | "\(.key)\t\(.value)"' <<<"${json_str}")
+		bp_msg 3 "    JSON-string found"
+		return 0
 	fi
 	bp_msg 3 "    no valid JSON-string found"
 	return 1
@@ -416,7 +413,7 @@ bp_deserialize_json_string() {
 #   - any element missing '=' will result in deserializing failure
 # $1: element stream(a string nameref)
 # $2: nameref of PFILTER array to populate
-bp_deserialize_element_stream() {
+bp_element_stream_to_pfilter() {
 	local -n _element_str=$1 _out_pfilter=$2
 
 	local elements=() element value
@@ -451,7 +448,7 @@ bp_deserialize_element_stream() {
 #   - no leading or trailing space(s)
 # $1: key-value sequence(a string nameref)
 # $2: nameref of PFILTER array to populate
-bp_deserialize_kv_sequence() {
+bp_kv_sequence_to_pfilter() {
 	local -n kv_seq=$1 _out_pfilter=$2
 
 	declare -a pf_arr=()
@@ -494,9 +491,9 @@ bp_validate_pfilter() {
 
 	# deserialize functions
 	local deserializers=(
-		bp_deserialize_json_string
-		bp_deserialize_element_stream
-		bp_deserialize_kv_sequence
+		bp_json_string_to_pfilter
+		bp_element_stream_to_pfilter
+		bp_kv_sequence_to_pfilter
 	)
 
 	# check supplid pf(CONFIGS[pf])
@@ -531,6 +528,7 @@ bp_validate_pfilter() {
 			bp_exit_with_msg 31 pros_tag
 		fi
 	else
+		# validate input PFILTER failed
 		local pros_tag[0]="it should be a json string, an element sequence or a key-value stream"
 		bp_exit_with_msg 31 pros_tag
 	fi

@@ -1,6 +1,7 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2153,SC2154
-# Module 07-output: Default assignment and result output
+#
+# Module output: Default assignment and result output
 #
 # Ouput result:
 #   bp_output_source_variables()  - export bool/string params as shell variables (source mode)
@@ -31,8 +32,13 @@ bp_output_source_variables() {
 		local var
 		for var in "${!options_emit[@]}"; do
 			declare -g "${var}"="${options_emit["${var}"]}"
+			[[ ${CONFIGS["spr"]} == true ]] && continue
 			bp_msg -3 "      - " "${var} = ${options_emit["${var}"]}"
 		done
+		[[ ${CONFIGS["spr"]} == false ]] || {
+			echo -e "    Variables come from Options:" >&2
+			bp_show_array options_emit
+		}
 	else
 		bp_msg -3 "      " "  no options"
 	fi
@@ -43,7 +49,7 @@ bp_output_source_arrays() {
 	local -n options_emit=$1 positionals_emit=$2
 	bp_msg 3 "    Output parameter arrays"
 
-	# output options
+	# output options by array
 	local key oan
 	oan="${CONFIGS["oan"]}"
 	bp_msg -3 "      Options to array " "'${oan}'"
@@ -52,8 +58,13 @@ bp_output_source_arrays() {
 		declare -n "option_emit=${oan}"
 		for key in "${!options_emit[@]}"; do
 			option_emit["${key}"]="${options_emit[${key}]}"
+			[[ ${CONFIGS["spr"]} == true ]] && continue
 			bp_msg -3 "      - " "${key} - ${options_emit[${key}]}"
 		done
+		[[ ${CONFIGS["spr"]} == false ]] || {
+			echo -e "    Variables from Options:" >&2
+			bp_show_array options_emit
+		}
 	else
 		bp_msg -3 "      " "  not required"
 	fi
@@ -67,8 +78,13 @@ bp_output_source_arrays() {
 		declare -n "positional_emit=${pan}"
 		for key in "${!positionals_emit[@]}"; do
 			positional_emit["${key}"]="${positionals_emit[${key}]}"
+			[[ ${CONFIGS["spr"]} == true ]] && continue
 			bp_msg -3 "      - " "${key} - ${positionals_emit[${key}]}"
 		done
+		[[ ${CONFIGS["spr"]} == false ]] || {
+			echo -e "    Variables from Positionals:" >&2
+			bp_show_array positionals_emit "" "" "" 8
+		}
 	else
 		bp_msg -3 "      " "  no positionals"
 	fi
@@ -277,7 +293,7 @@ bp_show_configs() {
 		# respond to directive calling
 		if [[ ${output_as_json} == true ]]; then
 			bp_validate_jq
-			bp_serialize_pfilter_to_json_string CONFIGS | jq
+			bp_pfilter_to_json_string CONFIGS | jq
 		else
 			bp_show_array CONFIGS 2>&1 | sort -n
 		fi

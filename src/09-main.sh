@@ -1,5 +1,6 @@
 # shellcheck shell=bash
-# Module 09-main: Entry point, high-level orchestration, and global mutables
+#
+# Module main: Entry point, high-level orchestration, and global mutables
 #   Workflow: init configs -> detect style -> extract zones -> parse globals ->
 #   parse Priors -> parse Specs -> parse User params -> parse Positionals -> output
 #
@@ -200,7 +201,7 @@ bosparse() {
 	bosparse_parse_debug_flags CML DEBUG_CMDS DEBUG_MAPS
 	bp_update_verbose
 
-	# restore original CML without debug flags for parsing stages
+	# set CML without debug flags for parsing stages
 	set -- "${CML[@]}"
 
 	bp_msg 3 "Command line: " "$*"
@@ -211,6 +212,7 @@ bosparse() {
 	# create entry fields caches: FILTER_ENTRY_CACHE
 	declare -A FILTER_ENTRY_CACHE=()
 
+	# zone arrays to store Options & Positionals
 	declare -a op_zone=() pp_zone=()
 
 	BP_PARSING_STAGE="Mission service"

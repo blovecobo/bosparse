@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2153,SC2154,SC2015
 #
-# Module 06-validate: Parameter validation against PFILTER and MCG rules
+# Module validate: Parameter validation against PFILTER and MCG rules
 #
 # Variable validation:
 #   bp_validate_variable_name()      - validate & normalize a shell variable name

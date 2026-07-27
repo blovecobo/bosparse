@@ -28,7 +28,7 @@ For a quick start guide, see `bp-README.md`. For PFILTER-specific documentation,
 
 ## Command line structure
 
-Bosparse accepts the following command line structures:
+Bosparse accepts the two kind of `styles` command line structures:
 
 ```bash
 [OP-ZONE] [ZN-SEP] [PP-ZONE] # watershed style, default
@@ -142,7 +142,7 @@ Where:
 `PFILTER-ID` is a special entry in `PFILTER`, which is used to identify the `PFILTER` by `PARAM_FILTER` as key:
 
 ```bash
-["PARAM_FILTER"]="arbitrary-content-include-empty"
+["PARAM_FILTER"]="arbitrary-content-include-empty" # when passing PFILTER via `kv-sequence`, empty value not allowed
 ```
 
 The value of `PFILTER-ID` entry does not matter while the key `PARAM_FILTER` is reserved as `PFILTER-ID`; BosParse will check the existence of `PFILTER-ID` entry to determine if this associative array is a valid `PFILTER` or not.
@@ -151,10 +151,9 @@ The value of `PFILTER-ID` entry does not matter while the key `PARAM_FILTER` is 
 
 When running BosParse in `eval/capture` mode, `PFILTER` should be serialized before passing to BosParse. BosParse accepts three formas of serialized `PFILTER`:
 
-- JSON string, can be serialized with the utility `utils/bp-serialize-pfilter`:
-
+- JSON string, can be serialized with the the function 'bp_pfilter_to_json_string()' in 'utils/bosparse-utils.sh'
   ```bash
-  ~pf="$(bp-serialize-pfilter PFILTER)"
+  ~pf="$(bp_pfilter_to_json_string PFILTER)"
   ```
 
 - `element-stream`, flexible way to pass `PFILTER`:
@@ -171,7 +170,7 @@ When running BosParse in `eval/capture` mode, `PFILTER` should be serialized bef
 
 Restrictions for `element-stream` and `key-value sequence`:
 
-- `PFILTER` entry value is empty or contains space(s) will break the `key-value` pairs passing. Assign a double quoted variable to `~pf` can solve this problem:
+- `PFILTER` entry value is empty or contains space(s) will break the `key-value` stream passing. Assign a double quoted variable to `~pf` can solve this problem:
 
   ```bash
   spf=""
@@ -187,7 +186,7 @@ Restrictions for `element-stream` and `key-value sequence`:
   On Bash version 5.2+, use Bash parameter expansion is more efficient to create 'key-value' sequence:
 
   ```bash
-  spf="${PFILTER[@]@K}"
+  spf="${PFILTER[*]@k}"  # supported by Bash 5.2+
   ```
 
 - Trailing(or leading) space should be removed before passing
@@ -221,7 +220,7 @@ Restrictions for `element-stream` and `key-value sequence`:
 
 ### Prefix-matching
 
-BosParse supports prefix-matching for parameter names(include LIAG members) and enum values.
+BosParse supports prefix-matching for parameter names(include LIGA members) and enum values.
 
 ```bash
 ["help"]="bool:false"
@@ -231,7 +230,7 @@ BosParse supports prefix-matching for parameter names(include LIAG members) and 
 When no ambiguity is found, BosParse will map parameter names and enum values via prefix-matching:
 
 - `-h`, `-he`, `-hel`, `-help`: will all be mapped to `help`
-- `-s=e` (all styles) or `-s e` (watershed style): assign `Enterprise` to `ship` (same as `-ship="Enterpise` or `-ship Enterprise`)
+- `-s=e` (all styles) or `-s e` (watershed style): assign `Enterprise` to `ship` (same as `-ship="Enterpise"` or `-ship "Enterprise"`)
 
 ### Enum Matching First(EMF) and Enum Matching Last(EML)
 
@@ -246,9 +245,9 @@ When an Enum type parameter is provided using Boolean syntax, BosParse will use 
 
 ### Symbol Escaping
 
-BosParse uses an internal symbol escaping mechanism to safely handle special characters (`:`, `|`, `\`, etc.) in `PFILTER` entries and parameter values. A random-per-session marker `ESC_PFX` (`_bp_${BASHPID}_${RANDOM}_`) prevents collision with user data. Available in sourced scripts via `capture_json_extract`.
+BosParse uses an internal symbol escaping mechanism to safely handle special characters (`:`, `|`, `\`, etc.) in `PFILTER` entries and parameter values. A random-per-session marker `ESC_PFX` (`_bp_${BASHPID}_${RANDOM}_`) prevents collision with user data. Available in sourced scripts via `bp_capture_json_extract`.
 
-The helpers `escape_symbol` and `capture_json_extract` (see `02-util.sh`) expose this for downstream use. With the help of `PFILTER`, BosParse can parse user parameters in a flexible way, including type/value validation, default value assignment, prefix matching for parameter names and enum values, as well as mutual correlation groups for parameters.
+The helpers `bp_escape_symbol` and `bp_capture_json_extract` (see `src/util.sh`) expose this for downstream use. With the help of `PFILTER`, BosParse can parse user parameters in a flexible way, including type/value validation, default value assignment, prefix matching for parameter names and enum values, as well as mutual correlation groups for parameters.
 
 ### MCG support
 
@@ -272,7 +271,6 @@ MCGs enforce relationships between parameters. Parameters can belong to more tha
 - **Dependency Groups**
 
   - `d-member(s)` require one or more `D-member(s)` supplied;
-  - No `d-member` supplying is permitted
   - `D-members` can be supplied without `d-members`;
   - Error if `d-members` supplied without `D-members`.
 
@@ -303,10 +301,10 @@ MCGs enforce relationships between parameters. Parameters can belong to more tha
 
 As default value assignment might affect validation result, validation order matters.
 
-1. Check required rules and assign defaults
-1. Check exclusion/uniqueness rules
-1. Check dependency rules
-1. Check master rules
+1. Check Required rules and assign defaults
+1. Check Exclusion/Uniqueness rules
+1. Check Dependency rules
+1. Check Master rules
 
 ## Directives
 

@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2206
 #
-# Module 05-parse: Core parsing logic
+# Module parse: Core parsing logic
 #
 # Extract CML by styles:
 #   bp_extract_parameters_watershed()  - split CML at ZN_SEP (--) into op_zone / pp_zone

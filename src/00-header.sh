@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
-# Module 00-header: script preamble
+# Module header: script preamble
 #   - Shebang and interpreter declaration
 #   - Project metadata (author, version, platform requirements)
 #   - Usage examples for all run modes (source, eval, capture)
 #   - Both CML styles: watershed (-- separator) and islands (LID-based)
-#   - Dependency notes (bash 4.4+, jq for JSON)
+#   - Dependency notes (bash 5.2+, jq for JSON)
 #   - Brief changelog of key features
 #   - Strict mode: set -euo pipefail
 #
@@ -29,11 +29,11 @@
 #       json=$(./bosparse ~j [options] -- [positionals])
 #
 # dependencies:
-#   - bash, version 4.4+(consider 5.2+ to avoid circular name reference using ${!nameref})
+#   - bash, version 4.4+(will use 5.2+ in next version to avoid circular name reference using ${!nameref})
 #   - jq, if output json(capture-mode) or serialized-pfilter passed
 
 # change log:
-#   - fix valiate pfilter name confict 
+#   - fix valiate pfilter name confict
 #   - refactor 'bp_validate_pfilter()'
 #
 set -euo pipefail

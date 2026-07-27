@@ -42,7 +42,7 @@ There are four ways to pass `PFILTER` to bosparse:
 1. Pass serialized `PFILTER` (JSON string), for all `run-modes`:
 
    ```bash
-   pfilter=$(serialize-pfilter PFILTER)
+   pfilter=$(serialize-pfilter PFILTER)   # serialize PFILTER to a JSON string
    eval "$(./bosparse ~pf="${pfilter}" "$@")"
    ```
 
