@@ -99,40 +99,40 @@ bp_update_configs() {
 	field_len=$(bp_max_array_member_length "${!options_ref[@]}")
 	for ps in "${!options_ref[@]}"; do
 		bp_set_configs "${ps}" "${options_ref[${ps}]}"
-		bp_msg 3 "      $(printf "\e[0;2m%${field_len}s - '%s'\n" "${ps}" "${options_ref[${ps}]}")" >&2
+		bp_msg 3 "      $(printf "\e[0;2m%${field_len}s - '%s'\e[0m\n" "${ps}" "${options_ref[${ps}]}")" >&2
 	done
 	bosparse_update_mutables
 }
 
-# set the global $verbose level from CONFIGS or DEBUG_MAPS
+# set the global $bp_verbose level from CONFIGS or DEBUG_MAPS
 # priority: DEBUG_MAPS (from __debug/__trace flags) > CONFIGS (trace/debug/extra/standard/quiet)
 # verbose levels: 4=trace, 3=debug, 2=extra, 1=standard, 0=quiet
-# globals: reads CONFIGS (trace/debug/extra/standard) and DEBUG_MAPS; writes $verbose
+# globals: reads CONFIGS (trace/debug/extra/standard) and DEBUG_MAPS; writes $bp_verbose
 bp_update_verbose() {
 
 	if [[ ${#DEBUG_MAPS[@]} -gt 0 ]]; then
 		if [[ ${DEBUG_MAPS[TRACE]:-false} == true ]]; then
-			verbose=4
+			bp_verbose=4
 		elif [[ ${DEBUG_MAPS[DEBUG]:-false} == true ]]; then
-			verbose=3
+			bp_verbose=3
 		elif [[ ${DEBUG_MAPS[EXTRA]:-false} == true ]]; then
-			verbose=2
+			bp_verbose=2
 		elif [[ ${DEBUG_MAPS[STANDARD]:-false} == true ]]; then
-			verbose=1
+			bp_verbose=1
 		elif [[ ${DEBUG_MAPS[QUIET]:-false} == true ]]; then
-			verbose=0
+			bp_verbose=0
 		fi
 	else
 		if [[ ${CONFIGS["trace"]} == true ]]; then
-			verbose=4
+			bp_verbose=4
 		elif [[ ${CONFIGS["debug"]} == true ]]; then
-			verbose=3
+			bp_verbose=3
 		elif [[ ${CONFIGS["extra"]} == true ]]; then
-			verbose=2
+			bp_verbose=2
 		elif [[ ${CONFIGS["standard"]} == true ]]; then
-			verbose=1
+			bp_verbose=1
 		else
-			verbose=0
+			bp_verbose=0
 		fi
 	fi
 	return 0

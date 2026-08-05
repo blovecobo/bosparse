@@ -100,10 +100,10 @@ bosparse_emit_output() {
 }
 
 # reject empty input, lone '--', or lone ZN_SEP (zone separator)
-# exits 2 with verbose=1 if validation fails
+# exits 2 with bp_verbose=1 if validation fails
 bosparse_validate_input() {
 	if [[ $# -eq 0 || "$*" == '--' || "$*" == "${CONFIGS[zs]}" ]]; then
-		verbose=1
+		bp_verbose=1
 		local pros_tag[0]=""
 		bp_exit_with_msg 2 pros_tag
 	fi
@@ -150,7 +150,7 @@ bosparse_parse_debug_flags() {
 bosparse() {
 	trap bp_on_exit EXIT
 
-	local verbose=0
+	local bp_verbose=0
 	local bosparse_script_path="$(realpath "${BASH_SOURCE[0]}")"
 	local bosparse_script_name="${bosparse_script_path##*\/}"
 
@@ -192,7 +192,7 @@ bosparse() {
 		PFE_TYPES RESYMS REGEX_METAS IMMUTABLES
 
 	# used as mutable globals:
-	# verbose - update with 'bp_update_verbose()'
+	# bp_verbose - update with 'bp_update_verbose()'
 	# CONFIGS - update with 'bp_set_configs()'
 
 	# extract initial validation and parse debug flags
@@ -205,7 +205,7 @@ bosparse() {
 	set -- "${CML[@]}"
 
 	bp_msg 3 "Command line: " "$*"
-	bp_msg -3 "verbose: " "${verbose}"
+	bp_msg -3 "verbose: " "${bp_verbose}"
 
 	bosparse_validate_input "$@"
 

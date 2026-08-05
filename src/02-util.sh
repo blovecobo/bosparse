@@ -201,12 +201,12 @@ bp_is_array_member() {
 # $1 - msg_level: required verbosity level (negative = one-line mode)
 # $2 - title (colored yellow)
 # $3 - content (dimmed, shown below title or inline if msg_level < 0)
-# prints only when $verbose >= abs($msg_level); no-op when verbose < 1
+# prints only when $bp_verbose >= abs($msg_level); no-op when bp_verbose < 1
 bp_msg() {
 	local msg_level=${1:-0} title=${2:-} content=${3:-}
 	local in_one_line
 
-	[[ ${verbose:-0} -ge 1 ]] || return 0
+	[[ ${bp_verbose:-0} -ge 1 ]] || return 0
 	[[ -n ${title} ]] || {
 		echo -e "\e[2mno title\e[0m" >&2
 		return 0
@@ -217,7 +217,7 @@ bp_msg() {
 		msg_level=$((0 - msg_level))
 	}
 
-	[[ ${msg_level} -le ${verbose} ]] || return 0
+	[[ ${msg_level} -le ${bp_verbose} ]] || return 0
 
 	if [[ ${in_one_line:-false} == true ]]; then
 		printf '\e[33m%s\e[0;2m%s\e[0m' "${title}" "${content}" >&2
@@ -233,14 +233,14 @@ bp_msg() {
 # $1 - exit code (uses +100 developer-message variant when verbose >= 3)
 # $2 - optional nameref to pros_tag array for pros_tag[n] substitution
 # $3 - optional additional message text (also gets pros_tag substitution)
-# globals: EXIT_MSG, verbose
+# globals: EXIT_MSG, bp_verbose
 # always exits; does not return
 bp_exit_with_msg() {
 	local exit_code=$1
 	if (($# > 1)); then local -n pt_ref=$2; else local pt_ref=(); fi
 	local additional_msg=${3:-}
 
-	if [[ ${verbose:-0} -ge 3 ]]; then
+	if [[ ${bp_verbose:-0} -ge 3 ]]; then
 		# use developer message
 		[[ -v EXIT_MSG["$((exit_code + 100))"] ]] && ((exit_code += 100))
 	fi

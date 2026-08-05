@@ -406,19 +406,19 @@ bp_apply_filter_default() {
 
 	bp_msg 3 "  Assign PFILTER default values if not supplied"
 	local prn_pattern='%15s - %12s | %8s | %14s | %-10s'
-	[[ ${verbose} -ge 3 ]] && printf "    \e[4;33m${prn_pattern}\e[0m\n" \
+	[[ ${bp_verbose} -ge 3 ]] && printf "    \e[4;33m${prn_pattern}\e[0m\n" \
 		"param" "status" "type" "data" "mcg-name" >&2
 	for param in "${!_pfilter[@]}"; do
 		bp_extract_filter_entry "${CONFIGS[ulid]}" "${_pfilter[${param}]}" fe_type fe_data fe_mcg
 		# skip mcg members
 		[[ -z ${fe_mcg} ]] || {
-			[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
+			[[ ${bp_verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
 				"${param}" "MCG member" "${fe_type}" "${fe_data:--}" "${fe_mcg:--}" >&2
 			continue
 		}
 		# skip supplied ones
 		[[ -v _options["${param}"] ]] && {
-			[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
+			[[ ${bp_verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
 				"${param}" "supplied" "${fe_type}" "${fe_data:--}" "${fe_mcg:--}" >&2
 			continue
 		}
@@ -429,7 +429,7 @@ bp_apply_filter_default() {
 		fi
 
 		# assigning defaults
-		[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
+		[[ ${bp_verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
 			"${param}" "default" "${fe_type}" "${fe_data:--}" "${fe_mcg:--}" >&2
 		case "${fe_type}" in
 		bool | string)
@@ -442,7 +442,7 @@ bp_apply_filter_default() {
 		*) # this will not happen since integrity checking already done in bp_validate_pfilter
 			;;
 		esac
-		[[ ${verbose} -ge 3 ]] && printf "    \e[2m${prn_pattern}\e[0;2m%s\e[0m\n" \
+		[[ ${bp_verbose} -ge 3 ]] && printf "    \e[2m${prn_pattern}\e[0;2m%s\e[0m\n" \
 			"${param}" "assigned" "${fe_type}" "${_options[${param}]:--}" "${fe_mcg}" >&2
 	done
 	return 0

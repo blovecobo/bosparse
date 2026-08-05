@@ -215,7 +215,7 @@ bp_validate_option_values() {
 	local pros_tag[0]="${title}"
 
 	bp_msg -3 "      value: " "${arg_ref}"
-	[[ ${verbose} -ge 4 ]] &&
+	[[ ${bp_verbose} -ge 4 ]] &&
 		printf "      \e[33marg:  \e[0;2m%-6s | type - %-6s | mcg - %-12s | data - %s\e[0m\n" \
 			"${arg_ref}" "${fe_type}" "${fe_mcg:--}" "${fe_data:--}" >&2
 	case ${fe_type} in

@@ -444,7 +444,7 @@ bp_msg() {
 	local msg_level=${1:-0} title=${2:-} content=${3:-}
 	local in_one_line
 
-	[[ ${verbose:-0} -ge 1 ]] || return 0
+	[[ ${bp_verbose:-0} -ge 1 ]] || return 0
 	[[ -n ${title} ]] || {
 		echo -e "\e[2mno title\e[0m" >&2
 		return 0
@@ -455,7 +455,7 @@ bp_msg() {
 		msg_level=$((0 - msg_level))
 	}
 
-	[[ ${msg_level} -le ${verbose} ]] || return 0
+	[[ ${msg_level} -le ${bp_verbose} ]] || return 0
 
 	if [[ ${in_one_line:-false} == true ]]; then
 		printf '\e[33m%s\e[0;2m%s\e[0m' "${title}" "${content}" >&2
@@ -472,7 +472,7 @@ bp_exit_with_msg() {
 	if (($# > 1)); then local -n pt_ref=$2; else local pt_ref=(); fi
 	local additional_msg=${3:-}
 
-	if [[ ${verbose:-0} -ge 3 ]]; then
+	if [[ ${bp_verbose:-0} -ge 3 ]]; then
 		[[ -v EXIT_MSG["$((exit_code + 100))"] ]] && ((exit_code += 100))
 	fi
 
@@ -625,7 +625,7 @@ bp_update_configs() {
 	field_len=$(bp_max_array_member_length "${!options_ref[@]}")
 	for ps in "${!options_ref[@]}"; do
 		bp_set_configs "${ps}" "${options_ref[${ps}]}"
-		bp_msg 3 "      $(printf "\e[0;2m%${field_len}s - '%s'\n" "${ps}" "${options_ref[${ps}]}")" >&2
+		bp_msg 3 "      $(printf "\e[0;2m%${field_len}s - '%s'\e[0m\n" "${ps}" "${options_ref[${ps}]}")" >&2
 	done
 	bosparse_update_mutables
 }
@@ -634,27 +634,27 @@ bp_update_verbose() {
 
 	if [[ ${#DEBUG_MAPS[@]} -gt 0 ]]; then
 		if [[ ${DEBUG_MAPS[TRACE]:-false} == true ]]; then
-			verbose=4
+			bp_verbose=4
 		elif [[ ${DEBUG_MAPS[DEBUG]:-false} == true ]]; then
-			verbose=3
+			bp_verbose=3
 		elif [[ ${DEBUG_MAPS[EXTRA]:-false} == true ]]; then
-			verbose=2
+			bp_verbose=2
 		elif [[ ${DEBUG_MAPS[STANDARD]:-false} == true ]]; then
-			verbose=1
+			bp_verbose=1
 		elif [[ ${DEBUG_MAPS[QUIET]:-false} == true ]]; then
-			verbose=0
+			bp_verbose=0
 		fi
 	else
 		if [[ ${CONFIGS["trace"]} == true ]]; then
-			verbose=4
+			bp_verbose=4
 		elif [[ ${CONFIGS["debug"]} == true ]]; then
-			verbose=3
+			bp_verbose=3
 		elif [[ ${CONFIGS["extra"]} == true ]]; then
-			verbose=2
+			bp_verbose=2
 		elif [[ ${CONFIGS["standard"]} == true ]]; then
-			verbose=1
+			bp_verbose=1
 		else
-			verbose=0
+			bp_verbose=0
 		fi
 	fi
 	return 0
@@ -1526,17 +1526,17 @@ bp_apply_filter_default() {
 
 	bp_msg 3 "  Assign PFILTER default values if not supplied"
 	local prn_pattern='%15s - %12s | %8s | %14s | %-10s'
-	[[ ${verbose} -ge 3 ]] && printf "    \e[4;33m${prn_pattern}\e[0m\n" \
+	[[ ${bp_verbose} -ge 3 ]] && printf "    \e[4;33m${prn_pattern}\e[0m\n" \
 		"param" "status" "type" "data" "mcg-name" >&2
 	for param in "${!_pfilter[@]}"; do
 		bp_extract_filter_entry "${CONFIGS[ulid]}" "${_pfilter[${param}]}" fe_type fe_data fe_mcg
 		[[ -z ${fe_mcg} ]] || {
-			[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
+			[[ ${bp_verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
 				"${param}" "MCG member" "${fe_type}" "${fe_data:--}" "${fe_mcg:--}" >&2
 			continue
 		}
 		[[ -v _options["${param}"] ]] && {
-			[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
+			[[ ${bp_verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
 				"${param}" "supplied" "${fe_type}" "${fe_data:--}" "${fe_mcg:--}" >&2
 			continue
 		}
@@ -1545,7 +1545,7 @@ bp_apply_filter_default() {
 			bp_exit_with_msg 55 pros_tag
 		fi
 
-		[[ ${verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
+		[[ ${bp_verbose} -ge 3 ]] && printf "    \e[2;33m${prn_pattern}\e[0m\n" \
 			"${param}" "default" "${fe_type}" "${fe_data:--}" "${fe_mcg:--}" >&2
 		case "${fe_type}" in
 		bool | string)
@@ -1557,7 +1557,7 @@ bp_apply_filter_default() {
 		*) # this will not happen since integrity checking already done in bp_validate_pfilter
 			;;
 		esac
-		[[ ${verbose} -ge 3 ]] && printf "    \e[2m${prn_pattern}\e[0;2m%s\e[0m\n" \
+		[[ ${bp_verbose} -ge 3 ]] && printf "    \e[2m${prn_pattern}\e[0;2m%s\e[0m\n" \
 			"${param}" "assigned" "${fe_type}" "${_options[${param}]:--}" "${fe_mcg}" >&2
 	done
 	return 0
@@ -1802,7 +1802,7 @@ bp_validate_option_values() {
 	local pros_tag[0]="${title}"
 
 	bp_msg -3 "      value: " "${arg_ref}"
-	[[ ${verbose} -ge 4 ]] &&
+	[[ ${bp_verbose} -ge 4 ]] &&
 		printf "      \e[33marg:  \e[0;2m%-6s | type - %-6s | mcg - %-12s | data - %s\e[0m\n" \
 			"${arg_ref}" "${fe_type}" "${fe_mcg:--}" "${fe_data:--}" >&2
 	case ${fe_type} in
@@ -2718,7 +2718,7 @@ bosparse_emit_output() {
 
 bosparse_validate_input() {
 	if [[ $# -eq 0 || "$*" == '--' || "$*" == "${CONFIGS[zs]}" ]]; then
-		verbose=1
+		bp_verbose=1
 		local pros_tag[0]=""
 		bp_exit_with_msg 2 pros_tag
 	fi
@@ -2750,7 +2750,7 @@ bosparse_parse_debug_flags() {
 bosparse() {
 	trap bp_on_exit EXIT
 
-	local verbose=0
+	local bp_verbose=0
 	local bosparse_script_path="$(realpath "${BASH_SOURCE[0]}")"
 	local bosparse_script_name="${bosparse_script_path##*\/}"
 
@@ -2795,7 +2795,7 @@ bosparse() {
 	set -- "${CML[@]}"
 
 	bp_msg 3 "Command line: " "$*"
-	bp_msg -3 "verbose: " "${verbose}"
+	bp_msg -3 "verbose: " "${bp_verbose}"
 
 	bosparse_validate_input "$@"
 

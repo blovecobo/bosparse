@@ -8,7 +8,7 @@ For a quick start guide, see `bp-README.md`. For PFILTER-specific documentation,
 
 ## Workflow
 
-1. **Initialize**: Load pre-defined data, generate runtime environment, `HARNESSES`, `CONFIGS`, verbose, etc.
+1. **Initialize**: Load pre-defined data, generate runtime environment, `HARNESSES`, `CONFIGS`, `bp_verbose`, etc.
 1. **Globals Parsing**: Parsing Global arguments, which will set CML Style and ZONE-SEP
 1. **Priors Parsing**: Parsing Prior arguments, which will set up the Parsing-Aid-Symbols (PAS)
 1. **Specs Parsing**: Parsing Spec arguments, which will set up essential parsing Options
@@ -152,6 +152,7 @@ The value of `PFILTER-ID` entry does not matter while the key `PARAM_FILTER` is 
 When running BosParse in `eval/capture` mode, `PFILTER` should be serialized before passing to BosParse. BosParse accepts three formas of serialized `PFILTER`:
 
 - JSON string, can be serialized with the the function 'bp_pfilter_to_json_string()' in 'utils/bosparse-utils.sh'
+
   ```bash
   ~pf="$(bp_pfilter_to_json_string PFILTER)"
   ```
