@@ -93,12 +93,7 @@ bp_validate_option_name() {
 		# user-options
 		if [[ ${CONFIGS["pme"]} == true ]]; then
 			# '~pme', use prefix-matching
-			if matched_names=$(bp_prefix_matching "${option_name}" option_names "prefix"); then
-				# matched
-				rtn=0
-			else
-				rtn=1
-			fi
+			matched_names=$(bp_prefix_matching "${option_name}" option_names "prefix") || rtn=$?
 		else
 			# '~pme-', use exact-mathing
 			bp_is_array_member "${option_name}" option_names || rtn=1
@@ -509,7 +504,7 @@ bp_validate_master_groups() {
 				# multiple M-members supplied
 				bp_msg 3 "      - MCG ${mcg}: Failed"
 				local pros_tag[0]="${_mst_cap_supplied[${mcg}]#\|}"
-				pros_tag[1]="${_mst_cap_members[${mcg}]#|}"
+				pros_tag[1]="${mcg}"
 				bp_exit_with_msg 45 pros_tag
 			fi
 

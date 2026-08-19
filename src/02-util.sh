@@ -41,7 +41,9 @@ bp_trace() {
 
 # bp_on_exit: trap handler that dumps call stack on unexpected exit
 bp_on_exit() {
-	[[ ${BP_PARSING_STAGE:-} == "Mission complete" ]] || bp_trace 0
+	# [[ ${BP_PARSING_STAGE:-} == "Mission complete" ]] || bp_trace 0
+	# bp_trace move to 'bp_exit_with_msg', executed when bp_verbose =4
+	:
 }
 
 # stderr print shortcut, for debugging and error messages
@@ -264,6 +266,7 @@ bp_exit_with_msg() {
 	[[ -z "${additional_msg}" ]] ||
 		printf '\e[2m   %s\n\e[0m' "${additional_msg}" >&2
 
+	((bp_verbose == 4)) && bp_trace 0
 	exit "${exit_code}"
 }
 

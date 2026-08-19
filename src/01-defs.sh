@@ -356,8 +356,8 @@ bp_definitions() {
 		["55"]="Missing parameter '\${pros_tag[0]}'"
 		["155"]="Un-supplied parameter '\${pros_tag[0]}' requires a default value by '~afd'"
 
-		["56"]="Unrecognized \${pros_tag[0]} '\${pros_tag[1]}', may be one of '\${pros_tag[2]}'?"
-		["156"]="Invalid \${pros_tag[0]} '\${pros_tag[1]}', multiple matched: '\${pros_tag[2]}'."
+		["56"]="Ambiguous \${pros_tag[0]} '\${pros_tag[1]}' found, may be one of '\${pros_tag[2]}'?"
+		["156"]="Ambiguous \${pros_tag[0]} '\${pros_tag[1]}', multiple matched: '\${pros_tag[2]}'."
 
 		["57"]="Parameter '\${pros_tag[1]}' has the same name as '\${pros_tag[0]}' but a different type."
 

@@ -132,7 +132,7 @@ Where:
 #### Note
 
 - Fields separated by `FLD-SEP` (`:` colon)
-- Data field and mcg-name field are optional with `FLD-SEP` kept.
+- Data field and mcg-name field are optional(`[-param]="bool"` available)
 - As `param-name` or Option name will be used as Bash variable name in the parsing result, any `param-names` should satisfy shell variable naming convention; but in command line, an Option like `--dry-run` sounds reasonable. For this reason, BosParse accepts hyphen `-` using in `param-name` as an exception if it isn't at the beginning or end of the `param-name`. BosParse will replace every hyphen `-` with an underscore `_` in the final result.
 - Exceptions substituting hyphen `-` with underscore `_` may cause name collision, for example, `--dry-run` and `--dry_run` will both be converted to `dry_run`. To avoid this, BosParse will check for potential collision in `PFILTER` definition and exit with an error if any is detected.
 - `mcg-name` follows the same naming rules and the exceptions as that of `param-name`.
@@ -212,6 +212,7 @@ Restrictions for `element-stream` and `key-value sequence`:
 - `~afd`: Apply `PFILTER` defaults for parameters not belong to any MCGs; MCG member parameters follow group rules.
   - enabled by default
   - `~afd-` disables default assignment
+  - `~afd` enforces every entry in `PFILTER` with default a value; an empty value permitted by `["param"]="bool:\"\""`
 - `~dvo`: Disable variable output, no `variable=value` output to avoid variable name conflict
   - for `source-mode` only
   - `false` by default (output variables)
